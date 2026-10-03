@@ -5,6 +5,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Aggregate energy-delay products per repetition and reject incomplete or invalid measurements during tuning.
+- Preserve confirmed refinement winners, validate plan reuse, and publish compiler outputs atomically.
+- Bound search parameters and avoid redundant sampling work without merging runtime settings.
+
 ## [0.2.1] - 2026-10-03
 
 ### Fixed (weak 4-bit / Q8_0 end to end in the llama.cpp buffer type)
