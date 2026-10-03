@@ -54,3 +54,9 @@ AUTO_VALUES = {}
 # COMMANDS[cmd] callable(argv) -> exit code, dispatched by `kurn <cmd> ...` (see cli.py)
 OPS = {}
 COMMANDS = {}
+
+# --- gpu ---
+# TARGET_BACKENDS[target] callable(cmd, argv) -> exit code: a target with its own spec keys,
+#               generator and harness (e.g. "cuda" -> kurn.gpu). `kurn check|gen|build|verify|tune
+#               SPEC` route there when the spec (or a target=... override) names that target.
+TARGET_BACKENDS = {}

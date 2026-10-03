@@ -1,0 +1,117 @@
+  rep 1 Qwen3-1.7B-Q8_0.gguf default: decode [47.231544] prefill [676.014873] load 1.47
+  rep 1 Qwen3-1.7B-Q8_0.gguf plain: decode [26.4462] prefill [269.9469] load 1.47
+  rep 1 Qwen3-1.7B-Q8_0.gguf kurn: decode [46.797273] prefill [782.445653] load 1.47
+  rep 1 Qwen3-1.7B-Q4_0.gguf default: decode [59.80914] prefill [715.604087] load 1.47
+  rep 1 Qwen3-1.7B-Q4_0.gguf plain: decode [37.555653] prefill [246.00128] load 1.47
+  rep 1 Qwen3-1.7B-Q4_0.gguf kurn: decode [55.903908] prefill [772.187202] load 1.47
+  rep 1 Qwen3-1.7B-Q4_K_M.gguf default: decode [40.289197] prefill [683.483854] load 1.47
+  rep 1 Qwen3-1.7B-Q4_K_M.gguf plain: decode [37.985491] prefill [619.713929] load 1.47
+  rep 1 Qwen3-1.7B-Q4_K_M.gguf kurn: decode [42.00664] prefill [620.943973] load 1.47
+  rep 1 Qwen3-1.7B-IQ4_NL.gguf default: decode [38.709389] prefill [355.966636] load 1.47
+  rep 1 Qwen3-1.7B-IQ4_NL.gguf plain: decode [36.930783] prefill [235.027217] load 1.47
+  rep 1 Qwen3-1.7B-IQ4_NL.gguf kurn: decode [53.484502] prefill [735.969261] load 1.47
+  rep 1 OLMoE-1B-7B-0125-Instruct-Q8_0.gguf default: decode [39.202842] prefill [244.965593] load 1.47
+  rep 1 OLMoE-1B-7B-0125-Instruct-Q8_0.gguf plain: decode [32.571538] prefill [228.990752] load 1.47
+  rep 1 OLMoE-1B-7B-0125-Instruct-Q8_0.gguf kurn: decode [54.295059] prefill [690.972002] load 1.47
+  rep 1 Bonsai-1.7B-Q1_0.gguf default: decode [114.197061] prefill [187.414698] load 1.47
+  rep 1 Bonsai-1.7B-Q1_0.gguf plain: decode [114.026105] prefill [188.137169] load 1.47
+  rep 1 Bonsai-1.7B-Q1_0.gguf kurn: decode [230.837095] prefill [725.196666] load 1.47
+  rep 1 bitnet-2b4t-tq2_0.gguf default: decode [37.26314] prefill [244.856649] load 1.47
+  rep 1 bitnet-2b4t-tq2_0.gguf plain: decode [36.457055] prefill [244.139693] load 1.47
+  rep 1 bitnet-2b4t-tq2_0.gguf kurn: decode [41.27767] prefill [502.379648] load 1.47
+  rep 1 Ternary-Bonsai-8B-Q2_0_g64.gguf default: decode [3.056502] prefill [3.530684] load 1.47
+  rep 1 Ternary-Bonsai-8B-Q2_0_g64.gguf plain: decode [3.068665] prefill [3.548398] load 1.47
+  rep 1 Ternary-Bonsai-8B-Q2_0_g64.gguf kurn: decode [27.125599] prefill [198.192475] load 1.47
+  rep 2 Qwen3-1.7B-Q8_0.gguf default: decode [48.316818] prefill [700.387576] load 6.28
+  rep 2 Qwen3-1.7B-Q8_0.gguf plain: decode [26.930571] prefill [272.432631] load 6.28
+  rep 2 Qwen3-1.7B-Q8_0.gguf kurn: decode [51.781632] prefill [889.46875] load 6.28
+  rep 2 Qwen3-1.7B-Q4_0.gguf default: decode [67.991324] prefill [763.183873] load 6.28
+  rep 2 Qwen3-1.7B-Q4_0.gguf plain: decode [40.351214] prefill [253.322497] load 6.28
+  rep 2 Qwen3-1.7B-Q4_0.gguf kurn: decode [61.943637] prefill [775.414039] load 6.28
+  rep 2 Qwen3-1.7B-Q4_K_M.gguf default: decode [45.258107] prefill [697.072555] load 6.28
+  rep 2 Qwen3-1.7B-Q4_K_M.gguf plain: decode [40.580725] prefill [736.280384] load 6.28
+  rep 2 Qwen3-1.7B-Q4_K_M.gguf kurn: decode [51.957033] prefill [674.717086] load 6.28
+  rep 2 Qwen3-1.7B-IQ4_NL.gguf default: decode [44.832398] prefill [374.057261] load 6.28
+  rep 2 Qwen3-1.7B-IQ4_NL.gguf plain: decode [38.562785] prefill [235.493457] load 6.28
+  rep 2 Qwen3-1.7B-IQ4_NL.gguf kurn: decode [60.301895] prefill [757.729352] load 6.28
+  rep 2 OLMoE-1B-7B-0125-Instruct-Q8_0.gguf default: decode [41.862074] prefill [267.204996] load 6.28
+  rep 2 OLMoE-1B-7B-0125-Instruct-Q8_0.gguf plain: decode [37.116273] prefill [233.095521] load 6.28
+  rep 2 OLMoE-1B-7B-0125-Instruct-Q8_0.gguf kurn: decode [54.333008] prefill [704.698] load 6.28
+  rep 2 Bonsai-1.7B-Q1_0.gguf default: decode [116.313928] prefill [189.037127] load 6.28
+  rep 2 Bonsai-1.7B-Q1_0.gguf plain: decode [116.300384] prefill [188.311099] load 6.28
+  rep 2 Bonsai-1.7B-Q1_0.gguf kurn: decode [232.491606] prefill [711.826779] load 6.28
+  rep 2 bitnet-2b4t-tq2_0.gguf default: decode [35.921527] prefill [243.382896] load 6.28
+  rep 2 bitnet-2b4t-tq2_0.gguf plain: decode [36.811429] prefill [234.817562] load 6.28
+  rep 2 bitnet-2b4t-tq2_0.gguf kurn: decode [41.408021] prefill [523.18705] load 6.28
+  rep 2 Ternary-Bonsai-8B-Q2_0_g64.gguf default: decode [3.07059] prefill [3.540222] load 6.28
+  rep 2 Ternary-Bonsai-8B-Q2_0_g64.gguf plain: decode [3.036798] prefill [3.545771] load 6.28
+  rep 2 Ternary-Bonsai-8B-Q2_0_g64.gguf kurn: decode [26.919322] prefill [199.58599] load 6.28
+  rep 3 Qwen3-1.7B-Q8_0.gguf default: decode [48.72913] prefill [687.880547] load 6.39
+  rep 3 Qwen3-1.7B-Q8_0.gguf plain: decode [26.459854] prefill [270.114975] load 6.39
+  rep 3 Qwen3-1.7B-Q8_0.gguf kurn: decode [46.827626] prefill [795.912308] load 6.39
+  rep 3 Qwen3-1.7B-Q4_0.gguf default: decode [67.935039] prefill [719.30955] load 6.39
+  rep 3 Qwen3-1.7B-Q4_0.gguf plain: decode [38.997021] prefill [241.5087] load 6.39
+  rep 3 Qwen3-1.7B-Q4_0.gguf kurn: decode [56.467878] prefill [754.083307] load 6.39
+  rep 3 Qwen3-1.7B-Q4_K_M.gguf default: decode [40.070746] prefill [682.264053] load 6.39
+  rep 3 Qwen3-1.7B-Q4_K_M.gguf plain: decode [38.013189] prefill [621.944961] load 6.39
+  rep 3 Qwen3-1.7B-Q4_K_M.gguf kurn: decode [42.664666] prefill [641.02307] load 6.39
+  rep 3 Qwen3-1.7B-IQ4_NL.gguf default: decode [40.868764] prefill [369.026762] load 6.39
+  rep 3 Qwen3-1.7B-IQ4_NL.gguf plain: decode [34.637397] prefill [235.509735] load 6.39
+  rep 3 Qwen3-1.7B-IQ4_NL.gguf kurn: decode [54.942289] prefill [749.719557] load 6.39
+  rep 3 OLMoE-1B-7B-0125-Instruct-Q8_0.gguf default: decode [38.84729] prefill [264.79028] load 6.39
+  rep 3 OLMoE-1B-7B-0125-Instruct-Q8_0.gguf plain: decode [35.79446] prefill [238.279859] load 6.39
+  rep 3 OLMoE-1B-7B-0125-Instruct-Q8_0.gguf kurn: decode [51.414209] prefill [704.184302] load 6.39
+  rep 3 Bonsai-1.7B-Q1_0.gguf default: decode [112.000289] prefill [187.749482] load 6.39
+  rep 3 Bonsai-1.7B-Q1_0.gguf plain: decode [115.565802] prefill [189.303978] load 6.39
+  rep 3 Bonsai-1.7B-Q1_0.gguf kurn: decode [260.030034] prefill [794.171694] load 6.39
+  rep 3 bitnet-2b4t-tq2_0.gguf default: decode [39.00553] prefill [230.098029] load 6.39
+  rep 3 bitnet-2b4t-tq2_0.gguf plain: decode [35.374666] prefill [234.069254] load 6.39
+  rep 3 bitnet-2b4t-tq2_0.gguf kurn: decode [42.590711] prefill [508.516807] load 6.39
+  rep 3 Ternary-Bonsai-8B-Q2_0_g64.gguf default: decode [3.06555] prefill [3.514296] load 6.39
+  rep 3 Ternary-Bonsai-8B-Q2_0_g64.gguf plain: decode [3.017634] prefill [3.549075] load 6.39
+  rep 3 Ternary-Bonsai-8B-Q2_0_g64.gguf kurn: decode [25.98761] prefill [186.331107] load 6.39
+  ppl_ub1 Qwen3-1.7B-Q8_0.gguf default: (18.2182, 2.48345)
+  ppl_ub1 Qwen3-1.7B-Q8_0.gguf plain: (18.2006, 2.49105)
+  ppl_ub1 Qwen3-1.7B-Q8_0.gguf kurn: (18.2182, 2.48345)
+  ppl_batched Qwen3-1.7B-Q8_0.gguf default: (19.1316, 0.77328)
+  ppl_batched Qwen3-1.7B-Q8_0.gguf plain: (19.1673, 0.77537)
+  ppl_batched Qwen3-1.7B-Q8_0.gguf kurn: (19.1285, 0.77298)
+  ppl_ub1 Qwen3-1.7B-Q4_0.gguf default: (21.8727, 3.09309)
+  ppl_ub1 Qwen3-1.7B-Q4_0.gguf plain: (21.9344, 3.10124)
+  ppl_ub1 Qwen3-1.7B-Q4_0.gguf kurn: (21.8727, 3.09309)
+  ppl_batched Qwen3-1.7B-Q4_0.gguf default: (21.3264, 0.86389)
+  ppl_batched Qwen3-1.7B-Q4_0.gguf plain: (21.2564, 0.86027)
+  ppl_batched Qwen3-1.7B-Q4_0.gguf kurn: (21.3319, 0.8636)
+  ppl_ub1 Qwen3-1.7B-Q4_K_M.gguf default: (18.3215, 2.45621)
+  ppl_ub1 Qwen3-1.7B-Q4_K_M.gguf plain: (18.3497, 2.44078)
+  ppl_ub1 Qwen3-1.7B-Q4_K_M.gguf kurn: (18.3215, 2.45621)
+  ppl_batched Qwen3-1.7B-Q4_K_M.gguf default: (19.3216, 0.77377)
+  ppl_batched Qwen3-1.7B-Q4_K_M.gguf plain: (19.3191, 0.77336)
+  ppl_batched Qwen3-1.7B-Q4_K_M.gguf kurn: (19.3719, 0.77682)
+  ppl_ub1 Qwen3-1.7B-IQ4_NL.gguf default: (19.1878, 2.52399)
+  ppl_ub1 Qwen3-1.7B-IQ4_NL.gguf plain: (19.1852, 2.52017)
+  ppl_ub1 Qwen3-1.7B-IQ4_NL.gguf kurn: (19.1878, 2.52399)
+  ppl_batched Qwen3-1.7B-IQ4_NL.gguf default: (20.4834, 0.82851)
+  ppl_batched Qwen3-1.7B-IQ4_NL.gguf plain: (20.4508, 0.82691)
+  ppl_batched Qwen3-1.7B-IQ4_NL.gguf kurn: (20.4429, 0.827)
+  ppl_ub1 OLMoE-1B-7B-0125-Instruct-Q8_0.gguf default: (5.2162, 0.51834)
+  ppl_ub1 OLMoE-1B-7B-0125-Instruct-Q8_0.gguf plain: (5.2038, 0.51819)
+  ppl_ub1 OLMoE-1B-7B-0125-Instruct-Q8_0.gguf kurn: (5.2141, 0.51904)
+  ppl_batched OLMoE-1B-7B-0125-Instruct-Q8_0.gguf default: (8.3249, 0.271)
+  ppl_batched OLMoE-1B-7B-0125-Instruct-Q8_0.gguf plain: (8.3316, 0.27159)
+  ppl_batched OLMoE-1B-7B-0125-Instruct-Q8_0.gguf kurn: (8.3373, 0.27149)
+  ppl_ub1 Bonsai-1.7B-Q1_0.gguf default: (39.2437, 5.61967)
+  ppl_ub1 Bonsai-1.7B-Q1_0.gguf plain: (39.2437, 5.61967)
+  ppl_ub1 Bonsai-1.7B-Q1_0.gguf kurn: (39.253, 5.62494)
+  ppl_batched Bonsai-1.7B-Q1_0.gguf default: (34.6995, 1.49067)
+  ppl_batched Bonsai-1.7B-Q1_0.gguf plain: (34.6995, 1.49067)
+  ppl_batched Bonsai-1.7B-Q1_0.gguf kurn: (34.67, 1.48901)
+  ppl_ub1 bitnet-2b4t-tq2_0.gguf default: (111.3451, 14.63209)
+  ppl_ub1 bitnet-2b4t-tq2_0.gguf plain: (111.3451, 14.63209)
+  ppl_ub1 bitnet-2b4t-tq2_0.gguf kurn: (111.4637, 14.64781)
+  ppl_batched bitnet-2b4t-tq2_0.gguf default: (96.79, 3.80303)
+  ppl_batched bitnet-2b4t-tq2_0.gguf plain: (96.79, 3.80303)
+  ppl_batched bitnet-2b4t-tq2_0.gguf kurn: (96.7869, 3.80331)
+  ppl_ub1 Ternary-Bonsai-8B-Q2_0_g64.gguf default: (10.0069, 1.25923)
+  ppl_ub1 Ternary-Bonsai-8B-Q2_0_g64.gguf plain: (10.0069, 1.25923)
+  ppl_ub1 Ternary-Bonsai-8B-Q2_0_g64.gguf kurn: (10.0078, 1.26013)

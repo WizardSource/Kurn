@@ -1,0 +1,96 @@
+== rep 0 v2
+load+run 7.2 s
+thread 0 wait attn 0.210 ffn 0.239 out 0.040 runq 0.1406
+thread 1 wait attn 0.264 ffn 0.400 out 0.074 runq 0.0659
+thread 2 wait attn 0.206 ffn 0.255 out 0.046 runq 0.1039
+thread 3 wait attn 0.195 ffn 0.268 out 0.044 runq 0.1090
+thread 4 wait attn 0.205 ffn 0.255 out 0.050 runq 0.0986
+thread 5 wait attn 0.206 ffn 0.272 out 0.048 runq 0.0995
+thread 6 wait attn 0.184 ffn 0.250 out 0.049 runq 0.1194
+thread 7 wait attn 0.180 ffn 0.250 out 0.042 runq 0.1362
+== rep 0 v2_nopin
+load+run 5.3 s
+== rep 0 lc_amx
+== rep 0 lc_plain
+== rep 0 lc_amx_pin
+== rep 0 lc_plain_pin
+== rep 1 v2
+load+run 3.5 s
+thread 0 wait attn 0.201 ffn 0.279 out 0.056 runq 0.0734
+thread 1 wait attn 0.204 ffn 0.268 out 0.058 runq 0.0837
+thread 2 wait attn 0.198 ffn 0.283 out 0.057 runq 0.0579
+thread 3 wait attn 0.204 ffn 0.293 out 0.058 runq 0.0514
+thread 4 wait attn 0.190 ffn 0.276 out 0.052 runq 0.1458
+thread 5 wait attn 0.160 ffn 0.252 out 0.058 runq 0.1780
+thread 6 wait attn 0.182 ffn 0.226 out 0.034 runq 0.2109
+thread 7 wait attn 0.188 ffn 0.260 out 0.054 runq 0.1823
+== rep 1 v2_nopin
+load+run 4.7 s
+== rep 1 lc_amx
+== rep 1 lc_plain
+== rep 1 lc_amx_pin
+== rep 1 lc_plain_pin
+== rep 2 v2
+load+run 3.0 s
+thread 0 wait attn 0.181 ffn 0.225 out 0.038 runq 0.1184
+thread 1 wait attn 0.244 ffn 0.429 out 0.069 runq 0.0445
+thread 2 wait attn 0.199 ffn 0.249 out 0.029 runq 0.0690
+thread 3 wait attn 0.191 ffn 0.268 out 0.037 runq 0.0609
+thread 4 wait attn 0.167 ffn 0.266 out 0.031 runq 0.1290
+thread 5 wait attn 0.183 ffn 0.257 out 0.031 runq 0.1413
+thread 6 wait attn 0.180 ffn 0.229 out 0.031 runq 0.1432
+thread 7 wait attn 0.180 ffn 0.255 out 0.039 runq 0.0706
+== rep 2 v2_nopin
+load+run 5.0 s
+== rep 2 lc_amx
+== rep 2 lc_plain
+== rep 2 lc_amx_pin
+== rep 2 lc_plain_pin
+== rep 0 v2
+load+run 4.0 s
+thread 0 wait attn 0.018 ffn 0.026 out 0.007 runq 0.0003
+thread 1 wait attn 0.061 ffn 0.136 out 0.029 runq 0.0029
+thread 2 wait attn 0.012 ffn 0.018 out 0.007 runq 0.0018
+thread 3 wait attn 0.017 ffn 0.020 out 0.006 runq 0.0009
+thread 4 wait attn 0.010 ffn 0.017 out 0.004 runq 0.0002
+thread 5 wait attn 0.017 ffn 0.022 out 0.007 runq 0.0015
+thread 6 wait attn 0.016 ffn 0.023 out 0.012 runq 0.0003
+thread 7 wait attn 0.018 ffn 0.026 out 0.006 runq 0.0003
+== rep 0 v2_nopin
+load+run 1.5 s
+== rep 0 lc_amx
+== rep 0 lc_plain
+== rep 0 lc_amx_pin
+== rep 0 lc_plain_pin
+== rep 1 v2
+load+run 1.6 s
+thread 0 wait attn 0.010 ffn 0.020 out 0.005 runq 0.0006
+thread 1 wait attn 0.105 ffn 0.262 out 0.066 runq 0.0016
+thread 2 wait attn 0.009 ffn 0.014 out 0.006 runq 0.0002
+thread 3 wait attn 0.010 ffn 0.018 out 0.006 runq 0.0013
+thread 4 wait attn 0.014 ffn 0.024 out 0.006 runq 0.0002
+thread 5 wait attn 0.008 ffn 0.010 out 0.001 runq 0.0001
+thread 6 wait attn 0.012 ffn 0.024 out 0.007 runq 0.0021
+thread 7 wait attn 0.104 ffn 0.254 out 0.066 runq 0.0004
+== rep 1 v2_nopin
+load+run 1.6 s
+== rep 1 lc_amx
+== rep 1 lc_plain
+== rep 1 lc_amx_pin
+== rep 1 lc_plain_pin
+== rep 2 v2
+load+run 1.5 s
+thread 0 wait attn 0.005 ffn 0.009 out 0.002 runq 0.0004
+thread 1 wait attn 0.102 ffn 0.256 out 0.054 runq 0.0001
+thread 2 wait attn 0.007 ffn 0.010 out 0.003 runq 0.0002
+thread 3 wait attn 0.008 ffn 0.013 out 0.003 runq 0.0009
+thread 4 wait attn 0.009 ffn 0.016 out 0.005 runq 0.0001
+thread 5 wait attn 0.005 ffn 0.005 out 0.000 runq 0.0003
+thread 6 wait attn 0.010 ffn 0.017 out 0.005 runq 0.0001
+thread 7 wait attn 0.097 ffn 0.242 out 0.052 runq 0.0004
+== rep 2 v2_nopin
+load+run 1.6 s
+== rep 2 lc_amx
+== rep 2 lc_plain
+== rep 2 lc_amx_pin
+== rep 2 lc_plain_pin

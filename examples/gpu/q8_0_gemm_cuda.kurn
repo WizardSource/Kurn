@@ -1,0 +1,13 @@
+# Q8_0 batched GEMM on int8 tensor cores (mma.sync m16n8k32, sm_80+), 3-stage cp.async pipeline.
+kernel   q8_0_gemm_cuda
+op       gemm
+weights  q8_0
+target   cuda
+layout   split
+pipe     async3
+bm       64
+bn       64
+wm       2
+wn       2
+bkb      2
+tune     bm=64,128 bn=32,64,128 wm=2,4 wn=1,2,4 bkb=1,2 pipe=reg2,async2,async3

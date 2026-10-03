@@ -1,0 +1,225 @@
+qwen3 v2 decode_tok_s 23.03 cpu_s_per_tok 0.3041 wall_s 22.23 med_ms 32.993 p10_ms 19.812 p90_ms 60.696 barriers_per_tok 57.0 wait_share 0.577 wait_attn 0.224 wait_ffn 0.300 wait_out 0.054 quiet_wait_share 0.356 spin 60.4%  matmul 37.2%  dispatch 0.0%  attn_ops 2.3%  kernel 0.0%  other 0.1%
+   60.37%  spin      engine_v2_d6429c24           await_slow
+   21.95%  matmul    engine_v2_d6429c24           kq8e_store
+   15.08%  matmul    engine_v2_d6429c24           kq8e_swiglu_q8
+    1.32%  attn_ops  engine_v2_d6429c24           attention
+    0.99%  attn_ops  engine_v2_d6429c24           step
+    0.08%  matmul    engine_v2_d6429c24           kq8e_quantize
+    0.07%  matmul    engine_v2_d6429c24           kq8e_prep
+    0.05%  other     libc.so.6                    0x00000000001a16d2
+    0.03%  other     libm.so.6                    0x000000000007dcd1
+    0.01%  other     libm.so.6                    0x000000000007dca5
+    0.01%  other     libm.so.6                    0x000000000007dc80
+    0.01%  other     libm.so.6                    0x000000000007dc4e
+    0.01%  other     libc.so.6                    0x00000000001a1353
+    0.00%  other     libm.so.6                    0x000000000007e794
+    0.00%  other     libm.so.6                    0x000000000007e762
+qwen3 v1 decode_tok_s 28.45 cpu_s_per_tok 0.2557 wall_s 18.00 med_ms 34.786 p10_ms 21.542 p90_ms 49.144 barriers_per_tok 143.0 wait_share 0.469 quiet_wait_share 0.352 spin 0.0%  matmul 0.0%  dispatch 0.0%  attn_ops 0.0%  kernel 0.0%  other 0.0%
+qwen3 lc_amx decode_tok_s 2.01 cpu_s_per_tok 2.6347 wall_s 254.59 med_ms 32.278 p10_ms 18.755 p90_ms 2277.052 spin 94.6%  matmul 5.0%  dispatch 0.0%  attn_ops 0.2%  kernel 0.0%  other 0.0%
+   72.25%  spin      libgomp.so.1.0.0             0x00000000000258a2
+   11.09%  spin      libgomp.so.1.0.0             0x00000000000258a6
+    6.83%  spin      libgomp.so.1.0.0             0x00000000000258af
+    4.88%  matmul    libggml-cpu.so.0.25.3        (anonymous namespace)::tinygemm_kernel_vnni<block_q8_0, block_q8_0, float, 1, 64, 32>::app
+    2.07%  spin      libgomp.so.1.0.0             0x00000000000258ab
+    2.06%  spin      libgomp.so.1.0.0             0x00000000000258a0
+    0.23%  spin      libgomp.so.1.0.0             0x00000000000256c2
+    0.17%  attn_ops  libggml-cpu.so.0.25.3        ggml_compute_forward_flash_attn_ext
+    0.12%  matmul    libggml-cpu.so.0.25.3        ggml_vec_dot_f16
+    0.04%  spin      libgomp.so.1.0.0             0x00000000000256c6
+    0.03%  spin      libgomp.so.1.0.0             0x00000000000259ef
+    0.02%  spin      libgomp.so.1.0.0             0x00000000000256cd
+    0.02%  other     lcdrive                      main
+    0.02%  dispatch  libggml-cpu.so.0.25.3        ggml_graph_compute_thread.isra.0
+    0.02%  attn_ops  libggml-cpu.so.0.25.3        ggml_compute_forward_rms_norm_mul_fused
+qwen3 lc_amx_pin decode_tok_s 28.88 cpu_s_per_tok 0.2563 wall_s 17.73 med_ms 34.581 p10_ms 21.805 p90_ms 47.425 spin 49.2%  matmul 48.0%  dispatch 0.2%  attn_ops 1.9%  kernel 0.0%  other 0.7%
+   46.93%  matmul    libggml-cpu.so.0.25.3        (anonymous namespace)::tinygemm_kernel_vnni<block_q8_0, block_q8_0, float, 1, 64, 32>::app
+   35.68%  spin      libgomp.so.1.0.0             0x00000000000258a2
+    5.43%  spin      libgomp.so.1.0.0             0x00000000000258a6
+    3.74%  spin      libgomp.so.1.0.0             0x00000000000258af
+    1.46%  spin      libgomp.so.1.0.0             0x00000000000256c2
+    1.41%  attn_ops  libggml-cpu.so.0.25.3        ggml_compute_forward_flash_attn_ext
+    1.04%  spin      libgomp.so.1.0.0             0x00000000000258ab
+    1.01%  spin      libgomp.so.1.0.0             0x00000000000258a0
+    0.98%  matmul    libggml-cpu.so.0.25.3        ggml_vec_dot_f16
+    0.28%  spin      libgomp.so.1.0.0             0x00000000000259ef
+    0.26%  spin      libgomp.so.1.0.0             0x00000000000256c6
+    0.17%  other     lcdrive                      main
+    0.16%  attn_ops  libggml-cpu.so.0.25.3        ggml_compute_forward_rms_norm_mul_fused
+    0.15%  spin      libgomp.so.1.0.0             0x00000000000256cd
+    0.14%  dispatch  libggml-cpu.so.0.25.3        ggml_graph_compute_thread.isra.0
+qwen3 lc_plain_pin decode_tok_s 15.89 cpu_s_per_tok 0.4667 wall_s 32.21 med_ms 65.587 p10_ms 43.027 p90_ms 79.506 spin 42.3%  matmul 55.8%  dispatch 0.1%  attn_ops 1.2%  kernel 0.0%  other 0.5%
+   54.70%  matmul    libggml-cpu.so.0.25.3        ggml_vec_dot_q8_0_q8_0
+   31.20%  spin      libgomp.so.1.0.0             0x00000000000258a2
+    4.82%  spin      libgomp.so.1.0.0             0x00000000000258a6
+    3.14%  spin      libgomp.so.1.0.0             0x00000000000258af
+    0.92%  spin      libgomp.so.1.0.0             0x00000000000258ab
+    0.89%  spin      libgomp.so.1.0.0             0x00000000000258a0
+    0.85%  spin      libgomp.so.1.0.0             0x00000000000256c2
+    0.85%  attn_ops  libggml-cpu.so.0.25.3        ggml_compute_forward_flash_attn_ext
+    0.64%  matmul    libggml-cpu.so.0.25.3        ggml_vec_dot_f16
+    0.40%  matmul    libggml-cpu.so.0.25.3        ggml_compute_forward_mul_mat
+    0.19%  spin      libgomp.so.1.0.0             0x00000000000259ef
+    0.14%  attn_ops  libggml-cpu.so.0.25.3        quantize_row_q8_0
+    0.13%  spin      libgomp.so.1.0.0             0x00000000000256c6
+    0.10%  dispatch  libggml-cpu.so.0.25.3        ggml_graph_compute_thread.isra.0
+    0.09%  other     lcdrive                      main
+olmoe v2 decode_tok_s 52.14 cpu_s_per_tok 0.1528 wall_s 9.82 med_ms 18.230 p10_ms 17.016 p90_ms 20.150 barriers_per_tok 49.0 wait_share 0.332 wait_attn 0.013 wait_qk 0.049 wait_ffn 0.260 wait_out 0.010 quiet_wait_share 0.282 runq_share 0.0009 spin 33.4%  matmul 61.0%  dispatch 0.0%  attn_ops 5.3%  kernel 0.0%  other 0.3%
+   33.40%  spin      engine_v2_8cd5f3d8           await_slow
+   31.19%  matmul    engine_v2_8cd5f3d8           kq8e_swiglu_q8
+   14.99%  matmul    engine_v2_8cd5f3d8           kq8e_axpy
+   14.67%  matmul    engine_v2_8cd5f3d8           kq8e_store
+    5.27%  attn_ops  engine_v2_8cd5f3d8           step
+    0.08%  other     libc.so.6                    0x00000000001a16d2
+    0.08%  matmul    engine_v2_8cd5f3d8           kq8e_quantize
+    0.06%  matmul    engine_v2_8cd5f3d8           kq8e_prep
+    0.05%  other     libm.so.6                    0x000000000007dcd1
+    0.05%  other     libc.so.6                    0x00000000001a1bfa
+    0.03%  other     libc.so.6                    0x00000000001a1353
+    0.02%  other     libm.so.6                    0x000000000007dc4e
+    0.01%  other     libm.so.6                    0x000000000007dca5
+    0.01%  other     libm.so.6                    0x000000000007dc80
+    0.01%  other     libm.so.6                    0x000000000007dc7c
+olmoe v1 decode_tok_s 51.82 cpu_s_per_tok 0.1539 wall_s 9.88 med_ms 19.127 p10_ms 17.622 p90_ms 20.856 barriers_per_tok 83.0 wait_share 0.219 quiet_wait_share 0.208 spin 0.0%  matmul 58.3%  dispatch 0.0%  attn_ops 17.2%  kernel 0.0%  other 24.4%
+   58.34%  matmul    engine_v1_e95a5ca8           kq8_gemv_packed
+   22.31%  other     engine_v1_e95a5ca8           barrier_
+   16.59%  attn_ops  engine_v1_e95a5ca8           step
+    1.12%  other     libm.so.6                    fmaxf32
+    0.58%  attn_ops  engine_v1_e95a5ca8           quantize_q8.constprop.0
+    0.49%  other     engine_v1_e95a5ca8           fmaxf@plt
+    0.10%  other     libm.so.6                    0x000000000007dcd1
+    0.05%  other     libm.so.6                    0x000000000007dca5
+    0.05%  other     libm.so.6                    0x000000000007dc80
+    0.04%  attn_ops  engine_v1_e95a5ca8           expf@plt
+    0.03%  other     libm.so.6                    0x000000000007dc4e
+    0.02%  other     libm.so.6                    0x000000000007e790
+    0.02%  other     libm.so.6                    0x000000000007e78c
+    0.02%  other     libm.so.6                    0x000000000007dccd
+    0.02%  other     libc.so.6                    0x00000000001a13e9
+olmoe lc_amx decode_tok_s 41.13 cpu_s_per_tok 0.1932 wall_s 12.45 med_ms 23.726 p10_ms 22.633 p90_ms 26.069 runq_share 0.0011 spin 15.0%  matmul 80.2%  dispatch 1.1%  attn_ops 2.7%  kernel 0.0%  other 0.8%
+   67.05%  matmul    libggml-cpu.so.0.25.3        ggml_vec_dot_q8_0_q8_0
+   11.28%  matmul    libggml-cpu.so.0.25.3        (anonymous namespace)::tinygemm_kernel_vnni<block_q8_0, block_q8_0, float, 1, 64, 32>::app
+    9.68%  spin      libgomp.so.1.0.0             0x00000000000258a2
+    1.89%  spin      libgomp.so.1.0.0             0x00000000000258af
+    1.79%  attn_ops  libggml-cpu.so.0.25.3        ggml_compute_forward_flash_attn_ext
+    1.47%  matmul    libggml-cpu.so.0.25.3        ggml_vec_dot_f16
+    1.40%  spin      libgomp.so.1.0.0             0x00000000000258a6
+    1.13%  dispatch  libggml-cpu.so.0.25.3        ggml_graph_compute_thread.isra.0
+    0.68%  spin      libgomp.so.1.0.0             0x00000000000256c2
+    0.49%  spin      libgomp.so.1.0.0             0x00000000000259ef
+    0.31%  spin      libgomp.so.1.0.0             0x00000000000258a0
+    0.28%  spin      libgomp.so.1.0.0             0x00000000000258ab
+    0.24%  matmul    libggml-cpu.so.0.25.3        ggml_vec_dot_f32
+    0.24%  attn_ops  libggml-cpu.so.0.25.3        ggml_compute_forward_mul
+    0.20%  attn_ops  libggml-cpu.so.0.25.3        quantize_row_q8_0
+olmoe lc_amx_pin decode_tok_s 42.56 cpu_s_per_tok 0.1876 wall_s 12.03 med_ms 23.199 p10_ms 22.211 p90_ms 24.193 runq_share 0.0019 spin 14.9%  matmul 80.5%  dispatch 1.1%  attn_ops 2.6%  kernel 0.0%  other 0.7%
+   67.39%  matmul    libggml-cpu.so.0.25.3        ggml_vec_dot_q8_0_q8_0
+   11.39%  matmul    libggml-cpu.so.0.25.3        (anonymous namespace)::tinygemm_kernel_vnni<block_q8_0, block_q8_0, float, 1, 64, 32>::app
+    9.68%  spin      libgomp.so.1.0.0             0x00000000000258a2
+    1.86%  spin      libgomp.so.1.0.0             0x00000000000258af
+    1.64%  attn_ops  libggml-cpu.so.0.25.3        ggml_compute_forward_flash_attn_ext
+    1.37%  spin      libgomp.so.1.0.0             0x00000000000258a6
+    1.36%  matmul    libggml-cpu.so.0.25.3        ggml_vec_dot_f16
+    1.13%  dispatch  libggml-cpu.so.0.25.3        ggml_graph_compute_thread.isra.0
+    0.68%  spin      libgomp.so.1.0.0             0x00000000000256c2
+    0.45%  spin      libgomp.so.1.0.0             0x00000000000259ef
+    0.30%  attn_ops  libggml-cpu.so.0.25.3        ggml_compute_forward_mul
+    0.29%  spin      libgomp.so.1.0.0             0x00000000000258a0
+    0.26%  spin      libgomp.so.1.0.0             0x00000000000258ab
+    0.22%  matmul    libggml-cpu.so.0.25.3        ggml_vec_dot_f32
+    0.21%  attn_ops  libggml-cpu.so.0.25.3        quantize_row_q8_0
+olmoe lc_plain_pin decode_tok_s 36.89 cpu_s_per_tok 0.2167 wall_s 13.88 med_ms 27.407 p10_ms 25.486 p90_ms 28.395 runq_share 0.0007 spin 12.5%  matmul 82.9%  dispatch 1.0%  attn_ops 2.7%  kernel 0.0%  other 0.7%
+   80.75%  matmul    libggml-cpu.so.0.25.3        ggml_vec_dot_q8_0_q8_0
+    7.96%  spin      libgomp.so.1.0.0             0x00000000000258a2
+    1.92%  attn_ops  libggml-cpu.so.0.25.3        ggml_compute_forward_flash_attn_ext
+    1.58%  matmul    libggml-cpu.so.0.25.3        ggml_vec_dot_f16
+    1.51%  spin      libgomp.so.1.0.0             0x00000000000258af
+    1.17%  spin      libgomp.so.1.0.0             0x00000000000258a6
+    0.98%  dispatch  libggml-cpu.so.0.25.3        ggml_graph_compute_thread.isra.0
+    0.65%  spin      libgomp.so.1.0.0             0x00000000000256c2
+    0.48%  spin      libgomp.so.1.0.0             0x00000000000259ef
+    0.34%  matmul    libggml-cpu.so.0.25.3        ggml_compute_forward_mul_mat
+    0.23%  spin      libgomp.so.1.0.0             0x00000000000258a0
+    0.22%  spin      libgomp.so.1.0.0             0x00000000000258ab
+    0.21%  attn_ops  libggml-cpu.so.0.25.3        quantize_row_q8_0
+    0.21%  attn_ops  libggml-cpu.so.0.25.3        ggml_compute_forward_mul
+    0.19%  matmul    libggml-cpu.so.0.25.3        ggml_vec_dot_f32
+qwen3 v2 decode_tok_s 54.73 cpu_s_per_tok 0.1428 wall_s 9.36 med_ms 14.984 p10_ms 14.737 p90_ms 15.524 barriers_per_tok 57.0 wait_share 0.232 wait_attn 0.087 wait_ffn 0.118 wait_out 0.027 quiet_wait_share 0.023 runq_share 0.0230 spin 22.9%  matmul 71.6%  dispatch 0.0%  attn_ops 5.0%  kernel 0.0%  other 0.4%
+   41.92%  matmul    engine_v2_443748ff           kq8e_store
+   29.51%  matmul    engine_v2_443748ff           kq8e_swiglu_q8
+   22.95%  spin      engine_v2_443748ff           await_slow
+    2.72%  attn_ops  engine_v2_443748ff           step
+    2.29%  attn_ops  engine_v2_443748ff           attention
+    0.16%  other     libc.so.6                    0x00000000001a16d2
+    0.14%  matmul    engine_v2_443748ff           kq8e_quantize
+    0.09%  other     libm.so.6                    0x000000000007dcd1
+    0.07%  matmul    engine_v2_443748ff           kq8e_prep
+    0.03%  other     libc.so.6                    0x00000000001a1353
+    0.02%  other     libm.so.6                    0x000000000007dca9
+    0.02%  other     libm.so.6                    0x000000000007dca5
+    0.02%  other     libm.so.6                    0x000000000007dc80
+    0.02%  other     libm.so.6                    0x000000000007dc4e
+    0.02%  attn_ops  engine_v2_443748ff           expf@plt
+qwen3 v1 decode_tok_s 53.92 cpu_s_per_tok 0.1483 wall_s 9.50 med_ms 18.492 p10_ms 17.038 p90_ms 20.174 barriers_per_tok 143.0 wait_share 0.115 quiet_wait_share 0.063 spin 0.0%  matmul 73.3%  dispatch 0.0%  attn_ops 12.4%  kernel 0.0%  other 14.3%
+   73.26%  matmul    engine_v1_2f1e23af           kq8_gemv_packed
+   11.77%  other     engine_v1_2f1e23af           barrier_
+   11.64%  attn_ops  engine_v1_2f1e23af           step
+    1.19%  other     libm.so.6                    fmaxf32
+    0.75%  other     engine_v1_2f1e23af           fmaxf@plt
+    0.69%  attn_ops  engine_v1_2f1e23af           quantize_q8.constprop.2
+    0.14%  other     libm.so.6                    0x000000000007dcd1
+    0.06%  other     libm.so.6                    0x000000000007dca5
+    0.06%  attn_ops  engine_v1_2f1e23af           expf@plt
+    0.05%  other     libm.so.6                    0x000000000007dc80
+    0.04%  other     libm.so.6                    0x000000000007dc4e
+    0.03%  other     libc.so.6                    0x00000000001a13e9
+    0.02%  other     libm.so.6                    0x000000000007e5e7
+    0.02%  other     libm.so.6                    0x000000000007df9b
+    0.02%  other     libm.so.6                    0x000000000007dccd
+qwen3 lc_amx decode_tok_s 48.64 cpu_s_per_tok 0.1643 wall_s 10.53 med_ms 20.472 p10_ms 19.842 p90_ms 21.459 runq_share 0.0005 spin 20.1%  matmul 75.2%  dispatch 0.2%  attn_ops 3.0%  kernel 0.0%  other 1.3%
+   73.65%  matmul    libggml-cpu.so.0.25.3        (anonymous namespace)::tinygemm_kernel_vnni<block_q8_0, block_q8_0, float, 1, 64, 32>::app
+   11.60%  spin      libgomp.so.1.0.0             0x00000000000258a2
+    2.68%  spin      libgomp.so.1.0.0             0x00000000000258af
+    2.18%  attn_ops  libggml-cpu.so.0.25.3        ggml_compute_forward_flash_attn_ext
+    1.99%  spin      libgomp.so.1.0.0             0x00000000000256c2
+    1.84%  spin      libgomp.so.1.0.0             0x00000000000258a6
+    1.42%  matmul    libggml-cpu.so.0.25.3        ggml_vec_dot_f16
+    0.64%  spin      libgomp.so.1.0.0             0x00000000000259ef
+    0.32%  spin      libgomp.so.1.0.0             0x00000000000258a0
+    0.31%  spin      libgomp.so.1.0.0             0x00000000000258ab
+    0.31%  spin      libgomp.so.1.0.0             0x00000000000256c6
+    0.29%  attn_ops  libggml-cpu.so.0.25.3        ggml_compute_forward_rms_norm_mul_fused
+    0.25%  other     lcdrive                      main
+    0.22%  dispatch  libggml-cpu.so.0.25.3        ggml_graph_compute_thread.isra.0
+    0.21%  attn_ops  libggml-cpu.so.0.25.3        void ggml_compute_forward_rope_flt<float>(ggml_compute_params const*, ggml_tensor*, bool)
+qwen3 lc_amx_pin decode_tok_s 48.53 cpu_s_per_tok 0.1647 wall_s 10.55 med_ms 20.421 p10_ms 19.964 p90_ms 21.272 runq_share 0.0005 spin 20.0%  matmul 75.5%  dispatch 0.2%  attn_ops 3.0%  kernel 0.0%  other 1.2%
+   73.74%  matmul    libggml-cpu.so.0.25.3        (anonymous namespace)::tinygemm_kernel_vnni<block_q8_0, block_q8_0, float, 1, 64, 32>::app
+   11.68%  spin      libgomp.so.1.0.0             0x00000000000258a2
+    2.69%  spin      libgomp.so.1.0.0             0x00000000000258af
+    2.24%  attn_ops  libggml-cpu.so.0.25.3        ggml_compute_forward_flash_attn_ext
+    1.92%  spin      libgomp.so.1.0.0             0x00000000000256c2
+    1.75%  spin      libgomp.so.1.0.0             0x00000000000258a6
+    1.52%  matmul    libggml-cpu.so.0.25.3        ggml_vec_dot_f16
+    0.59%  spin      libgomp.so.1.0.0             0x00000000000259ef
+    0.32%  spin      libgomp.so.1.0.0             0x00000000000258ab
+    0.31%  spin      libgomp.so.1.0.0             0x00000000000258a0
+    0.30%  spin      libgomp.so.1.0.0             0x00000000000256c6
+    0.27%  other     lcdrive                      main
+    0.26%  attn_ops  libggml-cpu.so.0.25.3        ggml_compute_forward_rms_norm_mul_fused
+    0.21%  attn_ops  libggml-cpu.so.0.25.3        void ggml_compute_forward_rope_flt<float>(ggml_compute_params const*, ggml_tensor*, bool)
+    0.20%  dispatch  libggml-cpu.so.0.25.3        ggml_graph_compute_thread.isra.0
+qwen3 lc_plain_pin decode_tok_s 23.73 cpu_s_per_tok 0.3369 wall_s 21.57 med_ms 41.550 p10_ms 40.040 p90_ms 43.753 runq_share 0.0006 spin 10.5%  matmul 86.5%  dispatch 0.1%  attn_ops 2.0%  kernel 0.0%  other 0.6%
+   84.95%  matmul    libggml-cpu.so.0.25.3        ggml_vec_dot_q8_0_q8_0
+    6.17%  spin      libgomp.so.1.0.0             0x00000000000258a2
+    1.41%  attn_ops  libggml-cpu.so.0.25.3        ggml_compute_forward_flash_attn_ext
+    1.21%  spin      libgomp.so.1.0.0             0x00000000000258af
+    1.01%  spin      libgomp.so.1.0.0             0x00000000000256c2
+    0.97%  spin      libgomp.so.1.0.0             0x00000000000258a6
+    0.93%  matmul    libggml-cpu.so.0.25.3        ggml_vec_dot_f16
+    0.62%  matmul    libggml-cpu.so.0.25.3        ggml_compute_forward_mul_mat
+    0.43%  spin      libgomp.so.1.0.0             0x00000000000259ef
+    0.23%  attn_ops  libggml-cpu.so.0.25.3        quantize_row_q8_0
+    0.19%  spin      libgomp.so.1.0.0             0x00000000000258a0
+    0.16%  spin      libgomp.so.1.0.0             0x00000000000258ab
+    0.14%  spin      libgomp.so.1.0.0             0x00000000000256c6
+    0.14%  dispatch  libggml-cpu.so.0.25.3        ggml_graph_compute_thread.isra.0
+    0.12%  other     lcdrive                      main

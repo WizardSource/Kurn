@@ -1,0 +1,7 @@
+# Ternary (BitNet b1.58 TQ2_0) decode GEMV on CUDA. ggml-cuda has no TQ2_0 kernel.
+kernel   tq2_0_gemv_cuda
+op       gemv
+weights  tq2_0
+target   cuda
+layout   split
+tune     tpr=16,32,64 rpb=2,4,8 sub=1,2,4 unroll=1,2,4

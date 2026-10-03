@@ -3,7 +3,35 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [Unreleased] - 0.3.0.dev0
+
+### Added: hybrid device routing (`kurn hybrid`)
+- Modes `cpu` / `gpu` / `auto` / `hybrid`: pick a device per matmul, or assign a whole step so CPU and GPU
+  can run together (`route()`, `plan()`, `KURN_DEVICE`, `KURN_HYBRID_MIN_K`).
+- `kurn.ext.gpu` registers `kurn gpu`, `target cuda`, and `kurn hybrid` through `hooks`.
+
+### Added: CUDA backend (`target cuda`, `kurn.gpu`), stages 0-2 of the GPU plan; no GPU measurements yet
+- **Code generation:** CUDA C++ for the following, every file implementing `kurn_gpu.h`:
+  - decode GEMV (dp4a) on Q8_0, Q4_0, IQ4_NL, Q4_K, Q2_0, TQ2_0, Q1_0 and E8P, in `native` and `split` layouts, with
+    multi-column small-batch variants;
+  - an int8 tensor-core GEMM (`mma.sync.m16n8k32`, sync / register double-buffer / 2- and 3-stage `cp.async` pipelines) for
+    Q8_0, Q4_0 and IQ4_NL;
+  - activation quantizers matching ggml's reference rounding;
+  - device repack kernels.
+- **CPU warp emulator** (`kurn_cuemu.h`): fibers with real barrier, warp-shuffle and `mma.sync` fragment semantics, deferred
+  `cp.async`, alignment and guard-page checks, randomized schedules. Every generated kernel runs on it against an exact C
+  reference (`kurn_gpu_ref.h`, tied to `kurn.formats`).
+- **nvcc/ptxas checks** for sm_80 / sm_90 / sm_100: registers, shared memory, spills and static occupancy. SASS is checked for
+  IMMA and LDGSTS.
+- **GPU harness** (`bench_gpu.cu`): measured HBM and tensor-core roofline, CUDA-graph timing with cold weights, NVML board
+  energy, cuBLAS FP16/INT8 baselines, and llama.cpp ggml-cuda MUL_MAT as an in-process competitor on identical bytes.
+- **Benchmark matrix:** formats × batch 1/4/16/64/256 on Llama-3-8B layer shapes, with interleaved rounds.
+- **Report:** a 2-sigma win rule, wins/ties/losses, and `dispatch.json`. `kernel_for()` falls back to the competitor's kernel
+  wherever KURN does not win.
+- **Tuning:** energy-ranked GPU tuning (NVML joules).
+- **Kit:** the hand-run kit `contrib/gpu-check/` (`run_gpu_check.sh`, `make_kit.sh`, optional Marlin script).
+- **Integration:** `kurn.hooks.TARGET_BACKENDS` routes `kurn check|gen|build|verify|tune` to a backend by the spec's target.
+- **CLI:** `kurn gpu ...` commands.
 
 ## [0.2.1] - 2026-10-03
 

@@ -2,8 +2,10 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**A small spec language and energy-aware autotuner for quantized CPU LLM inference kernels: 8-, 4-, 2- and 1-bit
-GEMV/verify, attention, compressed weights, and a compiled whole-model decode engine.**
+**A tool that writes the math AI models run on.** You describe a kernel in a short spec file; kurn generates it, checks it
+against an exact reference and tunes it for speed or energy. CPU: 8-, 4-, 2- and 1-bit GEMV/verify, attention, compressed
+weights and a compiled whole-model decode engine. CUDA (new, 0.3 development line): decode GEMV for eight ggml formats and an
+int8 tensor-core GEMM, verified without a GPU and packaged as a hand-run benchmark kit.
 
 You write a kernel as a flat spec file of about ten `key value` lines. kurn turns it into plain, dependency-free C with intrinsics for
 scalar, AVX2, AVX-VNNI, AVX-512 VNNI, AMX or NEON. The kernels read ggml's block formats (Q8_0, Q4_0, Q4_K, IQ4_NL, MXFP4, NVFP4,
@@ -27,7 +29,8 @@ kurn verify examples/q8_0_gemv_vnni16.kurn                               # numer
 kurn tune   examples/q8_0_gemv_vnni16.kurn --regime cold --objective energy
 ```
 
-Status: **0.2.1, alpha research code.** All results come from one machine (see [Results](#results) and its caveats).
+Status: **0.3.0.dev0, alpha research code.** CPU results come from one machine (see [Results](#results) and its caveats).
+The CUDA backend has **no GPU measurements yet** (see [CUDA backend](#cuda-backend-target-cuda)).
 
 ## Why
 
@@ -206,6 +209,78 @@ the harness.
 The proxy cannot see differences in energy per instruction or DRAM energy. If you have RAPL, compare its readings against the
 proxy before trusting energy rankings.
 
+## Hybrid architecture (CPU, GPU, or both)
+
+kurn can run a decode/prefill step on **CPU only**, **GPU only**, or **CPU and GPU together**.
+`kurn hybrid` picks the device per matmul from a measured GPU dispatch table (`kurn gpu report` → `dispatch.json`):
+
+| mode | behaviour |
+|---|---|
+| `cpu` | always CPU kernels |
+| `gpu` | always CUDA when a GPU is present (stock ggml-cuda where KURN does not win) |
+| `auto` | one device per op: GPU only where the table shows a KURN win |
+| `hybrid` | same win rule, but independent ops in one step may land on **both** devices |
+
+```sh
+kurn hybrid modes
+kurn hybrid route q4_0 1 --mode auto --table out/dispatch.json
+kurn hybrid plan  step.json --mode hybrid --table out/dispatch.json
+# step.json: [{"fmt":"q4_0","batch":1,"K":4096,"name":"attn_q"}, ...]
+```
+
+Environment: `KURN_DEVICE` (default mode), `KURN_GPU_DISPATCH` (table path), `KURN_HYBRID_MIN_K` (skip GPU below this K; default 512).
+
+## CUDA backend (`target cuda`)
+
+A spec with `target cuda` goes to `kurn.gpu` (registered through `kurn.hooks.TARGET_BACKENDS`), which emits one
+self-contained CUDA C++ file per configuration implementing [`kurn_gpu.h`](src/kurn/gpu/data/kurn_gpu.h). The same file compiles
+with nvcc and, with `-DKURN_EMU`, as host C++ against a CPU warp emulator.
+
+| op | formats | method | keys |
+|---|---|---|---|
+| `gemv` (decode; `cols` 2-8 for small batches) | Q8_0, Q4_0, IQ4_NL, Q4_K, Q2_0, TQ2_0, Q1_0, E8P | dp4a over 32-value chunks, warp-shuffle reduction | `layout` (native / split), `tpr`, `rpb`, `sub`, `unroll`, `cols`, `minb`, `mins` (Q4_K), `unpack` (Q1_0) |
+| `gemm` (batched) | Q8_0, Q4_0, IQ4_NL | int8 `mma.sync.m16n8k32` (sm_80+): one K step = one 32-value block, so each block's scales apply to one int32 result; Q4 nibbles expanded at fragment load | `layout`, `bm`, `bn`, `wm`, `wn`, `bkb`, `pipe` (sync / reg2 / async2 / async3 `cp.async`), `pad`, `minb` |
+
+Every generated file also has the f32 → Q8_0 / Q8_K activation quantizers (ggml's reference rounding) and a device repack
+kernel for `layout split` (a 16-byte-aligned quant plane plus a scale plane). Only sm_80 features are used, so the code runs on
+Ampere, Ada, Hopper and Blackwell; wgmma / tcgen05 / TMA / FP8 / FP4 paths are planned, not built.
+
+```sh
+kurn check  examples/gpu/q8_0_gemm_cuda.kurn            # validate; tune-space size
+kurn gen    examples/gpu/tq2_0_gemv_cuda.kurn -o k.cu    # emit CUDA C++
+kurn verify examples/gpu/e8p_gemv_cuda.kurn --space      # numerics on the CPU emulator (no GPU needed)
+kurn gpu ptxas --all --archs sm_80,sm_90,sm_100          # nvcc/ptxas: registers, shared memory, spills, occupancy
+kurn gpu build examples/gpu/q4_0_gemm_cuda.kurn --archs sm_80,sm_90
+kurn gpu harness --llama ~/src/llama.cpp                 # GPU harness, optionally linked with ggml-cuda as a competitor
+kurn gpu verify --all --gpu                              # on a GPU: every covering config vs the exact reference
+kurn gpu tune examples/gpu/q4_0_gemv_cuda.kurn --objective energy   # NVML board energy, not a proxy
+kurn gpu matrix --results out/ && kurn gpu report out/   # benchmark matrix, wins/ties/losses, dispatch.json
+kurn gpu dispatch q4_0 1 --table out/dispatch.json       # what kernel_for() picks
+```
+
+**Verification without a GPU.**
+- **CPU warp emulator** ([`kurn_cuemu.h`](src/kurn/gpu/data/kurn_cuemu.h)): every CUDA thread is a fiber. It provides
+  `__syncthreads`, warp shuffles, `dp4a`, the PTX fragment layouts of `mma.sync`, and `cp.async` copies that are deferred until
+  their `wait_group`. Vector loads are alignment-checked and buffers end at a guard page. A randomized schedule (`KEMU_SEED`)
+  exposes shared-memory races. Tests inject the bug classes it is meant to catch (missing barriers, a missing `cp.async` wait,
+  a misaligned load, a dropped shuffle, dropped work) and require each one to fail.
+- **Exact reference:** a C double-precision reference ([`kurn_gpu_ref.h`](src/kurn/gpu/data/kurn_gpu_ref.h)) that tests tie to
+  `kurn.formats`. The quantizers must match ggml's reference quantizers byte for byte.
+- **nvcc/ptxas:** each config is compiled for sm_80, sm_90 and sm_100, recording register use and spills, with a static
+  occupancy estimate.
+
+**On a GPU** (the hand-run kit `contrib/gpu-check/`, built into `kurn-gpu-check.zip` by `make_kit.sh`), the harness
+([`bench_gpu.cu`](src/kurn/gpu/data/bench_gpu.cu)) works as follows:
+- **Correctness:** every KURN config is checked against the exact reference.
+- **Roofline:** HBM read bandwidth and the int8 `mma.sync` / dp4a peaks are measured.
+- **Benchmark matrix:** formats × batch 1/4/16/64/256 on a Llama-3-8B layer's matmuls. KURN runs against ggml-cuda (MUL_MAT on
+  identical bytes), cuBLAS FP16, cuBLAS INT8 (speed reference only) and Marlin (if installed). Implementations are interleaved,
+  5 rounds each, with NVML joules per token.
+- **Win rule:** a KURN win needs a > 2σ margin over the best competitor. `kernel_for()` returns the competitor's kernel
+  everywhere else.
+
+The plan, competitor analysis and success and kill criteria are in the Project doc `kurn-gpu-plan.md`.
+
 ## Embedding in ggml / llama.cpp
 
 `kurn gen SPEC --embed PREFIX` drops the `kurn.h` include (the host code base provides the block structs), prefixes every symbol,
@@ -298,6 +373,13 @@ What the numbers say:
 
 ## Roadmap
 
+- **GPU / hybrid:**
+  - first measurements with the hand-run kit (A100, then B200);
+  - ggml-cuda integration through `kernel_for()` and hybrid `plan()` overlap in the buffer type;
+  - a `q8_1` activation variant;
+  - Hopper/Blackwell batched paths (wgmma / tcgen05, TMA, FP8 / NVFP4) via generated CUTLASS kernels;
+  - a vLLM custom op.
+
 - **Validation off this VM:** AMD Zen 4/5, an AVX2-only laptop, real ARM (Graviton / Grace), and bare-metal AMX.
   `kurn-offline-check` packages the checks.
 - **ARM:** NEON and SVE lowerings for the recipe formats; macOS support for the harness and runtime.
@@ -338,15 +420,20 @@ src/kurn/attention/  attention op (spec, codegen, checker, bench, tuner); data/a
 src/kurn/runtime/    persistent pool, partitioners (static / balanced / split-K / steal), wait primitives
 src/kurn/model/      whole-model decode engine (engine.c v2, engine_v1.c), compile_model.py
 src/kurn/data/       kurn.h (kernel ABI), bench.c (standalone harness)
+src/kurn/gpu/        target cuda: spec.py, codegen.py (CUDA C++), emu.py + data/kurn_cuemu.h (CPU warp emulator),
+                     toolchain.py (nvcc, ptxas, occupancy), harness.py + data/bench_gpu.cu, tune.py, matrix.py,
+                     report.py (2-sigma win rule), dispatch.py (kernel_for), kit.py, cli.py (`kurn gpu ...`)
+src/kurn/hybrid/     device routing: cpu / gpu / auto / hybrid (`route`, `plan`, `kurn hybrid`)
 benchmarks/v0.2/     per-workstream benchmark scripts, results CSVs, benchlock.sh, final/ (coordinator re-measurement)
-examples/            q8_0_gemv_vnni16.kurn, q4_K_gemv.kurn, q8_0_gemm_amx.kurn, moe_expert_gemv.kurn
+examples/            CPU specs; examples/gpu/ for CUDA specs
 tests/               spec validation, registry consistency, golden codegen, numerics vs reference, harness, CLI
 integration/         llama.cpp: KURN extra buffer type (apply.sh), the 0.1 vnni16 hook patch, checkers, AMX test
-contrib/             ggml-linked harness (check against ggml's own kernels)
+contrib/             ggml-linked harness (check against ggml's own kernels); gpu-check/ (hand-run GPU kit)
 ```
 
-Environment variables: `KURN_CC`, `KURN_CROSS_CC`, `KURN_QEMU` and `KURN_CACHE_DIR`. See
-[`src/kurn/toolchain.py`](src/kurn/toolchain.py).
+Environment variables: `KURN_CC`, `KURN_CROSS_CC`, `KURN_QEMU` and `KURN_CACHE_DIR` (see
+[`src/kurn/toolchain.py`](src/kurn/toolchain.py)); for CUDA, `KURN_NVCC`, `KURN_CXX`, `KEMU_SEED` and `KURN_GPU_DISPATCH` (see
+[`src/kurn/gpu/`](src/kurn/gpu/)); for hybrid routing, `KURN_DEVICE` and `KURN_HYBRID_MIN_K` (see [`src/kurn/hybrid/`](src/kurn/hybrid/)).
 
 ## Contributing and license
 

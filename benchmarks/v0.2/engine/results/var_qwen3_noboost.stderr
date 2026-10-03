@@ -1,0 +1,102 @@
+== rep 0 v2
+load+run 4.8 s
+thread 0 wait attn 0.152 ffn 0.223 out 0.055
+thread 1 wait attn 0.163 ffn 0.229 out 0.045
+thread 2 wait attn 0.161 ffn 0.255 out 0.047
+thread 3 wait attn 0.168 ffn 0.245 out 0.044
+thread 4 wait attn 0.163 ffn 0.250 out 0.050
+thread 5 wait attn 0.168 ffn 0.242 out 0.043
+thread 6 wait attn 0.167 ffn 0.248 out 0.047
+thread 7 wait attn 0.158 ffn 0.244 out 0.040
+== rep 0 v2_unfused
+load+run 5.0 s
+== rep 0 v2_nothp
+load+run 3.9 s
+== rep 0 v2_pf256k
+load+run 4.6 s
+thread 0 wait attn 0.170 ffn 0.237 out 0.058
+thread 1 wait attn 0.153 ffn 0.227 out 0.060
+thread 2 wait attn 0.143 ffn 0.223 out 0.061
+thread 3 wait attn 0.158 ffn 0.236 out 0.066
+thread 4 wait attn 0.155 ffn 0.234 out 0.058
+thread 5 wait attn 0.158 ffn 0.241 out 0.064
+thread 6 wait attn 0.154 ffn 0.252 out 0.064
+thread 7 wait attn 0.146 ffn 0.225 out 0.061
+== rep 0 v2_T7
+load+run 4.2 s
+thread 0 wait attn 0.179 ffn 0.151 out 0.081
+thread 1 wait attn 0.170 ffn 0.146 out 0.084
+thread 2 wait attn 0.173 ffn 0.129 out 0.079
+thread 3 wait attn 0.177 ffn 0.135 out 0.077
+thread 4 wait attn 0.175 ffn 0.129 out 0.079
+thread 5 wait attn 0.174 ffn 0.139 out 0.080
+thread 6 wait attn 0.075 ffn 0.132 out 0.024
+== rep 0 lc_amx_T7
+== rep 1 v2
+load+run 11.6 s
+thread 0 wait attn 0.184 ffn 0.258 out 0.046
+thread 1 wait attn 0.181 ffn 0.251 out 0.045
+thread 2 wait attn 0.183 ffn 0.256 out 0.047
+thread 3 wait attn 0.192 ffn 0.280 out 0.057
+thread 4 wait attn 0.165 ffn 0.260 out 0.045
+thread 5 wait attn 0.174 ffn 0.262 out 0.047
+thread 6 wait attn 0.176 ffn 0.266 out 0.048
+thread 7 wait attn 0.177 ffn 0.244 out 0.040
+== rep 1 v2_unfused
+load+run 4.1 s
+== rep 1 v2_nothp
+load+run 4.2 s
+== rep 1 v2_pf256k
+load+run 4.7 s
+thread 0 wait attn 0.146 ffn 0.247 out 0.041
+thread 1 wait attn 0.149 ffn 0.231 out 0.042
+thread 2 wait attn 0.151 ffn 0.242 out 0.046
+thread 3 wait attn 0.158 ffn 0.233 out 0.043
+thread 4 wait attn 0.161 ffn 0.263 out 0.045
+thread 5 wait attn 0.160 ffn 0.239 out 0.039
+thread 6 wait attn 0.155 ffn 0.256 out 0.044
+thread 7 wait attn 0.126 ffn 0.204 out 0.043
+== rep 1 v2_T7
+load+run 4.2 s
+thread 0 wait attn 0.204 ffn 0.181 out 0.032
+thread 1 wait attn 0.188 ffn 0.172 out 0.026
+thread 2 wait attn 0.205 ffn 0.178 out 0.032
+thread 3 wait attn 0.202 ffn 0.172 out 0.031
+thread 4 wait attn 0.185 ffn 0.166 out 0.027
+thread 5 wait attn 0.192 ffn 0.189 out 0.030
+thread 6 wait attn 0.082 ffn 0.181 out 0.038
+== rep 1 lc_amx_T7
+== rep 2 v2
+load+run 3.9 s
+thread 0 wait attn 0.126 ffn 0.218 out 0.054
+thread 1 wait attn 0.129 ffn 0.221 out 0.047
+thread 2 wait attn 0.125 ffn 0.232 out 0.049
+thread 3 wait attn 0.123 ffn 0.247 out 0.055
+thread 4 wait attn 0.132 ffn 0.232 out 0.049
+thread 5 wait attn 0.111 ffn 0.198 out 0.050
+thread 6 wait attn 0.118 ffn 0.224 out 0.057
+thread 7 wait attn 0.139 ffn 0.213 out 0.047
+== rep 2 v2_unfused
+load+run 3.8 s
+== rep 2 v2_nothp
+load+run 4.2 s
+== rep 2 v2_pf256k
+load+run 4.2 s
+thread 0 wait attn 0.158 ffn 0.260 out 0.039
+thread 1 wait attn 0.152 ffn 0.259 out 0.041
+thread 2 wait attn 0.143 ffn 0.260 out 0.040
+thread 3 wait attn 0.158 ffn 0.260 out 0.048
+thread 4 wait attn 0.158 ffn 0.258 out 0.039
+thread 5 wait attn 0.155 ffn 0.254 out 0.040
+thread 6 wait attn 0.159 ffn 0.256 out 0.041
+thread 7 wait attn 0.121 ffn 0.198 out 0.038
+== rep 2 v2_T7
+load+run 4.2 s
+thread 0 wait attn 0.194 ffn 0.191 out 0.031
+thread 1 wait attn 0.186 ffn 0.161 out 0.025
+thread 2 wait attn 0.194 ffn 0.178 out 0.024
+thread 3 wait attn 0.190 ffn 0.189 out 0.024
+thread 4 wait attn 0.199 ffn 0.171 out 0.026
+thread 5 wait attn 0.195 ffn 0.206 out 0.030
+thread 6 wait attn 0.078 ffn 0.186 out 0.029
+== rep 2 lc_amx_T7

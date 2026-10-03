@@ -1,0 +1,10 @@
+ggml_vec_dot                                 25.17 us     23.7 GB/s  cpu/wall 1.00  drift 0.000  ok  [25.3;25.2;25.4;25.2;25.1]
+ggml_graph_amx                               14.11 us     42.2 GB/s  cpu/wall 1.00  drift 0.000  ok  [14.1;15.2;14.7;14.1;13.9]
+kurn_v01_hot_cfg                             22.40 us     26.6 GB/s  cpu/wall 1.00  drift 0.000  ok  [22.5;22.4;22.5;22.4;22.4]
+v1_native                                    34.87 us     17.1 GB/s  cpu/wall 1.00  drift 0.000  ok  [40.0;34.9;34.8;34.9;34.8]
+v2_native                                    22.38 us     26.6 GB/s  cpu/wall 1.00  drift 0.000  ok  [22.4;22.4;22.4;22.4;22.4]
+search_native_winner                         22.43 us     26.5 GB/s  cpu/wall 1.00  drift 0.000  ok  [22.6;22.4;22.4;22.4;22.4]
+i16_default_r2                                8.33 us     71.5 GB/s  cpu/wall 1.00  drift 0.000  ok  [8.3;8.5;8.4;8.3;8.3]
+composed_default_r2                           8.28 us     71.9 GB/s  cpu/wall 1.00  drift 0.000  ok  [8.3;8.4;8.2;8.3;8.2]
+search_full_winner                            7.34 us     81.2 GB/s  cpu/wall 1.00  drift 0.000  ok  [7.3;7.4;7.3;7.3;7.3]
+loadavg ['3.48', '5.34', '4.76']  time 11:29:50

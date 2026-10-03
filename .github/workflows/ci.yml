@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check .
+      - run: ruff format --check .
+
+  test-x86:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install '.[dev]'
+      - name: Host capabilities
+        run: |
+          grep -m1 'model name' /proc/cpuinfo
+          kurn targets
+      # Kernels the runner's CPU cannot execute are compiled (with -Werror) and skipped at run time.
+      - run: pytest -q -rs
+      - run: kurn verify --all --strict
+      - name: Generate and compile the example kernels
+        run: |
+          for s in examples/*.kurn; do kurn build "$s"; done
+          kurn gen examples/q8_0_gemv_vnni16.kurn --embed kurn_ -o /tmp/kurn_q8_0_gemv.inc
+
+  neon:
+    name: NEON cross-compile (+ qemu correctness)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu qemu-user
+      - run: pip install '.[dev]'
+      - name: Cross-compile every NEON configuration with -Werror and run each under qemu
+        run: |
+          kurn targets | grep neon
+          python - <<'EOF'
+          import subprocess, sys
+          from kurn.spec import legal_configs
+          from kurn.toolchain import build, run_mode
+          from kurn.harness import check
+          assert run_mode("neon")[0] == "qemu", run_mode("neon")
+          fails = 0
+          for c in legal_configs(target="neon", prefetch=None):
+              so = build(c, extra_flags=("-Wall", "-Wextra", "-Wshadow", "-Werror"))
+              subprocess.run(["file", so], check=True)
+              row = check(so, c)
+              print(c["rows"], c["prefetch"], row["check"], row["relerr"])
+              fails += row["check"] != "ok"
+          sys.exit(fails)
+          EOF
+      - run: pytest -q tests/test_harness.py -k neon

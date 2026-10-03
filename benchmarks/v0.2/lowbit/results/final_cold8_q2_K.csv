@@ -1,0 +1,3 @@
+format,regime,threads,impl,K,N,reps,us,us_min,us_max,cpu_us,energy_uJ,Gweights_s,GBps_ggml_bytes,packed_bpw,GBps_packed,pct_roofline,max_drift_s,relerr,config
+q2_K,cold,8,kurn k16,4096,4096,3,79.573,70.983,80.649,636.062,3479.26,210.84,69.18,2.625,69.18,53.8,0.0,3.11e-07,layout=k16 rows=4 prefetch=0
+q2_K,cold,8,ggml vec_dot,4096,4096,3,149.04,143.953,149.242,1191.24,6516.08,112.57,36.94,2.625,36.94,28.7,0.0,0.0,

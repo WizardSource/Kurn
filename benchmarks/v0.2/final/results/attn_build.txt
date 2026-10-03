@@ -1,0 +1,9 @@
+CMAKE_BUILD_TYPE=Release
+fatal: not a git repository (or any of the parent directories): .git
+fatal: not a git repository (or any of the parent directories): .git
+CMake Warning at common/CMakeLists.txt:33 (message):
+  Git repository not found; to enable automatic generation of build info,
+  make sure Git is installed and the project is a Git repository.
+
+
+lrwxrwxrwx 1 ubuntu ubuntu 16 Oct  3 15:50 /tmp/llama-kattn/build/bin/libggml-cpu.so -> libggml-cpu.so.0
