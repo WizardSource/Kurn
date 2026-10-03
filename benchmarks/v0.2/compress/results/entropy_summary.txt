@@ -1,0 +1,9 @@
+# Lossless entropy coding of quantized codes (entropy_tensors.csv, per-tensor order-0 histograms,
+# weighted by code count). H = Shannon bound of the codes; huff12 = length-limited (12-bit) canonical
+# Huffman, as decoded by entropy_bench.c. bpw includes the unchanged scales.
+qwen3-1.7b-q8_0.gguf       Q8_0  code bits 8: H 7.662  huff12 7.686  -> code saving H 4.2% huff 3.9%; bpw 8.5000 -> 8.1864 (3.7%)
+Qwen3-1.7B-Q4_0.gguf       Q4_0  code bits 4: H 3.742  huff12 3.770  -> code saving H 6.5% huff 5.8%; bpw 4.5000 -> 4.2698 (5.1%)
+Qwen3-1.7B-Q4_0.gguf       Q6_K  code bits 6: H 5.801  huff12 5.837  -> code saving H 3.3% huff 2.7%; bpw 6.5625 -> 6.3992 (2.5%)
+qwen3-1.7b-q4_k_m.gguf     Q4_K  code bits 4: H 3.860  huff12 3.898  -> code saving H 3.5% huff 2.6%; bpw 4.5000 -> 4.3979 (2.3%)
+qwen3-1.7b-q4_k_m.gguf     Q6_K  code bits 6: H 5.789  huff12 5.824  -> code saving H 3.5% huff 2.9%; bpw 6.5625 -> 6.3862 (2.7%)
+qwen3-1.7b-q6_k.gguf       Q6_K  code bits 6: H 5.784  huff12 5.818  -> code saving H 3.6% huff 3.0%; bpw 6.5625 -> 6.3808 (2.8%)

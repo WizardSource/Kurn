@@ -1,0 +1,39 @@
+load at start: 21.06 23.10 21.89 18/458 2885954
+best by energy:
+   rows=4 prefetch=8 threads=1  us=31.8  cpu_us=31.5  energy_uJ=172.3  GBps=8.7  GOPs=65.9
+   rows=4 prefetch=4 threads=1  us=32.6  cpu_us=32.2  energy_uJ=176.4  GBps=8.5  GOPs=64.4
+   rows=2 prefetch=16 threads=1  us=34.1  cpu_us=33.0  energy_uJ=180.5  GBps=8.1  GOPs=61.6
+   rows=4 prefetch=16 threads=1  us=33.4  cpu_us=33.0  energy_uJ=180.6  GBps=8.3  GOPs=62.9
+   rows=8 prefetch=4 threads=1  us=34.0  cpu_us=33.5  energy_uJ=183.0  GBps=8.1  GOPs=61.6
+pareto front (time vs energy):
+   rows=4 prefetch=8 threads=1  us=31.8  cpu_us=31.5  energy_uJ=172.3  GBps=8.7  GOPs=65.9
+best by energy:
+   rows=4 prefetch=4  us=144.1  cpu_us=1130.6  energy_uJ=6184.2  GBps=30.2  GOPs=232.8
+   rows=1 prefetch=16  us=178.0  cpu_us=1314.6  energy_uJ=7190.8  GBps=24.4  GOPs=188.5
+   rows=4 prefetch=16  us=181.6  cpu_us=1405.1  energy_uJ=7686.1  GBps=23.9  GOPs=184.8
+   rows=2 prefetch=0  us=184.6  cpu_us=1422.8  energy_uJ=7782.7  GBps=23.5  GOPs=181.8
+   rows=1 prefetch=4  us=225.7  cpu_us=1642.0  energy_uJ=8981.7  GBps=19.3  GOPs=148.7
+pareto front (time vs energy):
+   rows=4 prefetch=4  us=144.1  cpu_us=1130.6  energy_uJ=6184.2  GBps=30.2  GOPs=232.8
+v02_e8p_r4pf4 v02_e8p_r4pf4          e8p_gemv   hot  T=1 K=4096 N=256 M=1 |      36.2 us/call      7.6 GB/s     57.9 GOP/s | cpu/wall 0.86 | proxy 170.0 uJ/call 162.09 pJ/MAC | relerr 5.6e-08 ok
+v02_e8p_r1pf0 v02_e8p_r1pf0          e8p_gemv   hot  T=1 K=4096 N=256 M=1 |      33.1 us/call      8.3 GB/s     63.4 GOP/s | cpu/wall 0.96 | proxy 173.9 uJ/call 165.87 pJ/MAC | relerr 5.6e-08 ok
+v02_q8_0_vnni16 v02_q8_0_vnni16        q8_0_gemv  hot  T=1 K=4096 N=256 M=1 |      11.3 us/call     99.5 GB/s    186.3 GOP/s | cpu/wall 0.92 | proxy 56.6 uJ/call 53.98 pJ/MAC | relerr 3.1e-07 ok
+v02_q4_K v02_q4_K               q4_K_gemv  hot  T=1 K=4096 N=256 M=1 |      26.9 us/call     22.2 GB/s     78.1 GOP/s | cpu/wall 0.91 | proxy 133.6 uJ/call 127.43 pJ/MAC | relerr 1.7e-07 ok
+v01_q8_0_vnni16 v01_q8_0_vnni16        q8_0_gemv  hot  T=1 K=4096 N=256 M=1 |      10.1 us/call    110.7 GB/s    207.3 GOP/s | cpu/wall 0.97 | proxy 53.9 uJ/call 51.43 pJ/MAC | relerr 3.1e-07 ok
+v01_q4_K v01_q4_K               q4_K_gemv  hot  T=1 K=4096 N=256 M=1 |      24.7 us/call     24.1 GB/s     84.9 GOP/s | cpu/wall 0.98 | proxy 132.5 uJ/call 126.35 pJ/MAC | relerr 1.7e-07 ok
+ggml_q8gemv ggml_q8gemv            q8_0_gemv  hot  T=1 K=4096 N=256 M=1 |      36.1 us/call     31.0 GB/s     58.1 GOP/s | cpu/wall 0.94 | proxy 185.7 uJ/call 177.14 pJ/MAC | relerr 0.0e+00 ok
+ggml_q4kgemv ggml_q4kgemv           q4_K_gemv  hot  T=1 K=4096 N=256 M=1 |      27.3 us/call     21.8 GB/s     76.7 GOP/s | cpu/wall 0.99 | proxy 148.7 uJ/call 141.83 pJ/MAC | relerr 0.0e+00 ok
+ggml_q2kgemv ggml_q2kgemv           q2_K_gemv  hot  T=1 K=4096 N=256 M=1 |      24.4 us/call     14.3 GB/s     86.0 GOP/s | cpu/wall 1.00 | proxy 133.3 uJ/call 127.13 pJ/MAC | relerr 0.0e+00 ok
+ggml_iq2xxsgemv ggml_iq2xxsgemv        iq2_xxs_gemv hot  T=1 K=4096 N=256 M=1 |      66.9 us/call      4.1 GB/s     31.3 GOP/s | cpu/wall 0.99 | proxy 361.2 uJ/call 344.51 pJ/MAC | relerr 0.0e+00 ok
+ggml_iq2xsgemv ggml_iq2xsgemv         iq2_xs_gemv hot  T=1 K=4096 N=256 M=1 |      81.3 us/call      3.8 GB/s     25.8 GOP/s | cpu/wall 0.98 | proxy 435.8 uJ/call 415.64 pJ/MAC | relerr 0.0e+00 ok
+ggml_iq3xxsgemv ggml_iq3xxsgemv        iq3_xxs_gemv hot  T=1 K=4096 N=256 M=1 |      94.4 us/call      4.3 GB/s     22.2 GOP/s | cpu/wall 0.87 | proxy 451.2 uJ/call 430.33 pJ/MAC | relerr 0.0e+00 ok
+ggml_iq4xsgemv ggml_iq4xsgemv         iq4_xs_gemv hot  T=1 K=4096 N=256 M=1 |      47.0 us/call     12.0 GB/s     44.7 GOP/s | cpu/wall 0.93 | proxy 237.7 uJ/call 226.68 pJ/MAC | relerr 0.0e+00 ok
+v02_e8p_r4pf4 v02_e8p_r4pf4          e8p_gemv   cold T=1 K=4096 N=4096 M=1 |     994.1 us/call      4.4 GB/s     33.8 GOP/s | cpu/wall 0.96 | proxy 5232.8 uJ/call 311.90 pJ/MAC | relerr 1.6e-07 ok
+v02_e8p_r1pf0 v02_e8p_r1pf0          e8p_gemv   cold T=1 K=4096 N=4096 M=1 |     986.5 us/call      4.4 GB/s     34.0 GOP/s | cpu/wall 0.96 | proxy 5159.0 uJ/call 307.50 pJ/MAC | relerr 1.6e-07 ok
+v02_q8_0_vnni16 v02_q8_0_vnni16        q8_0_gemv  cold T=1 K=4096 N=4096 M=1 |    1351.7 us/call     13.2 GB/s     24.8 GOP/s | cpu/wall 0.93 | proxy 6880.1 uJ/call 410.08 pJ/MAC | relerr 5.8e-07 ok
+v02_q4_K v02_q4_K               q4_K_gemv  cold T=1 K=4096 N=4096 M=1 |    1262.3 us/call      7.5 GB/s     26.6 GOP/s | cpu/wall 0.96 | proxy 6623.6 uJ/call 394.80 pJ/MAC | relerr 2.4e-07 ok
+v01_q8_0_vnni16 v01_q8_0_vnni16        q8_0_gemv  cold T=1 K=4096 N=4096 M=1 |    1190.3 us/call     15.0 GB/s     28.2 GOP/s | cpu/wall 1.00 | proxy 6509.6 uJ/call 388.00 pJ/MAC | relerr 5.8e-07 ok
+v01_q4_K v01_q4_K               q4_K_gemv  cold T=1 K=4096 N=4096 M=1 |    1219.6 us/call      7.8 GB/s     27.5 GOP/s | cpu/wall 0.98 | proxy 6511.4 uJ/call 388.11 pJ/MAC | relerr 2.4e-07 ok
+ggml_q8gemv ggml_q8gemv            q8_0_gemv  cold T=1 K=4096 N=4096 M=1 |    2683.4 us/call      6.7 GB/s     12.5 GOP/s | cpu/wall 0.93 | proxy 13698.8 uJ/call 816.52 pJ/MAC | relerr 0.0e+00 ok
+ggml_q4kgemv ggml_q4kgemv           q4_K_gemv  cold T=1 K=4096 N=4096 M=1 |    1983.1 us/call      4.8 GB/s     16.9 GOP/s | cpu/wall 0.85 | proxy 9203.1 uJ/call 548.55 pJ/MAC | relerr 0.0e+00 ok
+ggml_q2kgemv ggml_q2kgemv           q2_K_gemv  cold T=1 K=4096 N=4096 M=1 |    1384.8 us/call      4.0 GB/s     24.2 GOP/s | cpu/wall 0.99 | proxy 7494.7 uJ/call 446.72 pJ/MAC | relerr 0.0e+00 ok

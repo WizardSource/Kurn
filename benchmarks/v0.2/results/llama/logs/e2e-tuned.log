@@ -1,0 +1,16 @@
+  rep 1 Qwen3-1.7B-Q8_0.gguf default: decode [49.772445] prefill [720.196742] load 18.67
+  rep 1 Qwen3-1.7B-Q8_0.gguf kurn: decode [52.164067] prefill [814.585492] load 18.67
+  rep 1 Qwen3-1.7B-Q8_0.gguf kurn-amx: decode [52.301379] prefill [1083.560341] load 18.67
+  rep 1 Qwen3-1.7B-Q8_0.gguf kurn-r4: decode [55.60495] prefill [826.631029] load 18.67
+  rep 1 Qwen3-1.7B-Q4_0.gguf default: decode [66.790916] prefill [722.654955] load 18.67
+  rep 1 Qwen3-1.7B-Q4_0.gguf kurn: decode [61.228189] prefill [771.614332] load 18.67
+  rep 1 Qwen3-1.7B-Q4_0.gguf kurn-amx: decode [59.624264] prefill [803.193312] load 18.67
+  rep 1 Qwen3-1.7B-Q4_0.gguf kurn-r4: decode [59.136505] prefill [853.311206] load 18.67
+  rep 1 Qwen3-1.7B-IQ4_NL.gguf default: decode [41.839592] prefill [371.237688] load 18.67
+  rep 1 Qwen3-1.7B-IQ4_NL.gguf kurn: decode [59.6497] prefill [788.991707] load 18.67
+  rep 1 Qwen3-1.7B-IQ4_NL.gguf kurn-amx: decode [60.002454] prefill [795.421875] load 18.67
+  rep 1 Qwen3-1.7B-IQ4_NL.gguf kurn-r4: decode [61.122173] prefill [737.568724] load 18.67
+  rep 1 Bonsai-1.7B-Q1_0.gguf default: decode [108.473607] prefill [185.856728] load 18.67
+  rep 1 Bonsai-1.7B-Q1_0.gguf kurn: decode [233.581835] prefill [685.058323] load 18.67
+  rep 1 Bonsai-1.7B-Q1_0.gguf kurn-amx: decode [221.731666] prefill [689.385901] load 18.67
+  rep 1 Bonsai-1.7B-Q1_0.gguf kurn-r4: decode [238.612818] prefill [702.911742] load 18.67

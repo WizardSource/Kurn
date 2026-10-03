@@ -1,0 +1,6 @@
+ 02:04:33 up  3:28,  0 user,  load average: 21.37, 21.21, 22.14
+dram: 5.3 GB/s (threads=1, streams=1)
+l2: 19.8 GB/s (threads=1, streams=1)
+dram: 35.8 GB/s (threads=8, streams=1)
+l2: 72.8 GB/s (threads=8, streams=1)
+ 02:04:39 up  3:29,  0 user,  load average: 21.46, 21.24, 22.14

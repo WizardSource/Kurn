@@ -1,0 +1,9 @@
+# Predicted objective (sum over tensors of mean per-row imatrix-weighted relative error; same
+# metric for all three) of mixed.allocate_rows at equal bpw: per tensor vs per 256 / 16 output rows.
+# profile.json + profile-rows.npz of Qwen3-1.7B, token_embd not pinned. Untimed, predicted only.
+K 3.0 group=tensor: 2.999 bpw obj 5.572 | group=256: 3.000 bpw obj 5.559 | group=16: 3.000 bpw obj 5.528
+K 4.0 group=tensor: 4.000 bpw obj 1.200 | group=256: 4.000 bpw obj 1.198 | group=16: 4.000 bpw obj 1.188
+K 5.0 group=tensor: 5.000 bpw obj 0.294 | group=256: 5.000 bpw obj 0.294 | group=16: 5.000 bpw obj 0.291
+all 3.0 group=tensor: 3.000 bpw obj 4.229 | group=256: 3.000 bpw obj 4.215 | group=16: 3.000 bpw obj 4.179
+all 4.0 group=tensor: 4.000 bpw obj 0.917 | group=256: 4.000 bpw obj 0.915 | group=16: 4.000 bpw obj 0.910
+all 5.0 group=tensor: 4.999 bpw obj 0.281 | group=256: 5.000 bpw obj 0.280 | group=16: 5.000 bpw obj 0.278

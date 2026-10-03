@@ -1,0 +1,13 @@
+build,config,prompt,tok_s,tok_s_spread,J_tok,accept_pct,n_drafted,n_accept,identical,first_diff,max_load,reps,commit
+stock,greedy,0,10.03,0.02,5.026,,0,0,True,,25.93,3,4ebdf2c74
+stock,spec-td8,0,21.94,0.098,2.218,61.1,555,339,True,,25.93,3,4ebdf2c74
+stock,spec-td2,0,13.16,0.022,2.019,62.2,547,340,True,,25.93,3,4ebdf2c74
+stock,greedy,1,10.0,0.041,4.048,,0,0,True,,25.93,3,4ebdf2c74
+stock,spec-td8,1,12.0,0.34,3.075,28.4,953,271,False,242,25.93,3,4ebdf2c74
+stock,spec-td2,1,6.97,0.043,3.574,26.2,1004,263,True,,25.93,3,4ebdf2c74
+kurn,greedy,0,9.76,0.054,4.659,,0,0,True,,19.78,3,a35bcc779
+kurn,spec-td8,0,19.03,0.071,2.395,64.4,531,342,True,,19.78,3,a35bcc779
+kurn,spec-td2,0,11.8,0.075,2.325,64.4,531,342,True,,19.78,3,a35bcc779
+kurn,greedy,1,9.58,0.055,4.584,,0,0,True,,19.78,3,a35bcc779
+kurn,spec-td8,1,9.09,0.059,4.752,25.6,1020,261,True,,19.78,3,a35bcc779
+kurn,spec-td2,1,6.05,0.09,4.58,25.6,1020,261,True,,19.78,3,a35bcc779

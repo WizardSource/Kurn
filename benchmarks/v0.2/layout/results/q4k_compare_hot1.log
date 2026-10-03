@@ -1,0 +1,12 @@
+ 00:29:07 up  1:53,  0 user,  load average: 22.44, 24.81, 21.98
+ggml_vec_dot                                 29.43 us     20.2 GB/s  cpu/wall 0.94  drift 0.000  ok  [28.7;28.2;30.5;29.4;30.0]
+ggml_graph_amx                               17.02 us     35.0 GB/s  cpu/wall 0.98  drift 0.000  ok  [16.8;17.5;17.4;16.9;17.0]
+kurn_v01_hot_cfg                             26.99 us     22.1 GB/s  cpu/wall 0.96  drift 0.000  ok  [26.7;27.0;30.1;30.7;24.8]
+v1_native                                    42.73 us     13.9 GB/s  cpu/wall 0.95  drift 0.000  ok  [40.5;42.7;52.3;46.1;39.9]
+v2_native                                    28.08 us     21.2 GB/s  cpu/wall 0.95  drift 0.000  ok  [26.9;28.0;28.1;30.6;28.4]
+search_native_winner                         27.33 us     21.8 GB/s  cpu/wall 0.94  drift 0.000  ok  [25.7;27.0;27.3;29.0;27.6]
+i16_default_r2                                9.84 us     60.5 GB/s  cpu/wall 0.96  drift 0.000  ok  [10.2;9.8;9.6;9.9;9.8]
+composed_default_r2                           9.96 us     59.8 GB/s  cpu/wall 0.94  drift 0.000  ok  [10.0;9.3;9.3;10.4;10.0]
+search_full_winner                            8.98 us     66.3 GB/s  cpu/wall 0.97  drift 0.000  ok  [10.4;8.4;9.0;8.9;10.1]
+loadavg ['20.20', '23.92', '21.80']  time 00:29:48
+ 00:29:48 up  1:54,  0 user,  load average: 20.20, 23.92, 21.80

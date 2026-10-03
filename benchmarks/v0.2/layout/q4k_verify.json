@@ -1,0 +1,123 @@
+{
+ "c2_i16": {
+  "op": "verify",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "cols": 2,
+  "rows": 1,
+  "layout": "i16"
+ },
+ "c2_composed": {
+  "op": "verify",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "cols": 2,
+  "rows": 1,
+  "layout": "composed"
+ },
+ "c2_composed_tiled": {
+  "op": "verify",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "cols": 2,
+  "rows": 1,
+  "layout": "composed",
+  "kpanel": 1024,
+  "rpanel": 16
+ },
+ "c2_composed_rowsplane": {
+  "op": "verify",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "cols": 2,
+  "rows": 1,
+  "layout": "composed",
+  "plane": "rows",
+  "correction": "pair",
+  "scales": "unpacked",
+  "accum": "float",
+  "rgroup": 1,
+  "meta": "tail",
+  "rgpad": 64,
+  "chains": 1,
+  "align": 64,
+  "unpack": "mask"
+ },
+ "c4_i16": {
+  "op": "verify",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "cols": 4,
+  "rows": 1,
+  "layout": "i16"
+ },
+ "c4_composed": {
+  "op": "verify",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "cols": 4,
+  "rows": 1,
+  "layout": "composed"
+ },
+ "c4_composed_tiled": {
+  "op": "verify",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "cols": 4,
+  "rows": 1,
+  "layout": "composed",
+  "kpanel": 1024,
+  "rpanel": 16
+ },
+ "c4_composed_rowsplane": {
+  "op": "verify",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "cols": 4,
+  "rows": 1,
+  "layout": "composed",
+  "plane": "rows",
+  "correction": "pair",
+  "scales": "unpacked",
+  "accum": "float",
+  "rgroup": 1,
+  "meta": "tail",
+  "rgpad": 64,
+  "chains": 1,
+  "align": 64,
+  "unpack": "mask"
+ },
+ "c8_i16": {
+  "op": "verify",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "cols": 8,
+  "rows": 1,
+  "layout": "i16"
+ },
+ "c8_composed": {
+  "op": "verify",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "cols": 8,
+  "rows": 1,
+  "layout": "composed"
+ },
+ "c8_composed_tiled": {
+  "op": "verify",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "cols": 8,
+  "rows": 1,
+  "layout": "composed",
+  "kpanel": 1024,
+  "rpanel": 16
+ },
+ "c1_i16_gemv": {
+  "op": "gemv",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "layout": "i16",
+  "rows": 1
+ }
+}

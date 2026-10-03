@@ -1,0 +1,18 @@
+ 01:50:17 up  3:14,  0 user,  load average: 23.46, 22.63, 22.88
+ggml_vec_dot                                443.41 us     21.3 GB/s  cpu/wall 6.99  drift 0.000  ok  [478.2;443.4;379.8]
+ggml_graph_amx                             8341.05 us      1.1 GB/s  cpu/wall 3.84  drift 0.000  ok  [15933.6;8341.1;798.0]
+v1_native                                   481.77 us     19.6 GB/s  cpu/wall 7.25  drift 0.000  ok  [436.6;481.8;601.7]
+v2_native                                   347.35 us     27.2 GB/s  cpu/wall 7.41  drift 0.000  ok  [283.2;347.3;354.9]
+search_native_winner                        355.62 us     26.6 GB/s  cpu/wall 7.30  drift 0.000  ok  [368.8;312.1;355.6]
+i16_default_r2                              236.18 us     40.0 GB/s  cpu/wall 7.35  drift 0.000  ok  [238.5;236.2;163.3]
+composed_default_r2                         250.38 us     37.8 GB/s  cpu/wall 7.18  drift 0.000  ok  [194.9;250.4;269.9]
+search_full_winner                          238.56 us     39.6 GB/s  cpu/wall 7.38  drift 0.000  ok  [238.6;185.6;312.9]
+kurn_v01_dram_cfg                           317.85 us     29.8 GB/s  cpu/wall 7.26  drift 0.000  ok  [301.0;317.9;337.5]
+search_full_winner_pf4                      235.48 us     40.2 GB/s  cpu/wall 7.36  drift 0.000  ok  [163.8;235.5;259.1]
+search_full_winner_pf16                     244.64 us     38.7 GB/s  cpu/wall 7.35  drift 0.000  ok  [228.1;244.6;254.4]
+search_full_winner_r4                       224.52 us     42.1 GB/s  cpu/wall 7.35  drift 0.000  ok  [224.5;192.9;230.8]
+search_full_winner_pf8_s2_t2                283.71 us     33.3 GB/s  cpu/wall 7.10  drift 0.000  ok  [283.7;405.6;268.8]
+search_full_winner_pf8_s3_nta               309.80 us     30.5 GB/s  cpu/wall 7.08  drift 0.000  ok  [325.1;309.8;167.2]
+search_full_winner_pf16_nta                 253.59 us     37.3 GB/s  cpu/wall 7.28  drift 0.000  ok  [253.6;229.5;329.8]
+loadavg ['22.66', '22.96', '22.95']  time 01:56:53
+ 01:56:53 up  3:21,  0 user,  load average: 22.66, 22.96, 22.95

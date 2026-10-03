@@ -1,0 +1,4 @@
+ 02:01:52 up  3:26,  0 user,  load average: 18.61, 21.36, 22.38
+q2_0: search 53s, winner 7.63 us vs best fixed i16_r2 8.13 us (1.066x)  winner={'layout': 'composed', 'rows': 4, 'prefetch': 0, 'unpack': 'perm', 'correction': 'act', 'scales': 'unpacked', 'accum': 'float', 'align': 64, 'lanes': 16, 'plane': 'khalf', 'kblock': 64, 'rgroup': 4, 'meta': 'tail', 'rgpad': 64, 'swizzle': 0, 'chains': 2, 'pfhint': 't2', 'pfgran': 'rec', 'stages': 1, 'kpanel': 0, 'rpanel': 0}
+q1_0: search 66s, winner 8.51 us vs best fixed i16_r4 8.82 us (1.036x)  winner={'layout': 'composed', 'rows': 4, 'prefetch': 32, 'unpack': 'perm', 'correction': 'act', 'scales': 'unpacked', 'accum': 'float', 'align': 'packed', 'lanes': 16, 'plane': 'kstep', 'kblock': 128, 'rgroup': 2, 'meta': 'tail', 'rgpad': 0, 'swizzle': 0, 'chains': 1, 'pfhint': 't1', 'pfgran': 'line', 'stages': 1, 'kpanel': 0, 'rpanel': 0}
+ 02:04:28 up  3:28,  0 user,  load average: 21.37, 21.21, 22.14

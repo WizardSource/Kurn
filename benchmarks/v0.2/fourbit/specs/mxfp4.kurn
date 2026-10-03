@@ -1,0 +1,10 @@
+# MXFP4 decode GEMV (E2M1 codes through a byte LUT, E8M0 scales)
+kernel   mxfp4_gemv
+op       gemv
+weights  mxfp4
+target   avx512_vnni
+layout   i16
+unpack   perm
+rows     2
+threads  8
+tune     unpack=lut,perm rows=1,2,4 prefetch=0,8 threads=4,6,8

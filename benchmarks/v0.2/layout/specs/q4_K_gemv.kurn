@@ -1,0 +1,3 @@
+op gemv
+weights q4_K
+target avx512_vnni

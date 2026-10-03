@@ -1,0 +1,25 @@
+kurn-amx ok   determinism q8_0 K=2048 N=2048 M=64 T=8: 0/19 runs differ from run 1, column 0 == GEMV relerr=3.10e-07
+kurn-amx 1 passed, 0 failed
+ggml_backend_amx_buffer_set_tensor: amx repack tensor leaf_0 of type q8_0
+ggml_backend_amx_buffer_set_tensor: amx repack tensor leaf_0 of type q8_0
+ggml-amx ok   determinism q8_0 K=2048 N=2048 M=64 T=8: 0/19 runs differ from run 1, column 0 == GEMV relerr=3.10e-07
+ggml-amx 1 passed, 0 failed
+kurn-amx FAIL determinism q8_0 K=2048 N=6144 M=128 T=8: 6/19 runs differ from run 1, column 0 == GEMV relerr=4.71e-07
+kurn-amx 0 passed, 1 failed
+ggml_backend_amx_buffer_set_tensor: amx repack tensor leaf_0 of type q8_0
+ggml_backend_amx_buffer_set_tensor: amx repack tensor leaf_0 of type q8_0
+ggml-amx FAIL determinism q8_0 K=2048 N=6144 M=128 T=8: 2/19 runs differ from run 1, column 0 == GEMV relerr=4.71e-07
+ggml-amx 0 passed, 1 failed
+kurn-amx FAIL determinism q8_0 K=6144 N=2048 M=512 T=8: 3/19 runs differ from run 1, column 0 == GEMV relerr=6.71e-07
+kurn-amx 0 passed, 1 failed
+ggml_backend_amx_buffer_set_tensor: amx repack tensor leaf_0 of type q8_0
+ggml_backend_amx_buffer_set_tensor: amx repack tensor leaf_0 of type q8_0
+ggml-amx FAIL determinism q8_0 K=6144 N=2048 M=512 T=8: 19/19 runs differ from run 1, column 0 == GEMV relerr=6.06e-02
+ggml-amx 0 passed, 1 failed
+kurn-amx FAIL determinism q8_0 K=4096 N=4096 M=37 T=8: 1/19 runs differ from run 1, column 0 == GEMV relerr=5.18e-07
+kurn-amx 0 passed, 1 failed
+ggml_backend_amx_buffer_set_tensor: amx repack tensor leaf_0 of type q8_0
+ggml_backend_amx_buffer_set_tensor: amx repack tensor leaf_0 of type q8_0
+ggml-amx FAIL determinism q8_0 K=4096 N=4096 M=37 T=8: 19/19 runs differ from run 1, column 0 != GEMV relerr=9.30e-02
+ggml-amx 0 passed, 1 failed
+rc=3

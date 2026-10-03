@@ -1,0 +1,10 @@
+# Prefill matrix-matrix product (e.g. 128 tokens) on Q8_0 weights with AMX
+# tiles. Weights are repacked once into tile layout (kq8_gemm_prepare).
+kernel   q8_0_gemm_amx
+op       gemm
+weights  q8_0
+target   amx
+rows     2          # AMX n-tiles (16 weight rows each) per pass
+cols     1          # AMX m-tiles (16 activation rows each) per pass
+threads  8
+tune     rows=1,2 cols=1,2 threads=6,8

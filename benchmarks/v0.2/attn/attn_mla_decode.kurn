@@ -1,0 +1,15 @@
+# MLA (DeepSeek-V2-Lite shapes, absorbed form): 16 query heads attend to one shared latent
+# KV head of 512 + 64 (rope) values; v is the first 512 values of each k row.
+kernel   attn_mla_decode
+op       attn
+kv       f16
+target   amx_bf16
+dk       576
+dv       512
+heads    16
+kv_heads 1
+mla      1
+nq       1
+nkv      8192
+threads  8
+tune     tile_kv=64,128,256

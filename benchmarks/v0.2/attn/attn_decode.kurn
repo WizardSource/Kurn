@@ -1,0 +1,13 @@
+# Long-context decode (one query token, 32K context) for Qwen3-8B (32/8 heads): AVX-512 row
+# engine with split-KV (flash-decoding) across threads, Q8_0 KV cache.
+kernel   attn_decode_qwen3_8b
+op       attn
+kv       q8_0
+target   amx_bf16
+dk       128
+heads    32
+kv_heads 8
+nq       1
+nkv      32768
+threads  8
+tune     split=0,8,16,32 threads=4,8

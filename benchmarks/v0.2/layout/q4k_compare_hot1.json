@@ -1,0 +1,109 @@
+{
+ "ggml_vec_dot": {
+  "op": "gemv",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "_so": "ggml"
+ },
+ "ggml_graph_amx": {
+  "op": "gemv",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "_so": "ggml-graph-amx"
+ },
+ "kurn_v01_hot_cfg": {
+  "op": "gemv",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "_so": "/tmp/kurn-cache-layout-v01/kernels/q4_K_gemv_avx512_vnni_82283b111365.so"
+ },
+ "v1_native": {
+  "op": "gemv",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "layout": "native",
+  "act": "inline",
+  "accum": "int",
+  "scales": "bytewise",
+  "correction": "scalar",
+  "rows": 1
+ },
+ "v2_native": {
+  "op": "gemv",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "layout": "native",
+  "act": "once",
+  "accum": "float",
+  "scales": "kmask",
+  "correction": "act",
+  "rows": 2
+ },
+ "search_native_winner": {
+  "op": "gemv",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "layout": "native",
+  "rows": 4,
+  "cols": 1,
+  "prefetch": 2,
+  "act": "once",
+  "unpack": "auto",
+  "correction": "act",
+  "scales": "kmask",
+  "accum": "float",
+  "align": "packed",
+  "lanes": 0,
+  "plane": "auto",
+  "kblock": 0,
+  "rgroup": 1,
+  "meta": "auto",
+  "rgpad": 0,
+  "swizzle": 0,
+  "chains": 0,
+  "pfhint": "t0",
+  "pfgran": "rec"
+ },
+ "i16_default_r2": {
+  "op": "gemv",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "layout": "i16",
+  "rows": 2
+ },
+ "composed_default_r2": {
+  "op": "gemv",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "layout": "composed",
+  "rows": 2
+ },
+ "search_full_winner": {
+  "op": "gemv",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "layout": "composed",
+  "rows": 2,
+  "cols": 1,
+  "prefetch": 0,
+  "act": "once",
+  "unpack": "mask",
+  "correction": "pair",
+  "scales": "unpacked",
+  "accum": "float",
+  "align": 64,
+  "lanes": 16,
+  "plane": "rows",
+  "kblock": 256,
+  "rgroup": 2,
+  "meta": "tail",
+  "rgpad": 64,
+  "swizzle": 0,
+  "chains": 1,
+  "pfhint": "t1",
+  "pfgran": "line",
+  "stages": 1,
+  "kpanel": 0,
+  "rpanel": 0
+ }
+}

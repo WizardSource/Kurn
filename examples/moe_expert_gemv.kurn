@@ -1,0 +1,11 @@
+# MoE-expert-shaped decode GEMV (K=2048, 512 rows) followed by a single-threaded
+# gap, modelling many small expert matmuls plus router/top-k between barriers.
+# The interesting knobs are runtime ones: thread count and barrier wait policy.
+#   kurn tune examples/moe_expert_gemv.kurn --bench-args "--K 2048 --N 512 --serial-us 20"
+kernel   moe_expert_gemv
+op       gemv
+weights  q8_0
+target   avx512_vnni
+layout   vnni16
+rows     4
+tune     threads=2,4,6,8 wait=spin,sleep

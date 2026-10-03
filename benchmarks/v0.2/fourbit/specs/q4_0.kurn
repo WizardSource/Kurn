@@ -1,0 +1,10 @@
+# Q4_0 decode GEMV, 16-row interleaved nibble layouts (WS-B fourbit)
+kernel   q4_0_gemv
+op       gemv
+weights  q4_0
+target   avx512_vnni
+layout   i16
+unpack   pair
+rows     2
+threads  8
+tune     unpack=mask,mask16,pair rows=1,2,4 prefetch=0,8 threads=4,6,8

@@ -1,0 +1,30 @@
+PPL 10.1120 tokens 3584 chunks 14
+layer 0 sparsity 0.3094 relerr 0.3193 union_density b1 0.6906 b4 0.9732 b8 0.9978 b16 1.0000
+layer 1 sparsity 0.3144 relerr 0.1435 union_density b1 0.6856 b4 0.8396 b8 0.8743 b16 0.8936
+layer 2 sparsity 0.2590 relerr 0.0032 union_density b1 0.7410 b4 0.9504 b8 0.9867 b16 0.9967
+layer 3 sparsity 0.2424 relerr 0.2052 union_density b1 0.7576 b4 0.9386 b8 0.9784 b16 0.9940
+layer 4 sparsity 0.2375 relerr 0.2739 union_density b1 0.7625 b4 0.9366 b8 0.9723 b16 0.9888
+layer 5 sparsity 0.3195 relerr 0.4493 union_density b1 0.6805 b4 0.9259 b8 0.9799 b16 0.9958
+layer 6 sparsity 0.2972 relerr 0.4317 union_density b1 0.7028 b4 0.9314 b8 0.9813 b16 0.9967
+layer 7 sparsity 0.2611 relerr 0.4132 union_density b1 0.7389 b4 0.9372 b8 0.9781 b16 0.9925
+layer 8 sparsity 0.2833 relerr 0.4331 union_density b1 0.7167 b4 0.9345 b8 0.9801 b16 0.9951
+layer 9 sparsity 0.2942 relerr 0.4089 union_density b1 0.7058 b4 0.9276 b8 0.9779 b16 0.9948
+layer 10 sparsity 0.3052 relerr 0.3618 union_density b1 0.6948 b4 0.9228 b8 0.9768 b16 0.9946
+layer 11 sparsity 0.3263 relerr 0.3767 union_density b1 0.6737 b4 0.9150 b8 0.9761 b16 0.9961
+layer 12 sparsity 0.3231 relerr 0.3544 union_density b1 0.6769 b4 0.9216 b8 0.9795 b16 0.9968
+layer 13 sparsity 0.3213 relerr 0.3340 union_density b1 0.6787 b4 0.9251 b8 0.9812 b16 0.9971
+layer 14 sparsity 0.3284 relerr 0.3115 union_density b1 0.6716 b4 0.9282 b8 0.9829 b16 0.9974
+layer 15 sparsity 0.3186 relerr 0.2926 union_density b1 0.6814 b4 0.9278 b8 0.9807 b16 0.9957
+layer 16 sparsity 0.3164 relerr 0.2512 union_density b1 0.6836 b4 0.9362 b8 0.9839 b16 0.9958
+layer 17 sparsity 0.2965 relerr 0.2572 union_density b1 0.7035 b4 0.9344 b8 0.9741 b16 0.9882
+layer 18 sparsity 0.2953 relerr 0.2435 union_density b1 0.7047 b4 0.9108 b8 0.9471 b16 0.9677
+layer 19 sparsity 0.2974 relerr 0.1977 union_density b1 0.7026 b4 0.9023 b8 0.9416 b16 0.9664
+layer 20 sparsity 0.2881 relerr 0.1957 union_density b1 0.7119 b4 0.9110 b8 0.9517 b16 0.9752
+layer 21 sparsity 0.2778 relerr 0.2061 union_density b1 0.7222 b4 0.9214 b8 0.9600 b16 0.9807
+layer 22 sparsity 0.2579 relerr 0.2064 union_density b1 0.7421 b4 0.9316 b8 0.9667 b16 0.9850
+layer 23 sparsity 0.2450 relerr 0.1990 union_density b1 0.7550 b4 0.9355 b8 0.9694 b16 0.9864
+layer 24 sparsity 0.2322 relerr 0.1963 union_density b1 0.7678 b4 0.9428 b8 0.9733 b16 0.9884
+layer 25 sparsity 0.2162 relerr 0.1776 union_density b1 0.7838 b4 0.9463 b8 0.9730 b16 0.9870
+layer 26 sparsity 0.1850 relerr 0.1067 union_density b1 0.8150 b4 0.9422 b8 0.9691 b16 0.9843
+layer 27 sparsity 0.1455 relerr 0.0193 union_density b1 0.8545 b4 0.9367 b8 0.9635 b16 0.9805
+ALL sparsity 0.2808 relerr 0.1138 union_density b1 0.7192 b4 0.9279 b8 0.9700 b16 0.9862

@@ -1,0 +1,1 @@
+model,mode,threads,decode_tok_s,decode_spread,decode_J_tok,prefill_tok_s,prefill_spread,prefill_J_tok,ppl_ub1,ppl_ub1_err,ppl_batched,ppl_batched_err,rss_mb,anon_mb,file_mb,max_load,min_cpu_wall,max_drift_s,reps,commit,timestamp

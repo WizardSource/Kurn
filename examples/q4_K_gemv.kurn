@@ -1,0 +1,11 @@
+# Decode matrix-vector product on Q4_K weights (Q4_K_M models) against Q8_K
+# activations. rows 4 + prefetch 4 was the tuned DRAM-streaming configuration;
+# rows 1, prefetch 0 was best with cache-resident weights.
+kernel   q4_K_gemv
+op       gemv
+weights  q4_K
+target   avx512_vnni
+rows     4
+prefetch 4
+threads  8
+tune     rows=1,2,4 prefetch=0,4,8 threads=4,6,8

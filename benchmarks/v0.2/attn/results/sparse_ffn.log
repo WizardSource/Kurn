@@ -1,0 +1,37 @@
+0 vnni16 dense FFN     418.0 us  (up 132.3, down 153.5 us, 101.3 GB/s)
+0 sparse-dense     density 1.000     536.0 us    74.8 GB/s ok
+0 sparse-gate      density 1.000     474.4 us    84.5 GB/s ok
+0 sparse-pred-r128 density 1.000     507.8 us    81.2 GB/s ok
+0 sparse-gate      density 0.696     367.7 us    86.9 GB/s ok
+0 sparse-pred-r128 density 0.696     364.9 us    79.5 GB/s ok
+0 sparse-gate      density 0.506     305.4 us    88.1 GB/s ok
+0 sparse-pred-r128 density 0.508     283.6 us    75.8 GB/s ok
+0 sparse-gate      density 0.305     277.3 us    77.6 GB/s ok
+0 sparse-pred-r128 density 0.306     190.6 us    70.3 GB/s ok
+0 sparse-gate      density 0.100     144.8 us   110.9 GB/s ok
+0 sparse-pred-r128 density 0.103      88.6 us    59.2 GB/s ok
+1 vnni16 dense FFN     358.5 us  (up 111.3, down 135.9 us, 120.4 GB/s)
+1 sparse-dense     density 1.000     550.4 us    72.9 GB/s ok
+1 sparse-gate      density 1.000     467.1 us    85.9 GB/s ok
+1 sparse-pred-r128 density 1.000     484.7 us    85.0 GB/s ok
+1 sparse-gate      density 0.696     379.0 us    84.4 GB/s ok
+1 sparse-pred-r128 density 0.696     359.8 us    80.6 GB/s ok
+1 sparse-gate      density 0.506     317.8 us    84.7 GB/s ok
+1 sparse-pred-r128 density 0.508     264.4 us    81.3 GB/s ok
+1 sparse-gate      density 0.305     221.2 us    97.3 GB/s ok
+1 sparse-pred-r128 density 0.306     175.8 us    76.3 GB/s ok
+1 sparse-gate      density 0.100     137.6 us   116.6 GB/s ok
+1 sparse-pred-r128 density 0.103      82.9 us    63.3 GB/s ok
+2 vnni16 dense FFN     405.0 us  (up 130.7, down 143.6 us, 102.5 GB/s)
+2 sparse-dense     density 1.000     590.4 us    67.9 GB/s ok
+2 sparse-gate      density 1.000     535.5 us    74.9 GB/s ok
+2 sparse-pred-r128 density 1.000     493.0 us    83.6 GB/s ok
+2 sparse-gate      density 0.696     365.0 us    87.6 GB/s ok
+2 sparse-pred-r128 density 0.696     356.7 us    81.3 GB/s ok
+2 sparse-gate      density 0.506     308.0 us    87.4 GB/s ok
+2 sparse-pred-r128 density 0.508     287.2 us    74.8 GB/s ok
+2 sparse-gate      density 0.305     236.1 us    91.2 GB/s ok
+2 sparse-pred-r128 density 0.306     189.6 us    70.7 GB/s ok
+2 sparse-gate      density 0.100     147.4 us   108.9 GB/s ok
+2 sparse-pred-r128 density 0.103      85.2 us    61.6 GB/s ok
+wrote /path/to/attn/kurn/benchmarks/v0.2/attn/sparse/../results/sparse_ffn.csv

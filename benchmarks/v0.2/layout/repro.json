@@ -1,0 +1,134 @@
+{
+ "q4_K_i16_r2": {
+  "op": "gemv",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "layout": "i16",
+  "rows": 2
+ },
+ "q4_K_composed_r2": {
+  "op": "gemv",
+  "weights": "q4_K",
+  "target": "avx512_vnni",
+  "layout": "composed",
+  "rows": 2
+ },
+ "q4_0_i16_r2": {
+  "op": "gemv",
+  "weights": "q4_0",
+  "target": "avx512_vnni",
+  "layout": "i16",
+  "rows": 2
+ },
+ "q4_0_composed_r2": {
+  "op": "gemv",
+  "weights": "q4_0",
+  "target": "avx512_vnni",
+  "layout": "composed",
+  "rows": 2
+ },
+ "q8_0_i16_r2": {
+  "op": "gemv",
+  "weights": "q8_0",
+  "target": "avx512_vnni",
+  "layout": "i16",
+  "rows": 2
+ },
+ "q8_0_composed_r2": {
+  "op": "gemv",
+  "weights": "q8_0",
+  "target": "avx512_vnni",
+  "layout": "composed",
+  "rows": 2
+ },
+ "iq4_nl_i16_r2": {
+  "op": "gemv",
+  "weights": "iq4_nl",
+  "target": "avx512_vnni",
+  "layout": "i16",
+  "rows": 2
+ },
+ "iq4_nl_composed_r2": {
+  "op": "gemv",
+  "weights": "iq4_nl",
+  "target": "avx512_vnni",
+  "layout": "composed",
+  "rows": 2
+ },
+ "q2_0_i16_r2": {
+  "op": "gemv",
+  "weights": "q2_0",
+  "target": "avx512_vnni",
+  "layout": "i16",
+  "rows": 2
+ },
+ "q2_0_composed_r2": {
+  "op": "gemv",
+  "weights": "q2_0",
+  "target": "avx512_vnni",
+  "layout": "composed",
+  "rows": 2
+ },
+ "q1_0_i16_r2": {
+  "op": "gemv",
+  "weights": "q1_0",
+  "target": "avx512_vnni",
+  "layout": "i16",
+  "rows": 2
+ },
+ "q1_0_composed_r2": {
+  "op": "gemv",
+  "weights": "q1_0",
+  "target": "avx512_vnni",
+  "layout": "composed",
+  "rows": 2
+ },
+ "q8_0_vnni16_r4_a64": {
+  "op": "gemv",
+  "weights": "q8_0",
+  "target": "avx512_vnni",
+  "layout": "vnni16",
+  "rows": 4,
+  "align": 64
+ },
+ "q8_0_composed_vnni16preset_r4_a64": {
+  "op": "gemv",
+  "weights": "q8_0",
+  "target": "avx512_vnni",
+  "layout": "composed",
+  "rows": 4,
+  "align": 64,
+  "lanes": 16,
+  "plane": "none",
+  "kblock": 32,
+  "meta": "tail"
+ },
+ "q4_K_i8_avx2_r2": {
+  "op": "gemv",
+  "weights": "q4_K",
+  "target": "avx2_vnni",
+  "layout": "i8",
+  "rows": 2
+ },
+ "q4_K_composed_avx2_r2": {
+  "op": "gemv",
+  "weights": "q4_K",
+  "target": "avx2_vnni",
+  "layout": "composed",
+  "rows": 2
+ },
+ "q4_0_i8_avx2_r2": {
+  "op": "gemv",
+  "weights": "q4_0",
+  "target": "avx2_vnni",
+  "layout": "i8",
+  "rows": 2
+ },
+ "q4_0_composed_avx2_r2": {
+  "op": "gemv",
+  "weights": "q4_0",
+  "target": "avx2_vnni",
+  "layout": "composed",
+  "rows": 2
+ }
+}

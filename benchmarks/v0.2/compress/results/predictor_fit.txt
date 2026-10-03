@@ -1,0 +1,41 @@
+37 models. equal weights: KLD = 0.0914 * sum_err, R^2 0.938, spearman 0.910
+per-kind NNLS: R^2 0.992; leave-one-out mean |rel err| equal 24.7% vs per-kind 16.5%
+  qwen3-1.7b-q8_0              KLD 0.0034  equal 0.0008  per-kind 0.0007
+  qwen3-1.7b-q6_k              KLD 0.0183  equal 0.0064  per-kind 0.0062
+  qwen3-1.7b-q5_k_m            KLD 0.0269  equal 0.0183  per-kind 0.0182
+  qwen3-1.7b-q4_k_m            KLD 0.0619  equal 0.0651  per-kind 0.0649
+  qwen3-1.7b-q4_k_s            KLD 0.0658  equal 0.0743  per-kind 0.0704
+  qwen3-1.7b-iq4_nl            KLD 0.0818  equal 0.0959  per-kind 0.0860
+  qwen3-1.7b-iq4_xs            KLD 0.0860  equal 0.0981  per-kind 0.0880
+  qwen3-1.7b-q3_k_l            KLD 0.1631  equal 0.2104  per-kind 0.1677
+  qwen3-1.7b-q3_k_m            KLD 0.1833  equal 0.2382  per-kind 0.1978
+  qwen3-1.7b-q3_k_s            KLD 0.3337  equal 0.3976  per-kind 0.3450
+  qwen3-1.7b-iq3_xxs           KLD 0.4360  equal 0.5686  per-kind 0.4417
+  qwen3-1.7b-q2_k              KLD 0.5279  equal 0.6921  per-kind 0.5797
+  qwen3-1.7b-iq2_m             KLD 0.6800  equal 0.7529  per-kind 0.6694
+  qwen3-1.7b-iq2_xs            KLD 1.1945  equal 1.2574  per-kind 1.2157
+  qwen3-1.7b-iq2_xxs           KLD 1.7031  equal 1.5920  per-kind 1.5878
+  qwen3-1.7b-pure-q3_k         KLD 0.3949  equal 0.3996  per-kind 0.4196
+  qwen3-1.7b-pure-q2_k         KLD 1.1597  equal 1.0097  per-kind 1.2283
+  qwen3-1.7b-pure-q4_k         KLD 0.0807  equal 0.0767  per-kind 0.0870
+  qwen3-1.7b-mix-all-2.9       KLD 1.1920  equal 1.2571  per-kind 1.2195
+  qwen3-1.7b-mix-all-3.2       KLD 0.6234  equal 0.6385  per-kind 0.6785
+  qwen3-1.7b-mix-all-3.5       KLD 0.5249  equal 0.5414  per-kind 0.5579
+  qwen3-1.7b-mix-all-4.0       KLD 0.2581  equal 0.2273  per-kind 0.2393
+  qwen3-1.7b-mix-k-3.6         KLD 0.5276  equal 0.5394  per-kind 0.5702
+  qwen3-1.7b-mix-free-3.5      KLD 0.4919  equal 0.1665  per-kind 0.4607
+  qwen3-1.7b-mix-all-4.65      KLD 0.1123  equal 0.0835  per-kind 0.0916
+  qwen3-1.7b-mix-k-4.35        KLD 0.1873  equal 0.1603  per-kind 0.1715
+  qwen3-1.7b-mix-taalas-4.65   KLD 0.2389  equal 0.1654  per-kind 0.1778
+  qwen3-1.7b-mix-free-4.65     KLD 0.3524  equal 0.0348  per-kind 0.3250
+  qwen3-1.7b-mix-k-4.0         KLD 0.3300  equal 0.2916  per-kind 0.2847
+  qwen3-1.7b-mix-all-5.1       KLD 0.0697  equal 0.0409  per-kind 0.0433
+  qwen3-1.7b-mix-k-4.9         KLD 0.0870  equal 0.0604  per-kind 0.0552
+  qwen3-1.7b-mix-fit-3.5       KLD 0.2903  equal 0.2112  per-kind 0.2950
+  qwen3-1.7b-mix-fit-4.0       KLD 0.1690  equal 0.1257  per-kind 0.1483
+  qwen3-1.7b-mix-fit-4.65      KLD 0.0846  equal 0.0430  per-kind 0.0636
+  qwen3-1.7b-mix-fit-3.2       KLD 0.4043  equal 0.3419  per-kind 0.3723
+  qwen3-1.7b-mix-kind-3.5      KLD 0.2893  equal 0.2812  per-kind 0.2516
+  qwen3-1.7b-mix-kind-4.65     KLD 0.0912  equal 0.0519  per-kind 0.0570
+weights (layer-kind mean = 1): token_embd=39.9 attn_q=0.148 attn_k=1.2 attn_v=0 attn_output=2.24 ffn_gate=0.798 ffn_up=1.2 ffn_down=1.41
+--weights token_embd=39.9,attn_q=0.148,attn_k=1.2,attn_v=0.001,attn_output=2.24,ffn_gate=0.798,ffn_up=1.2,ffn_down=1.41

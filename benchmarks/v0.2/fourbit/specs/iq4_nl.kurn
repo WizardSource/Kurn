@@ -1,0 +1,10 @@
+# IQ4_NL decode GEMV: codebook through vpermb (perm) or vpshufb (lut)
+kernel   iq4_nl_gemv
+op       gemv
+weights  iq4_nl
+target   avx512_vnni
+layout   i16
+unpack   perm
+rows     2
+threads  8
+tune     unpack=lut,perm rows=1,2,4 prefetch=0,8 threads=4,6,8

@@ -1,0 +1,16 @@
+# Decode matrix-vector product on Q8_0 weights, the hottest op in Q8_0 decode.
+# vnni16 interleaves 16 weight rows per block so one 64-byte load feeds
+# vpdpbusd for 16 rows at once. This is the tuned configuration that streamed
+# at the DRAM bandwidth limit on an AVX-512 Xeon (align packed: same bytes as
+# Q8_0; align 64 was faster when weights were cache-resident).
+kernel   q8_0_gemv_vnni16
+op       gemv
+weights  q8_0
+target   avx512_vnni
+layout   vnni16
+align    packed
+rows     8          # 16-row groups per register pass
+prefetch 0
+threads  8
+wait     spin
+tune     align=packed,64 rows=1,2,4,8 prefetch=0,8,16 threads=4,6,8

@@ -1,0 +1,2 @@
+label,model,size_MiB,ppl,ppl_err,kld,kld_err,same_top,ppl_ratio,wall_s,date
+Q4_0,/home/user/models/Qwen3-1.7B-Q4_0.gguf,1005.6,17.948724,,0.208820,,81.532,1.261170,764,2026-10-03 04:21

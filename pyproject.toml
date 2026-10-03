@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kurn"
+version = "0.2.1"
+description = "A small spec language and energy-aware autotuner for quantized CPU LLM inference kernels (ggml Q8_0/Q4_K; AVX2, AVX-VNNI, AVX-512 VNNI, AMX, NEON)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "kurn contributors" }]
+keywords = ["llm", "inference", "kernels", "quantization", "ggml", "llama.cpp", "simd", "avx512", "vnni", "amx", "neon", "autotuning", "energy"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: C",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Software Development :: Compilers",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff>=0.5"]
+
+[project.scripts]
+kurn = "kurn.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+kurn = ["data/*.c", "data/*.h", "model/*.c", "model/*.h", "runtime/*.c", "runtime/*.h"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 140
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E731"]  # codegen uses small lambdas as per-row emitters
+
+[tool.ruff.lint.isort]
+known-first-party = ["kurn"]
+known-local-folder = ["conftest", "test_codegen_golden"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/kurn/codegen.py" = ["E501"]  # C templates

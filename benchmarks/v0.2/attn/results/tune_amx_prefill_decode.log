@@ -1,0 +1,38 @@
+{'tile_q': 32, 'tile_kv': 64}      7942.7 us    319818.0 uJ    2298.4 GFLOP/s      2.3 GB/s  relerr 7.9e-03
+{'tile_q': 32, 'tile_kv': 128}      7040.8 us    283135.3 uJ    2592.8 GFLOP/s      2.6 GB/s  relerr 7.9e-03
+{'tile_q': 32, 'tile_kv': 256}      7754.8 us    309395.9 uJ    2354.1 GFLOP/s      2.4 GB/s  relerr 7.9e-03
+{'tile_q': 64, 'tile_kv': 64}      6648.4 us    264744.2 uJ    2745.9 GFLOP/s      2.8 GB/s  relerr 7.9e-03
+{'tile_q': 64, 'tile_kv': 128}      6628.3 us    265058.1 uJ    2754.2 GFLOP/s      2.8 GB/s  relerr 7.9e-03
+{'tile_q': 64, 'tile_kv': 256}      6164.4 us    252198.6 uJ    2961.5 GFLOP/s      3.0 GB/s  relerr 7.9e-03
+{'tile_q': 128, 'tile_kv': 64}      6178.0 us    244844.5 uJ    2954.9 GFLOP/s      3.0 GB/s  relerr 7.9e-03
+{'tile_q': 128, 'tile_kv': 128}      6146.5 us    246516.9 uJ    2970.1 GFLOP/s      3.0 GB/s  relerr 7.9e-03
+{'tile_q': 128, 'tile_kv': 256}      5920.6 us    237588.0 uJ    3083.4 GFLOP/s      3.1 GB/s  relerr 7.9e-03
+
+best by energy:
+   tile_q=128 tile_kv=256  us=5920.6 energy_uJ=237588.0 GFLOPs=3083.4
+   tile_q=128 tile_kv=64  us=6178.0 energy_uJ=244844.5 GFLOPs=2954.9
+   tile_q=128 tile_kv=128  us=6146.5 energy_uJ=246516.9 GFLOPs=2970.1
+   tile_q=64 tile_kv=256  us=6164.4 energy_uJ=252198.6 GFLOPs=2961.5
+   tile_q=64 tile_kv=64  us=6648.4 energy_uJ=264744.2 GFLOPs=2745.9
+pareto front (time vs energy):
+   tile_q=128 tile_kv=256  us=5920.6 energy_uJ=237588.0 GFLOPs=3083.4
+{'split': 0, 'threads': 4}      1863.0 us     40699.8 uJ     288.2 GFLOP/s     38.3 GB/s  relerr 1.5e-06
+{'split': 0, 'threads': 8}      1536.9 us     62546.5 uJ     349.3 GFLOP/s     46.4 GB/s  relerr 8.3e-07
+{'split': 8, 'threads': 4}      1845.6 us     40271.2 uJ     290.9 GFLOP/s     38.6 GB/s  relerr 1.5e-06
+{'split': 8, 'threads': 8}      1536.3 us     63207.9 uJ     349.4 GFLOP/s     46.4 GB/s  relerr 1.5e-06
+{'split': 16, 'threads': 4}      2089.8 us     43522.8 uJ     256.9 GFLOP/s     34.1 GB/s  relerr 8.3e-07
+{'split': 16, 'threads': 8}      1634.7 us     65092.8 uJ     328.4 GFLOP/s     43.6 GB/s  relerr 8.3e-07
+{'split': 32, 'threads': 4}      2399.0 us     47443.4 uJ     223.8 GFLOP/s     29.7 GB/s  relerr 1.2e-06
+{'split': 32, 'threads': 8}      1807.1 us     71609.3 uJ     297.1 GFLOP/s     39.5 GB/s  relerr 1.2e-06
+
+best by energy:
+   split=8 threads=4  us=1845.6 energy_uJ=40271.2 GFLOPs=290.9
+   split=0 threads=4  us=1863.0 energy_uJ=40699.8 GFLOPs=288.2
+   split=16 threads=4  us=2089.8 energy_uJ=43522.8 GFLOPs=256.9
+   split=32 threads=4  us=2399.0 energy_uJ=47443.4 GFLOPs=223.8
+   split=0 threads=8  us=1536.9 energy_uJ=62546.5 GFLOPs=349.3
+pareto front (time vs energy):
+   split=8 threads=8  us=1536.3 energy_uJ=63207.9 GFLOPs=349.4
+   split=0 threads=8  us=1536.9 energy_uJ=62546.5 GFLOPs=349.3
+   split=8 threads=4  us=1845.6 energy_uJ=40271.2 GFLOPs=290.9
+TUNE-DONE

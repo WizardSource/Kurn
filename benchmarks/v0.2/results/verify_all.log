@@ -1,0 +1,1938 @@
+ok     op=gemv weights=q8_0 target=scalar layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=scalar layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=scalar layout=native align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=scalar layout=native align=packed rows=8 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx2 layout=native align=packed rows=1 cols=1 act=inline prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2 layout=native align=packed rows=1 cols=1 act=inline prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2 layout=native align=packed rows=2 cols=1 act=inline prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2 layout=native align=packed rows=2 cols=1 act=inline prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2 layout=native align=packed rows=4 cols=1 act=inline prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2 layout=native align=packed rows=4 cols=1 act=inline prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2 layout=native align=packed rows=8 cols=1 act=inline prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2 layout=native align=packed rows=8 cols=1 act=inline prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=native align=packed rows=8 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=native align=packed rows=8 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=native align=packed rows=8 cols=1 act=inline prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=native align=packed rows=8 cols=1 act=inline prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.8e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=0 unpack=none correction=act scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=0 unpack=none correction=weight scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=8 unpack=none correction=act scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=8 unpack=none correction=weight scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=0 unpack=none correction=act scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=0 unpack=none correction=weight scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=8 unpack=none correction=act scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=8 unpack=none correction=weight scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=0 unpack=none correction=act scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=0 unpack=none correction=weight scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=8 unpack=none correction=act scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=8 unpack=none correction=weight scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.4e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.4e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.4e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.4e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.4e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.4e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.4e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.4e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.4e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.4e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.4e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.4e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=native align=packed rows=8 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.4e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=native align=packed rows=8 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.4e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=native align=packed rows=8 cols=1 act=inline prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.4e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=native align=packed rows=8 cols=1 act=inline prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=1.4e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=vnni16 align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=vnni16 align=packed rows=1 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=vnni16 align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=vnni16 align=packed rows=2 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=vnni16 align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=vnni16 align=packed rows=4 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=vnni16 align=packed rows=8 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=vnni16 align=packed rows=8 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=vnni16 align=64 rows=1 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=vnni16 align=64 rows=1 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=vnni16 align=64 rows=2 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=vnni16 align=64 rows=2 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=vnni16 align=64 rows=4 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=vnni16 align=64 rows=4 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=vnni16 align=64 rows=8 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=vnni16 align=64 rows=8 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=0 unpack=none correction=act scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=0 unpack=none correction=weight scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=8 unpack=none correction=act scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=8 unpack=none correction=weight scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=0 unpack=none correction=act scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=0 unpack=none correction=weight scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=8 unpack=none correction=act scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=8 unpack=none correction=weight scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=0 unpack=none correction=act scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=0 unpack=none correction=weight scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=8 unpack=none correction=act scales=unpacked accum=float  relerr=2.1e-07
+ok     op=gemv weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=8 unpack=none correction=weight scales=unpacked accum=float  relerr=2.1e-07
+FAIL   q8_0 gemv neon: C compile failed:
+$ zig cc -target aarch64-linux-gnu -O3 -mcpu=neoverse-n1 -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/q8_0_gemv_neon_1cdbc67dd867.c
+info: available CPUs for architecture 'aarch64':
+ a64fx
+ ampere1
+ ampere1a
+ ampere1b
+ apple_a10
+ apple_a11
+ apple_a12
+ apple_a13
+ apple_a14
+ apple_a15
+ apple_a16
+ apple_a17
+ apple_a18
+ apple_a7
+ apple_a8
+ apple_a9
+ apple_m1
+ apple_m2
+ apple_m3
+ apple_m4
+ apple_s10
+ apple_s4
+ apple_s5
+ apple_s6
+ apple_s7
+ apple_s8
+ apple_s9
+ carmel
+ cobalt_100
+ cortex_a320
+ cortex_a34
+ cortex_a35
+ cortex_a510
+ cortex_a520
+ cortex_a520ae
+ cortex_a53
+ cortex_a55
+ cortex_a57
+ cortex_a65
+ cortex_a65ae
+ cortex_a710
+ cortex_a715
+ cortex_a72
+ cortex_a720
+ cortex_a720ae
+ cortex_a725
+ cortex_a73
+ cortex_a75
+ cortex_a76
+ cortex_a76ae
+ cortex_a77
+ cortex_a78
+ cortex_a78ae
+ cortex_a78c
+ cortex_r82
+ cortex_r82ae
+ cortex_x1
+ cortex_x1c
+ cortex_x2
+ cortex_x3
+ cortex_x4
+ cortex_x925
+ cyclone
+ emag
+ exynos_m1
+ exynos_m2
+ exynos_m3
+ exynos_m4
+ exynos_m5
+ falkor
+ fujitsu_monaka
+ gb10
+ generic
+ grace
+ kryo
+ neoverse_512tvb
+ neoverse_e1
+ neoverse_n1
+ neoverse_n2
+ neoverse_n3
+ neoverse_v1
+ neoverse_v2
+ neoverse_v3
+ neoverse_v3ae
+ olympus
+ oryon_1
+ saphira
+ thunderx
+ thunderx2t99
+ thunderx3t110
+ thunderxt81
+ thunderxt83
+ thunderxt88
+ tsv110
+ xgene1
+
+error: unknown CPU: 'neoverse'
+
+FAIL   q8_0 gemv neon: C compile failed:
+$ zig cc -target aarch64-linux-gnu -O3 -mcpu=neoverse-n1 -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/q8_0_gemv_neon_98a7c0ab1db6.c
+info: available CPUs for architecture 'aarch64':
+ a64fx
+ ampere1
+ ampere1a
+ ampere1b
+ apple_a10
+ apple_a11
+ apple_a12
+ apple_a13
+ apple_a14
+ apple_a15
+ apple_a16
+ apple_a17
+ apple_a18
+ apple_a7
+ apple_a8
+ apple_a9
+ apple_m1
+ apple_m2
+ apple_m3
+ apple_m4
+ apple_s10
+ apple_s4
+ apple_s5
+ apple_s6
+ apple_s7
+ apple_s8
+ apple_s9
+ carmel
+ cobalt_100
+ cortex_a320
+ cortex_a34
+ cortex_a35
+ cortex_a510
+ cortex_a520
+ cortex_a520ae
+ cortex_a53
+ cortex_a55
+ cortex_a57
+ cortex_a65
+ cortex_a65ae
+ cortex_a710
+ cortex_a715
+ cortex_a72
+ cortex_a720
+ cortex_a720ae
+ cortex_a725
+ cortex_a73
+ cortex_a75
+ cortex_a76
+ cortex_a76ae
+ cortex_a77
+ cortex_a78
+ cortex_a78ae
+ cortex_a78c
+ cortex_r82
+ cortex_r82ae
+ cortex_x1
+ cortex_x1c
+ cortex_x2
+ cortex_x3
+ cortex_x4
+ cortex_x925
+ cyclone
+ emag
+ exynos_m1
+ exynos_m2
+ exynos_m3
+ exynos_m4
+ exynos_m5
+ falkor
+ fujitsu_monaka
+ gb10
+ generic
+ grace
+ kryo
+ neoverse_512tvb
+ neoverse_e1
+ neoverse_n1
+ neoverse_n2
+ neoverse_n3
+ neoverse_v1
+ neoverse_v2
+ neoverse_v3
+ neoverse_v3ae
+ olympus
+ oryon_1
+ saphira
+ thunderx
+ thunderx2t99
+ thunderx3t110
+ thunderxt81
+ thunderxt83
+ thunderxt88
+ tsv110
+ xgene1
+
+error: unknown CPU: 'neoverse'
+
+FAIL   q8_0 gemv neon: C compile failed:
+$ zig cc -target aarch64-linux-gnu -O3 -mcpu=neoverse-n1 -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/q8_0_gemv_neon_dbd9468e5165.c
+info: available CPUs for architecture 'aarch64':
+ a64fx
+ ampere1
+ ampere1a
+ ampere1b
+ apple_a10
+ apple_a11
+ apple_a12
+ apple_a13
+ apple_a14
+ apple_a15
+ apple_a16
+ apple_a17
+ apple_a18
+ apple_a7
+ apple_a8
+ apple_a9
+ apple_m1
+ apple_m2
+ apple_m3
+ apple_m4
+ apple_s10
+ apple_s4
+ apple_s5
+ apple_s6
+ apple_s7
+ apple_s8
+ apple_s9
+ carmel
+ cobalt_100
+ cortex_a320
+ cortex_a34
+ cortex_a35
+ cortex_a510
+ cortex_a520
+ cortex_a520ae
+ cortex_a53
+ cortex_a55
+ cortex_a57
+ cortex_a65
+ cortex_a65ae
+ cortex_a710
+ cortex_a715
+ cortex_a72
+ cortex_a720
+ cortex_a720ae
+ cortex_a725
+ cortex_a73
+ cortex_a75
+ cortex_a76
+ cortex_a76ae
+ cortex_a77
+ cortex_a78
+ cortex_a78ae
+ cortex_a78c
+ cortex_r82
+ cortex_r82ae
+ cortex_x1
+ cortex_x1c
+ cortex_x2
+ cortex_x3
+ cortex_x4
+ cortex_x925
+ cyclone
+ emag
+ exynos_m1
+ exynos_m2
+ exynos_m3
+ exynos_m4
+ exynos_m5
+ falkor
+ fujitsu_monaka
+ gb10
+ generic
+ grace
+ kryo
+ neoverse_512tvb
+ neoverse_e1
+ neoverse_n1
+ neoverse_n2
+ neoverse_n3
+ neoverse_v1
+ neoverse_v2
+ neoverse_v3
+ neoverse_v3ae
+ olympus
+ oryon_1
+ saphira
+ thunderx
+ thunderx2t99
+ thunderx3t110
+ thunderxt81
+ thunderxt83
+ thunderxt88
+ tsv110
+ xgene1
+
+error: unknown CPU: 'neoverse'
+
+FAIL   q8_0 gemv neon: C compile failed:
+$ zig cc -target aarch64-linux-gnu -O3 -mcpu=neoverse-n1 -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/q8_0_gemv_neon_d108837401cd.c
+info: available CPUs for architecture 'aarch64':
+ a64fx
+ ampere1
+ ampere1a
+ ampere1b
+ apple_a10
+ apple_a11
+ apple_a12
+ apple_a13
+ apple_a14
+ apple_a15
+ apple_a16
+ apple_a17
+ apple_a18
+ apple_a7
+ apple_a8
+ apple_a9
+ apple_m1
+ apple_m2
+ apple_m3
+ apple_m4
+ apple_s10
+ apple_s4
+ apple_s5
+ apple_s6
+ apple_s7
+ apple_s8
+ apple_s9
+ carmel
+ cobalt_100
+ cortex_a320
+ cortex_a34
+ cortex_a35
+ cortex_a510
+ cortex_a520
+ cortex_a520ae
+ cortex_a53
+ cortex_a55
+ cortex_a57
+ cortex_a65
+ cortex_a65ae
+ cortex_a710
+ cortex_a715
+ cortex_a72
+ cortex_a720
+ cortex_a720ae
+ cortex_a725
+ cortex_a73
+ cortex_a75
+ cortex_a76
+ cortex_a76ae
+ cortex_a77
+ cortex_a78
+ cortex_a78ae
+ cortex_a78c
+ cortex_r82
+ cortex_r82ae
+ cortex_x1
+ cortex_x1c
+ cortex_x2
+ cortex_x3
+ cortex_x4
+ cortex_x925
+ cyclone
+ emag
+ exynos_m1
+ exynos_m2
+ exynos_m3
+ exynos_m4
+ exynos_m5
+ falkor
+ fujitsu_monaka
+ gb10
+ generic
+ grace
+ kryo
+ neoverse_512tvb
+ neoverse_e1
+ neoverse_n1
+ neoverse_n2
+ neoverse_n3
+ neoverse_v1
+ neoverse_v2
+ neoverse_v3
+ neoverse_v3ae
+ olympus
+ oryon_1
+ saphira
+ thunderx
+ thunderx2t99
+ thunderx3t110
+ thunderxt81
+ thunderxt83
+ thunderxt88
+ tsv110
+ xgene1
+
+error: unknown CPU: 'neoverse'
+
+FAIL   q8_0 gemv neon: C compile failed:
+$ zig cc -target aarch64-linux-gnu -O3 -mcpu=neoverse-n1 -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/q8_0_gemv_neon_80ce05eada9e.c
+info: available CPUs for architecture 'aarch64':
+ a64fx
+ ampere1
+ ampere1a
+ ampere1b
+ apple_a10
+ apple_a11
+ apple_a12
+ apple_a13
+ apple_a14
+ apple_a15
+ apple_a16
+ apple_a17
+ apple_a18
+ apple_a7
+ apple_a8
+ apple_a9
+ apple_m1
+ apple_m2
+ apple_m3
+ apple_m4
+ apple_s10
+ apple_s4
+ apple_s5
+ apple_s6
+ apple_s7
+ apple_s8
+ apple_s9
+ carmel
+ cobalt_100
+ cortex_a320
+ cortex_a34
+ cortex_a35
+ cortex_a510
+ cortex_a520
+ cortex_a520ae
+ cortex_a53
+ cortex_a55
+ cortex_a57
+ cortex_a65
+ cortex_a65ae
+ cortex_a710
+ cortex_a715
+ cortex_a72
+ cortex_a720
+ cortex_a720ae
+ cortex_a725
+ cortex_a73
+ cortex_a75
+ cortex_a76
+ cortex_a76ae
+ cortex_a77
+ cortex_a78
+ cortex_a78ae
+ cortex_a78c
+ cortex_r82
+ cortex_r82ae
+ cortex_x1
+ cortex_x1c
+ cortex_x2
+ cortex_x3
+ cortex_x4
+ cortex_x925
+ cyclone
+ emag
+ exynos_m1
+ exynos_m2
+ exynos_m3
+ exynos_m4
+ exynos_m5
+ falkor
+ fujitsu_monaka
+ gb10
+ generic
+ grace
+ kryo
+ neoverse_512tvb
+ neoverse_e1
+ neoverse_n1
+ neoverse_n2
+ neoverse_n3
+ neoverse_v1
+ neoverse_v2
+ neoverse_v3
+ neoverse_v3ae
+ olympus
+ oryon_1
+ saphira
+ thunderx
+ thunderx2t99
+ thunderx3t110
+ thunderxt81
+ thunderxt83
+ thunderxt88
+ tsv110
+ xgene1
+
+error: unknown CPU: 'neoverse'
+
+FAIL   q8_0 gemv neon: C compile failed:
+$ zig cc -target aarch64-linux-gnu -O3 -mcpu=neoverse-n1 -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/q8_0_gemv_neon_8a05f6df3725.c
+info: available CPUs for architecture 'aarch64':
+ a64fx
+ ampere1
+ ampere1a
+ ampere1b
+ apple_a10
+ apple_a11
+ apple_a12
+ apple_a13
+ apple_a14
+ apple_a15
+ apple_a16
+ apple_a17
+ apple_a18
+ apple_a7
+ apple_a8
+ apple_a9
+ apple_m1
+ apple_m2
+ apple_m3
+ apple_m4
+ apple_s10
+ apple_s4
+ apple_s5
+ apple_s6
+ apple_s7
+ apple_s8
+ apple_s9
+ carmel
+ cobalt_100
+ cortex_a320
+ cortex_a34
+ cortex_a35
+ cortex_a510
+ cortex_a520
+ cortex_a520ae
+ cortex_a53
+ cortex_a55
+ cortex_a57
+ cortex_a65
+ cortex_a65ae
+ cortex_a710
+ cortex_a715
+ cortex_a72
+ cortex_a720
+ cortex_a720ae
+ cortex_a725
+ cortex_a73
+ cortex_a75
+ cortex_a76
+ cortex_a76ae
+ cortex_a77
+ cortex_a78
+ cortex_a78ae
+ cortex_a78c
+ cortex_r82
+ cortex_r82ae
+ cortex_x1
+ cortex_x1c
+ cortex_x2
+ cortex_x3
+ cortex_x4
+ cortex_x925
+ cyclone
+ emag
+ exynos_m1
+ exynos_m2
+ exynos_m3
+ exynos_m4
+ exynos_m5
+ falkor
+ fujitsu_monaka
+ gb10
+ generic
+ grace
+ kryo
+ neoverse_512tvb
+ neoverse_e1
+ neoverse_n1
+ neoverse_n2
+ neoverse_n3
+ neoverse_v1
+ neoverse_v2
+ neoverse_v3
+ neoverse_v3ae
+ olympus
+ oryon_1
+ saphira
+ thunderx
+ thunderx2t99
+ thunderx3t110
+ thunderxt81
+ thunderxt83
+ thunderxt88
+ tsv110
+ xgene1
+
+error: unknown CPU: 'neoverse'
+
+FAIL   q8_0 gemv neon: C compile failed:
+$ zig cc -target aarch64-linux-gnu -O3 -mcpu=neoverse-n1 -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/q8_0_gemv_neon_e4a3ca8c453e.c
+info: available CPUs for architecture 'aarch64':
+ a64fx
+ ampere1
+ ampere1a
+ ampere1b
+ apple_a10
+ apple_a11
+ apple_a12
+ apple_a13
+ apple_a14
+ apple_a15
+ apple_a16
+ apple_a17
+ apple_a18
+ apple_a7
+ apple_a8
+ apple_a9
+ apple_m1
+ apple_m2
+ apple_m3
+ apple_m4
+ apple_s10
+ apple_s4
+ apple_s5
+ apple_s6
+ apple_s7
+ apple_s8
+ apple_s9
+ carmel
+ cobalt_100
+ cortex_a320
+ cortex_a34
+ cortex_a35
+ cortex_a510
+ cortex_a520
+ cortex_a520ae
+ cortex_a53
+ cortex_a55
+ cortex_a57
+ cortex_a65
+ cortex_a65ae
+ cortex_a710
+ cortex_a715
+ cortex_a72
+ cortex_a720
+ cortex_a720ae
+ cortex_a725
+ cortex_a73
+ cortex_a75
+ cortex_a76
+ cortex_a76ae
+ cortex_a77
+ cortex_a78
+ cortex_a78ae
+ cortex_a78c
+ cortex_r82
+ cortex_r82ae
+ cortex_x1
+ cortex_x1c
+ cortex_x2
+ cortex_x3
+ cortex_x4
+ cortex_x925
+ cyclone
+ emag
+ exynos_m1
+ exynos_m2
+ exynos_m3
+ exynos_m4
+ exynos_m5
+ falkor
+ fujitsu_monaka
+ gb10
+ generic
+ grace
+ kryo
+ neoverse_512tvb
+ neoverse_e1
+ neoverse_n1
+ neoverse_n2
+ neoverse_n3
+ neoverse_v1
+ neoverse_v2
+ neoverse_v3
+ neoverse_v3ae
+ olympus
+ oryon_1
+ saphira
+ thunderx
+ thunderx2t99
+ thunderx3t110
+ thunderxt81
+ thunderxt83
+ thunderxt88
+ tsv110
+ xgene1
+
+error: unknown CPU: 'neoverse'
+
+FAIL   q8_0 gemv neon: C compile failed:
+$ zig cc -target aarch64-linux-gnu -O3 -mcpu=neoverse-n1 -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/q8_0_gemv_neon_6115c3ec6437.c
+info: available CPUs for architecture 'aarch64':
+ a64fx
+ ampere1
+ ampere1a
+ ampere1b
+ apple_a10
+ apple_a11
+ apple_a12
+ apple_a13
+ apple_a14
+ apple_a15
+ apple_a16
+ apple_a17
+ apple_a18
+ apple_a7
+ apple_a8
+ apple_a9
+ apple_m1
+ apple_m2
+ apple_m3
+ apple_m4
+ apple_s10
+ apple_s4
+ apple_s5
+ apple_s6
+ apple_s7
+ apple_s8
+ apple_s9
+ carmel
+ cobalt_100
+ cortex_a320
+ cortex_a34
+ cortex_a35
+ cortex_a510
+ cortex_a520
+ cortex_a520ae
+ cortex_a53
+ cortex_a55
+ cortex_a57
+ cortex_a65
+ cortex_a65ae
+ cortex_a710
+ cortex_a715
+ cortex_a72
+ cortex_a720
+ cortex_a720ae
+ cortex_a725
+ cortex_a73
+ cortex_a75
+ cortex_a76
+ cortex_a76ae
+ cortex_a77
+ cortex_a78
+ cortex_a78ae
+ cortex_a78c
+ cortex_r82
+ cortex_r82ae
+ cortex_x1
+ cortex_x1c
+ cortex_x2
+ cortex_x3
+ cortex_x4
+ cortex_x925
+ cyclone
+ emag
+ exynos_m1
+ exynos_m2
+ exynos_m3
+ exynos_m4
+ exynos_m5
+ falkor
+ fujitsu_monaka
+ gb10
+ generic
+ grace
+ kryo
+ neoverse_512tvb
+ neoverse_e1
+ neoverse_n1
+ neoverse_n2
+ neoverse_n3
+ neoverse_v1
+ neoverse_v2
+ neoverse_v3
+ neoverse_v3ae
+ olympus
+ oryon_1
+ saphira
+ thunderx
+ thunderx2t99
+ thunderx3t110
+ thunderxt81
+ thunderxt83
+ thunderxt88
+ tsv110
+ xgene1
+
+error: unknown CPU: 'neoverse'
+
+ok     op=gemv weights=q4_K target=scalar layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=9.4e-08
+ok     op=gemv weights=q4_K target=scalar layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=9.4e-08
+ok     op=gemv weights=q4_K target=scalar layout=native align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=9.4e-08
+ok     op=gemv weights=q4_K target=avx2 layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q4_K target=avx2 layout=native align=packed rows=1 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q4_K target=avx2 layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q4_K target=avx2 layout=native align=packed rows=2 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q4_K target=avx2 layout=native align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q4_K target=avx2 layout=native align=packed rows=4 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=8 unpack=auto correction=auto scales=auto accum=auto  relerr=2.1e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=act scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=act scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=act scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=act scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=scalar scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=scalar scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=scalar scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=scalar scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=8 unpack=auto correction=act scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=8 unpack=auto correction=act scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=8 unpack=auto correction=act scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=8 unpack=auto correction=act scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=8 unpack=auto correction=scalar scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=8 unpack=auto correction=scalar scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=8 unpack=auto correction=scalar scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=once prefetch=8 unpack=auto correction=scalar scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=0 unpack=auto correction=act scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=0 unpack=auto correction=act scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=0 unpack=auto correction=act scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=0 unpack=auto correction=act scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=0 unpack=auto correction=scalar scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=0 unpack=auto correction=scalar scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=0 unpack=auto correction=scalar scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=0 unpack=auto correction=scalar scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=8 unpack=auto correction=act scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=8 unpack=auto correction=act scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=8 unpack=auto correction=act scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=8 unpack=auto correction=act scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=8 unpack=auto correction=scalar scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=8 unpack=auto correction=scalar scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=8 unpack=auto correction=scalar scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=1 cols=1 act=inline prefetch=8 unpack=auto correction=scalar scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=act scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=act scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=act scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=act scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=scalar scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=scalar scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=scalar scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=scalar scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=8 unpack=auto correction=act scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=8 unpack=auto correction=act scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=8 unpack=auto correction=act scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=8 unpack=auto correction=act scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=8 unpack=auto correction=scalar scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=8 unpack=auto correction=scalar scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=8 unpack=auto correction=scalar scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=once prefetch=8 unpack=auto correction=scalar scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=0 unpack=auto correction=act scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=0 unpack=auto correction=act scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=0 unpack=auto correction=act scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=0 unpack=auto correction=act scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=0 unpack=auto correction=scalar scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=0 unpack=auto correction=scalar scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=0 unpack=auto correction=scalar scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=0 unpack=auto correction=scalar scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=8 unpack=auto correction=act scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=8 unpack=auto correction=act scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=8 unpack=auto correction=act scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=8 unpack=auto correction=act scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=8 unpack=auto correction=scalar scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=8 unpack=auto correction=scalar scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=8 unpack=auto correction=scalar scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=2 cols=1 act=inline prefetch=8 unpack=auto correction=scalar scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=act scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=act scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=act scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=act scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=scalar scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=scalar scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=scalar scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=scalar scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=8 unpack=auto correction=act scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=8 unpack=auto correction=act scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=8 unpack=auto correction=act scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=8 unpack=auto correction=act scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=8 unpack=auto correction=scalar scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=8 unpack=auto correction=scalar scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=8 unpack=auto correction=scalar scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=once prefetch=8 unpack=auto correction=scalar scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=0 unpack=auto correction=act scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=0 unpack=auto correction=act scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=0 unpack=auto correction=act scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=0 unpack=auto correction=act scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=0 unpack=auto correction=scalar scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=0 unpack=auto correction=scalar scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=0 unpack=auto correction=scalar scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=0 unpack=auto correction=scalar scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=8 unpack=auto correction=act scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=8 unpack=auto correction=act scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=8 unpack=auto correction=act scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=8 unpack=auto correction=act scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=8 unpack=auto correction=scalar scales=kmask accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=8 unpack=auto correction=scalar scales=kmask accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=8 unpack=auto correction=scalar scales=bytewise accum=float  relerr=1.7e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=native align=packed rows=4 cols=1 act=inline prefetch=8 unpack=auto correction=scalar scales=bytewise accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=gemv weights=q4_K target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=gemm weights=q8_0 target=scalar layout=native align=packed rows=2 cols=2 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.3e-07
+ok     op=gemm weights=q8_0 target=scalar layout=native align=packed rows=2 cols=4 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.3e-07
+ok     op=gemm weights=q8_0 target=scalar layout=native align=packed rows=2 cols=6 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.3e-07
+ok     op=gemm weights=q8_0 target=scalar layout=native align=packed rows=4 cols=2 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.3e-07
+ok     op=gemm weights=q8_0 target=scalar layout=native align=packed rows=4 cols=4 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.3e-07
+ok     op=gemm weights=q8_0 target=scalar layout=native align=packed rows=4 cols=6 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.3e-07
+ok     op=gemm weights=q8_0 target=scalar layout=native align=packed rows=6 cols=2 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.3e-07
+ok     op=gemm weights=q8_0 target=scalar layout=native align=packed rows=6 cols=4 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.3e-07
+ok     op=gemm weights=q8_0 target=scalar layout=native align=packed rows=6 cols=6 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.3e-07
+ok     op=gemm weights=q8_0 target=avx512_vnni layout=native align=packed rows=2 cols=2 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.9e-07
+ok     op=gemm weights=q8_0 target=avx512_vnni layout=native align=packed rows=2 cols=4 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.9e-07
+ok     op=gemm weights=q8_0 target=avx512_vnni layout=native align=packed rows=2 cols=6 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.9e-07
+ok     op=gemm weights=q8_0 target=avx512_vnni layout=native align=packed rows=4 cols=2 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.9e-07
+ok     op=gemm weights=q8_0 target=avx512_vnni layout=native align=packed rows=4 cols=4 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.9e-07
+ok     op=gemm weights=q8_0 target=avx512_vnni layout=native align=packed rows=4 cols=6 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.9e-07
+ok     op=gemm weights=q8_0 target=avx512_vnni layout=native align=packed rows=6 cols=2 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.9e-07
+ok     op=gemm weights=q8_0 target=avx512_vnni layout=native align=packed rows=6 cols=4 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=1.9e-07
+ok     op=gemm weights=q8_0 target=amx layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.3e-07
+ok     op=gemm weights=q8_0 target=amx layout=native align=packed rows=1 cols=2 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.3e-07
+ok     op=gemm weights=q8_0 target=amx layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.3e-07
+ok     op=gemm weights=q8_0 target=amx layout=native align=packed rows=2 cols=2 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.3e-07
+ok     op=gemv weights=q4_0 target=scalar layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.0e-07
+ok     op=gemv weights=q4_0 target=scalar layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.0e-07
+ok     op=gemv weights=q4_0 target=scalar layout=native align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.0e-07
+ok     op=gemv weights=q4_0 target=scalar layout=native align=packed rows=8 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.0e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=iq4_nl target=scalar layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=3.1e-07
+ok     op=gemv weights=iq4_nl target=scalar layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=3.1e-07
+ok     op=gemv weights=iq4_nl target=scalar layout=native align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=3.1e-07
+ok     op=gemv weights=iq4_nl target=scalar layout=native align=packed rows=8 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=3.1e-07
+FAIL   iq4_nl gemv avx2_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v3 -mavxvnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_gemv_avx2_vnni_042829af98f7.c
+/home/user/.cache/kurn/kernels/iq4_nl_gemv_avx2_vnni_042829af98f7.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=gemv weights=iq4_nl target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl gemv avx2_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v3 -mavxvnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_gemv_avx2_vnni_330a3566fdf3.c
+/home/user/.cache/kurn/kernels/iq4_nl_gemv_avx2_vnni_330a3566fdf3.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=gemv weights=iq4_nl target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl gemv avx2_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v3 -mavxvnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_gemv_avx2_vnni_2f777fcd4ac1.c
+/home/user/.cache/kurn/kernels/iq4_nl_gemv_avx2_vnni_2f777fcd4ac1.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=gemv weights=iq4_nl target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl gemv avx2_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v3 -mavxvnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_gemv_avx2_vnni_f66408a1a1b0.c
+/home/user/.cache/kurn/kernels/iq4_nl_gemv_avx2_vnni_f66408a1a1b0.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=gemv weights=iq4_nl target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl gemv avx2_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v3 -mavxvnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_gemv_avx2_vnni_bdaae5402ff5.c
+/home/user/.cache/kurn/kernels/iq4_nl_gemv_avx2_vnni_bdaae5402ff5.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=gemv weights=iq4_nl target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl gemv avx2_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v3 -mavxvnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_gemv_avx2_vnni_1c90c07deb9d.c
+/home/user/.cache/kurn/kernels/iq4_nl_gemv_avx2_vnni_1c90c07deb9d.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=gemv weights=iq4_nl target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl gemv avx512_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v4 -mavx512vnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_gemv_avx512_vnni_f97ab6d0f64a.c
+/home/user/.cache/kurn/kernels/iq4_nl_gemv_avx512_vnni_f97ab6d0f64a.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=gemv weights=iq4_nl target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl gemv avx512_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v4 -mavx512vnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_gemv_avx512_vnni_caf84d1553f2.c
+/home/user/.cache/kurn/kernels/iq4_nl_gemv_avx512_vnni_caf84d1553f2.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=gemv weights=iq4_nl target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl gemv avx512_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v4 -mavx512vnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_gemv_avx512_vnni_a9d28992acc0.c
+/home/user/.cache/kurn/kernels/iq4_nl_gemv_avx512_vnni_a9d28992acc0.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=gemv weights=iq4_nl target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl gemv avx512_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v4 -mavx512vnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_gemv_avx512_vnni_7c15cc2a8f92.c
+/home/user/.cache/kurn/kernels/iq4_nl_gemv_avx512_vnni_7c15cc2a8f92.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=gemv weights=iq4_nl target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl gemv avx512_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v4 -mavx512vnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_gemv_avx512_vnni_e0af0b16621d.c
+/home/user/.cache/kurn/kernels/iq4_nl_gemv_avx512_vnni_e0af0b16621d.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=gemv weights=iq4_nl target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl gemv avx512_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v4 -mavx512vnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_gemv_avx512_vnni_ebdf2ef07227.c
+/home/user/.cache/kurn/kernels/iq4_nl_gemv_avx512_vnni_ebdf2ef07227.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=gemv weights=iq4_nl target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=q2_0 target=scalar layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.9e-07
+ok     op=gemv weights=q2_0 target=scalar layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.9e-07
+ok     op=gemv weights=q2_0 target=scalar layout=native align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.9e-07
+ok     op=gemv weights=q2_0 target=scalar layout=native align=packed rows=8 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=2.9e-07
+ok     op=gemv weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx512_vnni layout=l32 align=packed rows=1 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx512_vnni layout=l32 align=packed rows=1 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx512_vnni layout=l32 align=packed rows=2 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=q2_0 target=avx512_vnni layout=l32 align=packed rows=2 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=gemv weights=tq2_0 target=scalar layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=scalar layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=scalar layout=native align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=scalar layout=native align=packed rows=8 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=l32 align=packed rows=1 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=l32 align=packed rows=1 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=l32 align=packed rows=1 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=l32 align=packed rows=1 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=l32 align=packed rows=2 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=l32 align=packed rows=2 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=l32 align=packed rows=2 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=gemv weights=tq2_0 target=avx512_vnni layout=l32 align=packed rows=2 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=gemv weights=q1_0 target=scalar layout=native align=packed rows=1 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.0e-07
+ok     op=gemv weights=q1_0 target=scalar layout=native align=packed rows=2 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.0e-07
+ok     op=gemv weights=q1_0 target=scalar layout=native align=packed rows=4 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.0e-07
+ok     op=gemv weights=q1_0 target=scalar layout=native align=packed rows=8 cols=1 act=once prefetch=0 unpack=auto correction=auto scales=auto accum=auto  relerr=4.0e-07
+ok     op=gemv weights=q1_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=gemv weights=q1_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=gemv weights=q1_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=gemv weights=q1_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=gemv weights=q1_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=gemv weights=q1_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=gemv weights=q1_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=gemv weights=q1_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=gemv weights=q1_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=gemv weights=q1_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=gemv weights=q1_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=gemv weights=q1_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=1 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=gemv weights=q1_0 target=avx512_vnni layout=l32 align=packed rows=1 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=gemv weights=q1_0 target=avx512_vnni layout=l32 align=packed rows=1 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=gemv weights=q1_0 target=avx512_vnni layout=l32 align=packed rows=2 cols=1 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=gemv weights=q1_0 target=avx512_vnni layout=l32 align=packed rows=2 cols=1 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=0 unpack=none correction=act scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=0 unpack=none correction=weight scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=8 unpack=none correction=act scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=8 unpack=none correction=weight scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=0 unpack=none correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=0 unpack=none correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=8 unpack=none correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=8 unpack=none correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=0 unpack=none correction=act scales=unpacked accum=float  relerr=5.8e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=0 unpack=none correction=weight scales=unpacked accum=float  relerr=5.8e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=8 unpack=none correction=act scales=unpacked accum=float  relerr=5.8e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=8 unpack=none correction=weight scales=unpacked accum=float  relerr=5.8e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=0 unpack=none correction=act scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=0 unpack=none correction=weight scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=8 unpack=none correction=act scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=8 unpack=none correction=weight scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=0 unpack=none correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=0 unpack=none correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=8 unpack=none correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=8 unpack=none correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=0 unpack=none correction=act scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=0 unpack=none correction=weight scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=8 unpack=none correction=act scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=8 unpack=none correction=weight scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=0 unpack=none correction=act scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=0 unpack=none correction=weight scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=8 unpack=none correction=act scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=8 unpack=none correction=weight scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=0 unpack=none correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=0 unpack=none correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=8 unpack=none correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=8 unpack=none correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=0 unpack=none correction=act scales=unpacked accum=float  relerr=5.8e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=0 unpack=none correction=weight scales=unpacked accum=float  relerr=5.8e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=8 unpack=none correction=act scales=unpacked accum=float  relerr=5.8e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=8 unpack=none correction=weight scales=unpacked accum=float  relerr=5.8e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=0 unpack=none correction=act scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=0 unpack=none correction=weight scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=8 unpack=none correction=act scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=8 unpack=none correction=weight scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=0 unpack=none correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=0 unpack=none correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=8 unpack=none correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=8 unpack=none correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=0 unpack=none correction=act scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=0 unpack=none correction=weight scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=8 unpack=none correction=act scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q8_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=8 unpack=none correction=weight scales=unpacked accum=float  relerr=3.7e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=act scales=packed accum=float  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=act scales=packed accum=int  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=act scales=packed accum=float  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=act scales=packed accum=int  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=1.8e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.8e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=act scales=packed accum=float  relerr=1.8e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=act scales=packed accum=int  relerr=1.8e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=1.8e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.8e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=act scales=packed accum=float  relerr=1.8e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=act scales=packed accum=int  relerr=1.8e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=act scales=packed accum=float  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=act scales=packed accum=int  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=act scales=packed accum=float  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=act scales=packed accum=int  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=act scales=packed accum=float  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=act scales=packed accum=int  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=act scales=packed accum=float  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=act scales=packed accum=int  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=1.8e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.8e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=act scales=packed accum=float  relerr=1.8e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=act scales=packed accum=int  relerr=1.8e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=1.8e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.8e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=act scales=packed accum=float  relerr=1.8e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=act scales=packed accum=int  relerr=1.8e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=act scales=packed accum=float  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=act scales=packed accum=int  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=act scales=packed accum=float  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=act scales=packed accum=int  relerr=1.2e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=act scales=packed accum=float  relerr=1.9e-07
+ok     op=verify weights=q4_K target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=act scales=packed accum=int  relerr=1.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.9e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=weight scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=4.0e-07
+ok     op=verify weights=q4_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.0e-07
+FAIL   iq4_nl verify avx2_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v3 -mavxvnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_c15dd90869a2.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_c15dd90869a2.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl verify avx2_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v3 -mavxvnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_d8e0dde0a3d7.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_d8e0dde0a3d7.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl verify avx2_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v3 -mavxvnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_d94cea88ba47.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_d94cea88ba47.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.1e-07
+FAIL   iq4_nl verify avx2_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v3 -mavxvnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_fb383c9b3ff4.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_fb383c9b3ff4.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.1e-07
+FAIL   iq4_nl verify avx2_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v3 -mavxvnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_ea60a2e26c96.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_ea60a2e26c96.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.1e-07
+FAIL   iq4_nl verify avx2_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v3 -mavxvnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_94afa02d5db2.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_94afa02d5db2.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.1e-07
+FAIL   iq4_nl verify avx2_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v3 -mavxvnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_cbbb1763bb4f.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_cbbb1763bb4f.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl verify avx2_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v3 -mavxvnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_ff644e665324.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_ff644e665324.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl verify avx2_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v3 -mavxvnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_3dc076035d9d.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_3dc076035d9d.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.1e-07
+FAIL   iq4_nl verify avx2_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v3 -mavxvnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_22f7cd267a8e.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_22f7cd267a8e.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.1e-07
+FAIL   iq4_nl verify avx2_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v3 -mavxvnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_33f1d4fe903d.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_33f1d4fe903d.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl verify avx2_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v3 -mavxvnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_a74701326202.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx2_vnni_a74701326202.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl verify avx512_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v4 -mavx512vnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_64a18f64e3c5.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_64a18f64e3c5.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl verify avx512_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v4 -mavx512vnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_dc2009ac9bd3.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_dc2009ac9bd3.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl verify avx512_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v4 -mavx512vnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_c5112fa9ceab.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_c5112fa9ceab.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.1e-07
+FAIL   iq4_nl verify avx512_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v4 -mavx512vnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_1116ea364ff4.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_1116ea364ff4.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.1e-07
+FAIL   iq4_nl verify avx512_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v4 -mavx512vnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_143dbd110491.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_143dbd110491.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.1e-07
+FAIL   iq4_nl verify avx512_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v4 -mavx512vnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_a39322811578.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_a39322811578.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.1e-07
+FAIL   iq4_nl verify avx512_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v4 -mavx512vnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_279cb51b1129.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_279cb51b1129.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl verify avx512_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v4 -mavx512vnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_0cb9997cfb15.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_0cb9997cfb15.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl verify avx512_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v4 -mavx512vnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_d91973600047.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_d91973600047.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.1e-07
+FAIL   iq4_nl verify avx512_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v4 -mavx512vnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_99afee0859cd.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_99afee0859cd.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=4.1e-07
+FAIL   iq4_nl verify avx512_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v4 -mavx512vnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_5cf74689c1d7.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_5cf74689c1d7.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=0 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+FAIL   iq4_nl verify avx512_vnni: C compile failed:
+$ gcc -O3 -march=x86-64-v4 -mavx512vnni -Wall -Wextra -Wshadow -Werror -I /home/user/kurn-wt/kurn/src/kurn/data -shared -fPIC /home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_bcdedd674e8b.c
+/home/user/.cache/kurn/kernels/iq4_nl_verify_avx512_vnni_bcdedd674e8b.c:10:21: error: ‘KV’ defined but not used [-Werror=unused-const-variable=]
+   10 | static const int8_t KV[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
+      |                     ^~
+cc1: all warnings being treated as errors
+
+ok     op=verify weights=iq4_nl target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=8 unpack=lut correction=weight scales=unpacked accum=float  relerr=3.1e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.1e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.4e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=q2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.8e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=4.4e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.3e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=4.4e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.3e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=4.4e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.3e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=4.4e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.3e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=4.2e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.2e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=4.2e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.2e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=4.2e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.2e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=4.2e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.2e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=4.4e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.3e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=4.4e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.3e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=4.4e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.3e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=4.4e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.3e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=4.4e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.3e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=4.4e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.3e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=4.4e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.3e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=4.4e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.3e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=4.2e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.2e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=4.2e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.2e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=4.2e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.2e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=4.2e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.2e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=4.4e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.3e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=4.4e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.3e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=4.4e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.3e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=4.4e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.3e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=0 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=tq2_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=8 unpack=lut correction=act scales=unpacked accum=int  relerr=1.5e-07
+ok     op=verify weights=q1_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=q1_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=q1_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=2.8e-07
+ok     op=verify weights=q1_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=2.8e-07
+ok     op=verify weights=q1_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.3e-07
+ok     op=verify weights=q1_0 target=avx2_vnni layout=i8 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.3e-07
+ok     op=verify weights=q1_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=q1_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=q1_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=2.8e-07
+ok     op=verify weights=q1_0 target=avx2_vnni layout=i8 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=2.8e-07
+ok     op=verify weights=q1_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=q1_0 target=avx2_vnni layout=i8 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=q1_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=q1_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=q1_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=2.8e-07
+ok     op=verify weights=q1_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=2.8e-07
+ok     op=verify weights=q1_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.3e-07
+ok     op=verify weights=q1_0 target=avx512_vnni layout=i16 align=packed rows=1 cols=8 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.3e-07
+ok     op=verify weights=q1_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=q1_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=q1_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=2.8e-07
+ok     op=verify weights=q1_0 target=avx512_vnni layout=i16 align=packed rows=2 cols=4 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=2.8e-07
+ok     op=verify weights=q1_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=0 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+ok     op=verify weights=q1_0 target=avx512_vnni layout=i16 align=packed rows=4 cols=2 act=once prefetch=8 unpack=mask correction=act scales=unpacked accum=float  relerr=3.0e-07
+920 configurations, 44 failures
+VERIFY_EXIT=1

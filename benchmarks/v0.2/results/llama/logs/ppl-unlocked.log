@@ -1,0 +1,7 @@
+  ppl_ub1 Qwen3-1.7B-IQ4_NL.gguf default: (19.1878, 2.52399)
+  ppl_ub1 Qwen3-1.7B-IQ4_NL.gguf plain: (19.1852, 2.52017)
+  ppl_ub1 Qwen3-1.7B-IQ4_NL.gguf kurn: (19.1878, 2.52399)
+  ppl_batched Qwen3-1.7B-IQ4_NL.gguf default: (20.4226, 0.8249)
+  ppl_batched Qwen3-1.7B-IQ4_NL.gguf plain: (20.4508, 0.82691)
+  ppl_batched Qwen3-1.7B-IQ4_NL.gguf kurn: (20.3877, 0.82337)
+  ppl_ub1 Bonsai-1.7B-Q1_0.gguf default: (39.2437, 5.61967)

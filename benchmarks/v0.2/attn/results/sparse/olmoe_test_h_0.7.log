@@ -1,0 +1,18 @@
+PPL 2.5044 tokens 3840 chunks 15
+layer 0 sparsity 0.6868 relerr 0.1908 union_density b1 0.0000 b4 0.0000 b8 0.0000 b16 0.0000
+layer 1 sparsity 0.6949 relerr 0.1456 union_density b1 0.0000 b4 0.0000 b8 0.0000 b16 0.0000
+layer 2 sparsity 0.6968 relerr 0.1998 union_density b1 0.0000 b4 0.0000 b8 0.0000 b16 0.0000
+layer 3 sparsity 0.6937 relerr 0.2312 union_density b1 0.0000 b4 0.0000 b8 0.0000 b16 0.0000
+layer 4 sparsity 0.6911 relerr 0.2409 union_density b1 0.0000 b4 0.0000 b8 0.0000 b16 0.0000
+layer 5 sparsity 0.6919 relerr 0.2392 union_density b1 0.0000 b4 0.0000 b8 0.0000 b16 0.0000
+layer 6 sparsity 0.6924 relerr 0.2385 union_density b1 0.0000 b4 0.0000 b8 0.0000 b16 0.0000
+layer 7 sparsity 0.6944 relerr 0.2332 union_density b1 0.0000 b4 0.0000 b8 0.0000 b16 0.0000
+layer 8 sparsity 0.7014 relerr 0.2346 union_density b1 0.0000 b4 0.0000 b8 0.0000 b16 0.0000
+layer 9 sparsity 0.6931 relerr 0.2100 union_density b1 0.0000 b4 0.0000 b8 0.0000 b16 0.0000
+layer 10 sparsity 0.6898 relerr 0.2079 union_density b1 0.0000 b4 0.0000 b8 0.0000 b16 0.0000
+layer 11 sparsity 0.6859 relerr 0.2083 union_density b1 0.0000 b4 0.0000 b8 0.0000 b16 0.0000
+layer 12 sparsity 0.6881 relerr 0.2079 union_density b1 0.0000 b4 0.0000 b8 0.0000 b16 0.0000
+layer 13 sparsity 0.6888 relerr 0.2053 union_density b1 0.0000 b4 0.0000 b8 0.0000 b16 0.0000
+layer 14 sparsity 0.6897 relerr 0.2023 union_density b1 0.0000 b4 0.0000 b8 0.0000 b16 0.0000
+layer 15 sparsity 0.6831 relerr 0.1915 union_density b1 0.0000 b4 0.0000 b8 0.0000 b16 0.0000
+ALL sparsity 0.6916 relerr 0.2036 union_density b1 0.0000 b4 0.0000 b8 0.0000 b16 0.0000

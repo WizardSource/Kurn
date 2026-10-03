@@ -1,0 +1,10 @@
+# NVFP4 decode GEMV (E2M1 codes, UE4M3 scale per 16; per-tensor scale applied by the caller)
+kernel   nvfp4_gemv
+op       gemv
+weights  nvfp4
+target   avx512_vnni
+layout   i16
+unpack   perm
+rows     2
+threads  8
+tune     unpack=lut,perm scales=unpacked,packed rows=1,2,4 prefetch=0,8 threads=4,6,8

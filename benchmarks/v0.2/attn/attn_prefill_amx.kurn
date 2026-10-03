@@ -1,0 +1,13 @@
+# Prefill attention for Qwen3-1.7B (16 query heads, 8 KV heads, head dim 128): one llama.cpp
+# ubatch of 512 tokens at 4K depth, AMX-BF16 tiles, Q8_0 KV cache.
+kernel   attn_prefill_qwen3_1.7b
+op       attn
+kv       q8_0
+target   amx_bf16
+dk       128
+heads    16
+kv_heads 8
+nq       512
+nkv      4608
+threads  8
+tune     tile_q=32,64,128 tile_kv=64,128,256

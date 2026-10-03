@@ -1,0 +1,11 @@
+# Q4_K decode GEMV: int16 scale dot products + precomputed min correction (dpmin)
+kernel   q4_K_gemv
+op       gemv
+weights  q4_K
+target   avx512_vnni
+layout   i16
+unpack   mask16
+correction dpmin
+rows     2
+threads  8
+tune     unpack=mask16,pair correction=act,dpmin rows=1,2,4 prefetch=0,4 threads=4,6,8

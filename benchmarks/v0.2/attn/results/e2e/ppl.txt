@@ -1,0 +1,5 @@
+ggml-fa-f16 0.32.246.594 I Final estimate: PPL = 5.1102 +/- 0.27510
+ggml-nofa-f16 0.53.714.042 I Final estimate: PPL = 5.1185 +/- 0.27415
+ggml-fa-q8_0 0.55.216.728 I Final estimate: PPL = 5.0869 +/- 0.27274
+kurn-f16 0.30.883.345 I Final estimate: PPL = 5.1103 +/- 0.27436
+kurn-q8_0 0.35.391.405 I Final estimate: PPL = 5.1379 +/- 0.27500

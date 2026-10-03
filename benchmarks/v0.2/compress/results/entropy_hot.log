@@ -1,0 +1,7 @@
+tensors=1 weights=2097152 q8_0_bytes=2228224 q8h_bytes=2164272 (8.256 bpw vs 8.5) streams=4 exact=yes
+q8_0 threads=1 rep=0 iters=481 WALL_S 0.042178 CPU_S 0.037010 per_call_us 87.7 cpu_per_call_us 76.9 Gw_s 23.92 GB_s 25.41
+q8h threads=1 rep=0 iters=165 WALL_S 0.359804 CPU_S 0.352364 per_call_us 2180.6 cpu_per_call_us 2135.5 Gw_s 0.96 GB_s 0.99
+q8_0 threads=1 rep=1 iters=481 WALL_S 0.040493 CPU_S 0.037062 per_call_us 84.2 cpu_per_call_us 77.1 Gw_s 24.91 GB_s 26.47
+q8h threads=1 rep=1 iters=165 WALL_S 0.359242 CPU_S 0.352357 per_call_us 2177.2 cpu_per_call_us 2135.5 Gw_s 0.96 GB_s 0.99
+q8_0 threads=1 rep=2 iters=481 WALL_S 0.040442 CPU_S 0.036991 per_call_us 84.1 cpu_per_call_us 76.9 Gw_s 24.94 GB_s 26.50
+q8h threads=1 rep=2 iters=165 WALL_S 0.360289 CPU_S 0.353398 per_call_us 2183.6 cpu_per_call_us 2141.8 Gw_s 0.96 GB_s 0.99

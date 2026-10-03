@@ -1,0 +1,9 @@
+{
+  "_doc": "GEMV codegen keys per format for the fourbit end-to-end patch (see results in fourbit.md)",
+  "q8_0": {"layout": "vnni16", "align": 64, "rows": 8},
+  "q4_0": {"layout": "i16", "unpack": "pair", "rows": 2},
+  "iq4_nl": {"layout": "i16", "unpack": "perm", "rows": 2},
+  "q4_K": {"layout": "i16", "unpack": "mask16", "correction": "dpmin", "rows": 2},
+  "mxfp4": {"layout": "i16", "unpack": "perm", "rows": 2},
+  "nvfp4": {"layout": "i16", "unpack": "perm", "rows": 2}
+}

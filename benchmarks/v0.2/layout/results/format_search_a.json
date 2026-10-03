@@ -1,0 +1,130 @@
+{
+ "q4_0": {
+  "search_s": 46.2,
+  "stats": {
+   "space_active": 26873856,
+   "legal_est": 6355666,
+   "builds": 90,
+   "measurements": 132
+  },
+  "winner": {
+   "layout": "i16",
+   "rows": 4,
+   "prefetch": 16,
+   "unpack": "mask",
+   "correction": "act",
+   "scales": "unpacked",
+   "accum": "float",
+   "align": "packed",
+   "lanes": 0,
+   "plane": "auto",
+   "kblock": 0,
+   "rgroup": 1,
+   "meta": "auto",
+   "rgpad": 0,
+   "swizzle": 0,
+   "chains": 0,
+   "pfhint": "t0",
+   "pfgran": "rec",
+   "stages": 1,
+   "kpanel": 0,
+   "rpanel": 0
+  },
+  "us": {
+   "search_winner": 7.52,
+   "i16_r1": 9.4,
+   "i16_r2": 7.69,
+   "i16_r4": 7.66
+  },
+  "best_fixed": "i16_r4",
+  "speedup_vs_best_fixed": 1.019
+ },
+ "q8_0": {
+  "search_s": 122.9,
+  "stats": {
+   "space_active": 15925248,
+   "legal_est": 1266057,
+   "builds": 134,
+   "measurements": 224
+  },
+  "winner": {
+   "layout": "composed",
+   "rows": 8,
+   "prefetch": 0,
+   "unpack": "none",
+   "correction": "weight",
+   "scales": "unpacked",
+   "accum": "float",
+   "align": "packed",
+   "lanes": 16,
+   "plane": "none",
+   "kblock": 32,
+   "rgroup": 4,
+   "meta": "head",
+   "rgpad": 0,
+   "swizzle": 0,
+   "chains": 1,
+   "pfhint": "t1",
+   "pfgran": "rec",
+   "stages": 1,
+   "kpanel": 0,
+   "rpanel": 0
+  },
+  "us": {
+   "search_winner": 7.28,
+   "native_r1": 25.45,
+   "native_r2": 22.83,
+   "native_r4": 21.64,
+   "native_r8": 22.44,
+   "vnni16_r1": 10.63,
+   "vnni16_r2": 10.11,
+   "vnni16_r4": 9.87,
+   "vnni16_r8": 9.29,
+   "i16_r1": 10.84,
+   "i16_r2": 10.32,
+   "i16_r4": 9.1
+  },
+  "best_fixed": "i16_r4",
+  "speedup_vs_best_fixed": 1.25
+ },
+ "iq4_nl": {
+  "search_s": 69.1,
+  "stats": {
+   "space_active": 17915904,
+   "legal_est": 3869835,
+   "builds": 108,
+   "measurements": 156
+  },
+  "winner": {
+   "layout": "composed",
+   "rows": 4,
+   "prefetch": 0,
+   "unpack": "perm",
+   "correction": "act",
+   "scales": "unpacked",
+   "accum": "float",
+   "align": 64,
+   "lanes": 16,
+   "plane": "rows",
+   "kblock": 32,
+   "rgroup": 4,
+   "meta": "tail",
+   "rgpad": 64,
+   "swizzle": 2,
+   "chains": 1,
+   "pfhint": "t1",
+   "pfgran": "rec",
+   "stages": 1,
+   "kpanel": 0,
+   "rpanel": 0
+  },
+  "us": {
+   "search_winner": 7.93,
+   "i16_r1": 11.21,
+   "i16_r2": 11.26,
+   "i16_r4": 9.77
+  },
+  "best_fixed": "i16_r4",
+  "speedup_vs_best_fixed": 1.232
+ }
+}

@@ -1,0 +1,26 @@
+pause: 13.7 ns
+wait=spin         T=8 gap=    0 us:     0.60 us per barrier cycle (overhead   0.60 us), cpu/wall 8.39
+wait=spin         T=8 gap=    5 us:     5.76 us per barrier cycle (overhead   0.76 us), cpu/wall 8.13
+wait=spin         T=8 gap=   20 us:    21.81 us per barrier cycle (overhead   1.81 us), cpu/wall 7.97
+wait=spin         T=8 gap=   50 us:    53.84 us per barrier cycle (overhead   3.84 us), cpu/wall 7.95
+wait=spin         T=8 gap=  200 us:   209.97 us per barrier cycle (overhead   9.97 us), cpu/wall 7.92
+wait=hybrid:500   T=8 gap=    0 us:     1.20 us per barrier cycle (overhead   1.20 us), cpu/wall 4.26
+wait=hybrid:500   T=8 gap=    5 us:    17.52 us per barrier cycle (overhead  12.52 us), cpu/wall 2.66
+wait=hybrid:500   T=8 gap=   20 us:    77.86 us per barrier cycle (overhead  57.86 us), cpu/wall 1.37
+wait=hybrid:500   T=8 gap=   50 us:    77.22 us per barrier cycle (overhead  27.22 us), cpu/wall 1.79
+wait=hybrid:500   T=8 gap=  200 us:   285.88 us per barrier cycle (overhead  85.88 us), cpu/wall 1.01
+wait=hybrid:5000  T=8 gap=    0 us:     0.57 us per barrier cycle (overhead   0.57 us), cpu/wall 7.86
+wait=hybrid:5000  T=8 gap=    5 us:     9.16 us per barrier cycle (overhead   4.16 us), cpu/wall 4.70
+wait=hybrid:5000  T=8 gap=   20 us:    40.00 us per barrier cycle (overhead  20.00 us), cpu/wall 4.17
+wait=hybrid:5000  T=8 gap=   50 us:   109.73 us per barrier cycle (overhead  59.73 us), cpu/wall 3.72
+wait=hybrid:5000  T=8 gap=  200 us:   293.28 us per barrier cycle (overhead  93.28 us), cpu/wall 2.33
+wait=futex        T=8 gap=    0 us:    29.60 us per barrier cycle (overhead  29.60 us), cpu/wall 1.26
+wait=futex        T=8 gap=    5 us:    19.52 us per barrier cycle (overhead  14.52 us), cpu/wall 1.99
+wait=futex        T=8 gap=   20 us:    45.25 us per barrier cycle (overhead  25.25 us), cpu/wall 1.21
+wait=futex        T=8 gap=   50 us:    67.10 us per barrier cycle (overhead  17.10 us), cpu/wall 1.19
+wait=futex        T=8 gap=  200 us:   242.32 us per barrier cycle (overhead  42.32 us), cpu/wall 0.99
+wait=umwait       T=8 gap=    0 us:     0.60 us per barrier cycle (overhead   0.60 us), cpu/wall 7.85
+wait=umwait       T=8 gap=    5 us:     6.34 us per barrier cycle (overhead   1.34 us), cpu/wall 7.79
+wait=umwait       T=8 gap=   20 us:    32.97 us per barrier cycle (overhead  12.97 us), cpu/wall 7.55
+wait=umwait       T=8 gap=   50 us:    73.92 us per barrier cycle (overhead  23.92 us), cpu/wall 7.56
+wait=umwait       T=8 gap=  200 us:   215.50 us per barrier cycle (overhead  15.50 us), cpu/wall 7.94

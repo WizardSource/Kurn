@@ -1,0 +1,11 @@
+# Decode GEMV on E8P lattice-codebook weights (2.06 bpw, QuIP#-style, kurn.codebook) against
+# Q8_K activations of the Hadamard-rotated input.
+#   kurn tune benchmarks/v0.2/compress/specs/e8p_gemv.kurn --regime cold
+kernel   e8p_gemv
+op       gemv
+weights  e8p
+target   avx512_vnni
+rows     4
+prefetch 4
+threads  8
+tune     rows=1,2,4,8 prefetch=0,4,8,16

@@ -1,0 +1,28 @@
+N=2048 K=2048 threads=1 regime=hot sets=1 bytes=1081344 exact=yes
+vq2x8_decode rep=0 iters=2071 WALL_S 0.421956 CPU_S 0.402264 per_call_us 203.75 Gw_s 20.59 GB_s 5.31
+vq2x8_lut rep=0 iters=651 WALL_S 0.258410 CPU_S 0.250392 per_call_us 396.94 Gw_s 10.57 GB_s 2.72
+vq2x8_decode rep=1 iters=2071 WALL_S 0.409636 CPU_S 0.402034 per_call_us 197.80 Gw_s 21.21 GB_s 5.47
+vq2x8_lut rep=1 iters=651 WALL_S 0.258368 CPU_S 0.250323 per_call_us 396.88 Gw_s 10.57 GB_s 2.72
+vq2x8_decode rep=2 iters=2071 WALL_S 0.409741 CPU_S 0.402051 per_call_us 197.85 Gw_s 21.20 GB_s 5.47
+vq2x8_lut rep=2 iters=651 WALL_S 0.256369 CPU_S 0.250236 per_call_us 393.81 Gw_s 10.65 GB_s 2.75
+N=256 K=4096 threads=1 regime=hot sets=1 bytes=270336 exact=yes
+vq2x8_decode rep=0 iters=995 WALL_S 0.052197 CPU_S 0.048176 per_call_us 52.46 Gw_s 19.99 GB_s 5.15
+vq2x8_lut rep=0 iters=3128 WALL_S 0.376968 CPU_S 0.370912 per_call_us 120.51 Gw_s 8.70 GB_s 2.24
+vq2x8_decode rep=1 iters=995 WALL_S 0.051613 CPU_S 0.048128 per_call_us 51.87 Gw_s 20.21 GB_s 5.21
+vq2x8_lut rep=1 iters=3128 WALL_S 0.378841 CPU_S 0.370157 per_call_us 121.11 Gw_s 8.66 GB_s 2.23
+vq2x8_decode rep=2 iters=995 WALL_S 0.053004 CPU_S 0.048192 per_call_us 53.27 Gw_s 19.68 GB_s 5.07
+vq2x8_lut rep=2 iters=3128 WALL_S 0.388103 CPU_S 0.370236 per_call_us 124.07 Gw_s 8.45 GB_s 2.18
+N=4096 K=4096 threads=1 regime=cold sets=278 bytes=4325376 exact=yes
+vq2x8_decode rep=0 iters=216 WALL_S 0.251563 CPU_S 0.245168 per_call_us 1164.64 Gw_s 14.41 GB_s 3.71
+vq2x8_lut rep=0 iters=159 WALL_S 0.286800 CPU_S 0.279128 per_call_us 1803.78 Gw_s 9.30 GB_s 2.40
+vq2x8_decode rep=1 iters=216 WALL_S 0.230331 CPU_S 0.226139 per_call_us 1066.35 Gw_s 15.73 GB_s 4.06
+vq2x8_lut rep=1 iters=159 WALL_S 0.288754 CPU_S 0.280973 per_call_us 1816.06 Gw_s 9.24 GB_s 2.38
+vq2x8_decode rep=2 iters=216 WALL_S 0.229962 CPU_S 0.221197 per_call_us 1064.64 Gw_s 15.76 GB_s 4.06
+vq2x8_lut rep=2 iters=159 WALL_S 0.287168 CPU_S 0.277820 per_call_us 1806.09 Gw_s 9.29 GB_s 2.39
+N=4096 K=4096 threads=8 regime=cold sets=278 bytes=4325376 exact=yes
+vq2x8_decode rep=0 iters=148 WALL_S 0.093523 CPU_S 0.204422 per_call_us 631.91 Gw_s 26.55 GB_s 6.84
+vq2x8_lut rep=0 iters=151 WALL_S 0.172920 CPU_S 0.396390 per_call_us 1145.17 Gw_s 14.65 GB_s 3.78
+vq2x8_decode rep=1 iters=148 WALL_S 0.084533 CPU_S 0.186977 per_call_us 571.17 Gw_s 29.37 GB_s 7.57
+vq2x8_lut rep=1 iters=151 WALL_S 0.090007 CPU_S 0.392522 per_call_us 596.07 Gw_s 28.15 GB_s 7.26
+vq2x8_decode rep=2 iters=148 WALL_S 0.052097 CPU_S 0.180605 per_call_us 352.01 Gw_s 47.66 GB_s 12.29
+vq2x8_lut rep=2 iters=151 WALL_S 0.099243 CPU_S 0.393283 per_call_us 657.24 Gw_s 25.53 GB_s 6.58

@@ -1,0 +1,25 @@
+tensors=196 weights=1409286144 q8_0_bytes=1497366528 q8h_bytes=1450027904 (8.231 bpw vs 8.5) streams=4 exact=yes
+q8_0 threads=1 rep=0 iters=5 WALL_S 1.136171 CPU_S 1.118261 per_call_us 227234.2 cpu_per_call_us 223652.2 Gw_s 6.20 GB_s 6.59
+q8h threads=1 rep=0 iters=1 WALL_S 1.722332 CPU_S 1.690631 per_call_us 1722332.0 cpu_per_call_us 1690630.8 Gw_s 0.82 GB_s 0.84
+q8_0 threads=1 rep=1 iters=5 WALL_S 1.101680 CPU_S 1.083180 per_call_us 220336.1 cpu_per_call_us 216636.0 Gw_s 6.40 GB_s 6.80
+q8h threads=1 rep=1 iters=1 WALL_S 1.716901 CPU_S 1.691886 per_call_us 1716901.0 cpu_per_call_us 1691885.9 Gw_s 0.82 GB_s 0.84
+q8_0 threads=1 rep=2 iters=5 WALL_S 1.099007 CPU_S 1.081767 per_call_us 219801.5 cpu_per_call_us 216353.4 Gw_s 6.41 GB_s 6.81
+q8h threads=1 rep=2 iters=1 WALL_S 1.724202 CPU_S 1.696429 per_call_us 1724202.0 cpu_per_call_us 1696428.8 Gw_s 0.82 GB_s 0.84
+q8_0 threads=2 rep=0 iters=10 WALL_S 1.121375 CPU_S 2.137474 per_call_us 112137.5 cpu_per_call_us 213747.4 Gw_s 12.57 GB_s 13.35
+q8h threads=2 rep=0 iters=2 WALL_S 1.712342 CPU_S 3.367115 per_call_us 856170.8 cpu_per_call_us 1683557.5 Gw_s 1.65 GB_s 1.69
+q8_0 threads=2 rep=1 iters=10 WALL_S 1.101505 CPU_S 2.140342 per_call_us 110150.5 cpu_per_call_us 214034.2 Gw_s 12.79 GB_s 13.59
+q8h threads=2 rep=1 iters=2 WALL_S 1.706698 CPU_S 3.360033 per_call_us 853349.2 cpu_per_call_us 1680016.5 Gw_s 1.65 GB_s 1.70
+q8_0 threads=2 rep=2 iters=10 WALL_S 1.112316 CPU_S 2.134574 per_call_us 111231.6 cpu_per_call_us 213457.4 Gw_s 12.67 GB_s 13.46
+q8h threads=2 rep=2 iters=2 WALL_S 1.768580 CPU_S 3.369029 per_call_us 884289.9 cpu_per_call_us 1684514.4 Gw_s 1.59 GB_s 1.64
+q8_0 threads=4 rep=0 iters=14 WALL_S 0.985559 CPU_S 3.207096 per_call_us 70397.1 cpu_per_call_us 229078.3 Gw_s 20.02 GB_s 21.27
+q8h threads=4 rep=0 iters=3 WALL_S 1.428114 CPU_S 5.183048 per_call_us 476038.2 cpu_per_call_us 1727682.7 Gw_s 2.96 GB_s 3.05
+q8_0 threads=4 rep=1 iters=14 WALL_S 0.990573 CPU_S 3.182759 per_call_us 70755.2 cpu_per_call_us 227339.9 Gw_s 19.92 GB_s 21.16
+q8h threads=4 rep=1 iters=3 WALL_S 1.482908 CPU_S 5.169671 per_call_us 494302.7 cpu_per_call_us 1723223.7 Gw_s 2.85 GB_s 2.93
+q8_0 threads=4 rep=2 iters=14 WALL_S 0.971975 CPU_S 3.179191 per_call_us 69426.8 cpu_per_call_us 227085.1 Gw_s 20.30 GB_s 21.57
+q8h threads=4 rep=2 iters=3 WALL_S 1.447080 CPU_S 5.177124 per_call_us 482360.1 cpu_per_call_us 1725707.9 Gw_s 2.92 GB_s 3.01
+q8_0 threads=8 rep=0 iters=27 WALL_S 0.982186 CPU_S 5.720813 per_call_us 36377.3 cpu_per_call_us 211881.9 Gw_s 38.74 GB_s 41.16
+q8h threads=8 rep=0 iters=4 WALL_S 1.095960 CPU_S 6.817878 per_call_us 273990.0 cpu_per_call_us 1704469.4 Gw_s 5.14 GB_s 5.29
+q8_0 threads=8 rep=1 iters=27 WALL_S 0.912206 CPU_S 5.659145 per_call_us 33785.4 cpu_per_call_us 209598.0 Gw_s 41.71 GB_s 44.32
+q8h threads=8 rep=1 iters=4 WALL_S 0.969536 CPU_S 6.829816 per_call_us 242384.0 cpu_per_call_us 1707454.1 Gw_s 5.81 GB_s 5.98
+q8_0 threads=8 rep=2 iters=27 WALL_S 0.926288 CPU_S 5.590305 per_call_us 34307.0 cpu_per_call_us 207048.3 Gw_s 41.08 GB_s 43.65
+q8h threads=8 rep=2 iters=4 WALL_S 1.069964 CPU_S 6.829374 per_call_us 267491.0 cpu_per_call_us 1707343.5 Gw_s 5.27 GB_s 5.42
