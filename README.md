@@ -53,7 +53,7 @@ generators. It is not a general-purpose language or optimizer: every (op × form
 Requirements: Linux, Python ≥ 3.9, and GCC or Clang. There are no Python dependencies.
 
 ```sh
-pip install git+https://github.com/<org>/kurn       # or, from a checkout: pip install .
+pip install git+https://github.com/WizardSource/kurn       # or, from a checkout: pip install .
 kurn targets                                        # what this host can build and run
 ```
 
@@ -351,4 +351,4 @@ Environment variables: `KURN_CC`, `KURN_CROSS_CC`, `KURN_QEMU` and `KURN_CACHE_D
 ## Contributing and license
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Licensed under the [MIT License](LICENSE) (copyright: kurn contributors). The quantization block layouts follow
-[ggml](https://github.com/ggml-org/ggml) (MIT) for binary compatibility.
+[ggml](https://github.com/ggml-/ggml) (MIT) for binary compatibility.
