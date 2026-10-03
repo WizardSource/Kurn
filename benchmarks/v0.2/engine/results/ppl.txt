@@ -1,0 +1,11 @@
+qwen3 v2 ctx=512 chunks=4 ppl 4.7833 over 1020 tokens; 34.09 tok/s, cpu_s/tok 0.2170 barriers_per_tok 57.0 wait_share 0.429
+qwen3 lc_amx ctx=512 chunks=4 ppl 4.8142 over 1020 tokens; 26.21 tok/s, cpu_s/tok 0.2804
+qwen3 lc_plain ctx=512 chunks=4 ppl 4.8273 over 1020 tokens; 14.01 tok/s, cpu_s/tok 0.5278
+qwen3 v1 ctx=512 chunks=4 ppl 4.7607 over 1020 tokens; 25.24 tok/s, cpu_s/tok 0.2911
+olmoe v2 ctx=512 chunks=4 ppl 1.7613 over 1020 tokens; 48.50 tok/s, cpu_s/tok 0.1485 barriers_per_tok 49.0 wait_share 0.425
+olmoe lc_amx ctx=512 chunks=4 ppl 1.7579 over 1020 tokens; 23.64 tok/s, cpu_s/tok 0.3105
+olmoe lc_plain ctx=512 chunks=4 ppl 1.7539 over 1020 tokens; 19.88 tok/s, cpu_s/tok 0.3683
+olmoe v1 ctx=512 chunks=4 ppl 1.7533 over 1020 tokens; 38.19 tok/s, cpu_s/tok 0.1903
+qwen3q4 v2 ctx=512 chunks=4 ppl 6.4357 over 1020 tokens; 54.92 tok/s, cpu_s/tok 0.1333 barriers_per_tok 57.0 wait_share 0.498
+qwen3q4 lc_amx ctx=512 chunks=4 ppl 6.4655 over 1020 tokens; 48.39 tok/s, cpu_s/tok 0.1540
+qwen3q4 lc_plain ctx=512 chunks=4 ppl 6.4376 over 1020 tokens; 21.28 tok/s, cpu_s/tok 0.3471

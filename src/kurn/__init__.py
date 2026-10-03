@@ -5,7 +5,7 @@
 >>> src = kurn.generate(kurn.resolve(spec))
 """
 
-__version__ = "0.2.1"
+__version__ = "0.3.0.dev0"
 
 from .formats import FORMATS
 from .kernels import KERNELS, embed, generate

@@ -1,0 +1,164 @@
+{'build': 'stock', 'M': 1, 'ms_per_pass': 958.9171140814102, 'rep': 0, 'load': 9.58}
+{'build': 'stock', 'M': 2, 'ms_per_pass': 1248.003194888179, 'rep': 0, 'load': 9.58}
+{'build': 'stock', 'M': 3, 'ms_per_pass': 1652.777823688273, 'rep': 0, 'load': 9.58}
+{'build': 'stock', 'M': 4, 'ms_per_pass': 1493.5627445708994, 'rep': 0, 'load': 9.58}
+{'build': 'stock', 'M': 5, 'ms_per_pass': 1648.5572651094396, 'rep': 0, 'load': 9.58}
+{'build': 'stock', 'M': 6, 'ms_per_pass': 645.6943700401256, 'rep': 0, 'load': 9.58}
+{'build': 'stock', 'M': 7, 'ms_per_pass': 721.0012523791753, 'rep': 0, 'load': 9.58}
+{'build': 'stock', 'M': 8, 'ms_per_pass': 1257.233809028699, 'rep': 0, 'load': 9.58}
+{'build': 'stock', 'M': 16, 'ms_per_pass': 1137.851004811332, 'rep': 0, 'load': 9.58}
+{'build': 'stock-plain', 'M': 1, 'ms_per_pass': 865.5715455472404, 'rep': 0, 'load': 9.58}
+{'build': 'stock-plain', 'M': 2, 'ms_per_pass': 1418.0233605168412, 'rep': 0, 'load': 9.58}
+{'build': 'stock-plain', 'M': 3, 'ms_per_pass': 1956.2006670644275, 'rep': 0, 'load': 9.58}
+{'build': 'stock-plain', 'M': 4, 'ms_per_pass': 966.1434355867341, 'rep': 0, 'load': 9.58}
+{'build': 'stock-plain', 'M': 5, 'ms_per_pass': 1679.8292487165265, 'rep': 0, 'load': 9.58}
+{'build': 'stock-plain', 'M': 6, 'ms_per_pass': 1968.1688059021444, 'rep': 0, 'load': 9.58}
+{'build': 'stock-plain', 'M': 7, 'ms_per_pass': 1830.341465889103, 'rep': 0, 'load': 9.58}
+{'build': 'stock-plain', 'M': 8, 'ms_per_pass': 1712.315572910825, 'rep': 0, 'load': 9.58}
+{'build': 'stock-plain', 'M': 16, 'ms_per_pass': 2727.8477451781027, 'rep': 0, 'load': 9.58}
+{'build': 'kurn', 'M': 1, 'ms_per_pass': 95.94183315293071, 'rep': 0, 'load': 9.58}
+{'build': 'kurn', 'M': 2, 'ms_per_pass': 123.37848286661516, 'rep': 0, 'load': 9.58}
+{'build': 'kurn', 'M': 3, 'ms_per_pass': 147.16246485944293, 'rep': 0, 'load': 9.58}
+{'build': 'kurn', 'M': 4, 'ms_per_pass': 147.84704941828284, 'rep': 0, 'load': 9.58}
+{'build': 'kurn', 'M': 5, 'ms_per_pass': 173.3038818405815, 'rep': 0, 'load': 9.58}
+{'build': 'kurn', 'M': 6, 'ms_per_pass': 178.9836235950531, 'rep': 0, 'load': 9.58}
+{'build': 'kurn', 'M': 7, 'ms_per_pass': 180.53299788582962, 'rep': 0, 'load': 9.58}
+{'build': 'kurn', 'M': 8, 'ms_per_pass': 183.15300927491415, 'rep': 0, 'load': 9.58}
+{'build': 'kurn', 'M': 16, 'ms_per_pass': 244.85612376595572, 'rep': 0, 'load': 9.58}
+{'build': 'stock', 'M': 1, 'ms_per_pass': 100.730609181454, 'rep': 1, 'load': 13.37}
+{'build': 'stock', 'M': 2, 'ms_per_pass': 132.54775811704246, 'rep': 1, 'load': 13.37}
+{'build': 'stock', 'M': 3, 'ms_per_pass': 134.68750545764996, 'rep': 1, 'load': 13.37}
+{'build': 'stock', 'M': 4, 'ms_per_pass': 140.8462457943751, 'rep': 1, 'load': 13.37}
+{'build': 'stock', 'M': 5, 'ms_per_pass': 141.55363208076392, 'rep': 1, 'load': 13.37}
+{'build': 'stock', 'M': 6, 'ms_per_pass': 139.39320835400224, 'rep': 1, 'load': 13.37}
+{'build': 'stock', 'M': 7, 'ms_per_pass': 158.05599436164593, 'rep': 1, 'load': 13.37}
+{'build': 'stock', 'M': 8, 'ms_per_pass': 160.9971422403513, 'rep': 1, 'load': 13.37}
+{'build': 'stock', 'M': 16, 'ms_per_pass': 160.1872605094081, 'rep': 1, 'load': 13.37}
+{'build': 'stock-plain', 'M': 1, 'ms_per_pass': 177.04228902932672, 'rep': 1, 'load': 13.37}
+{'build': 'stock-plain', 'M': 2, 'ms_per_pass': 140.44296835763745, 'rep': 1, 'load': 13.37}
+{'build': 'stock-plain', 'M': 3, 'ms_per_pass': 151.19051950775994, 'rep': 1, 'load': 13.37}
+{'build': 'stock-plain', 'M': 4, 'ms_per_pass': 155.14546128158838, 'rep': 1, 'load': 13.37}
+{'build': 'stock-plain', 'M': 5, 'ms_per_pass': 238.090873095898, 'rep': 1, 'load': 13.37}
+{'build': 'stock-plain', 'M': 6, 'ms_per_pass': 244.74845284305104, 'rep': 1, 'load': 13.37}
+{'build': 'stock-plain', 'M': 7, 'ms_per_pass': 256.0676322903918, 'rep': 1, 'load': 13.37}
+{'build': 'stock-plain', 'M': 8, 'ms_per_pass': 219.24150004815093, 'rep': 1, 'load': 13.37}
+{'build': 'stock-plain', 'M': 16, 'ms_per_pass': 350.7977480626263, 'rep': 1, 'load': 13.37}
+{'build': 'kurn', 'M': 1, 'ms_per_pass': 92.35641671141336, 'rep': 1, 'load': 13.37}
+{'build': 'kurn', 'M': 2, 'ms_per_pass': 121.20299058683035, 'rep': 1, 'load': 13.37}
+{'build': 'kurn', 'M': 3, 'ms_per_pass': 145.24924576908313, 'rep': 1, 'load': 13.37}
+{'build': 'kurn', 'M': 4, 'ms_per_pass': 147.99875710643784, 'rep': 1, 'load': 13.37}
+{'build': 'kurn', 'M': 5, 'ms_per_pass': 143.40042972519976, 'rep': 1, 'load': 13.37}
+{'build': 'kurn', 'M': 6, 'ms_per_pass': 143.66065055767868, 'rep': 1, 'load': 13.37}
+{'build': 'kurn', 'M': 7, 'ms_per_pass': 143.90533167198055, 'rep': 1, 'load': 13.37}
+{'build': 'kurn', 'M': 8, 'ms_per_pass': 143.94670114286123, 'rep': 1, 'load': 13.37}
+{'build': 'kurn', 'M': 16, 'ms_per_pass': 198.52129921370926, 'rep': 1, 'load': 13.37}
+{'build': 'stock', 'M': 1, 'ms_per_pass': 74.76551105852936, 'rep': 2, 'load': 11.19}
+{'build': 'stock', 'M': 2, 'ms_per_pass': 105.7473918991999, 'rep': 2, 'load': 11.19}
+{'build': 'stock', 'M': 3, 'ms_per_pass': 119.41542804340766, 'rep': 2, 'load': 11.19}
+{'build': 'stock', 'M': 4, 'ms_per_pass': 115.75771920945232, 'rep': 2, 'load': 11.19}
+{'build': 'stock', 'M': 5, 'ms_per_pass': 117.89641389997776, 'rep': 2, 'load': 11.19}
+{'build': 'stock', 'M': 6, 'ms_per_pass': 120.10642149583059, 'rep': 2, 'load': 11.19}
+{'build': 'stock', 'M': 7, 'ms_per_pass': 135.52650060991766, 'rep': 2, 'load': 11.19}
+{'build': 'stock', 'M': 8, 'ms_per_pass': 131.67365060966299, 'rep': 2, 'load': 11.19}
+{'build': 'stock', 'M': 16, 'ms_per_pass': 133.07998231699736, 'rep': 2, 'load': 11.19}
+{'build': 'stock-plain', 'M': 1, 'ms_per_pass': 171.78036780581672, 'rep': 2, 'load': 11.19}
+{'build': 'stock-plain', 'M': 2, 'ms_per_pass': 143.11992125541934, 'rep': 2, 'load': 11.19}
+{'build': 'stock-plain', 'M': 3, 'ms_per_pass': 148.8767472733348, 'rep': 2, 'load': 11.19}
+{'build': 'stock-plain', 'M': 4, 'ms_per_pass': 155.14433601191323, 'rep': 2, 'load': 11.19}
+{'build': 'stock-plain', 'M': 5, 'ms_per_pass': 240.87254441280237, 'rep': 2, 'load': 11.19}
+{'build': 'stock-plain', 'M': 6, 'ms_per_pass': 255.6545677290307, 'rep': 2, 'load': 11.19}
+{'build': 'stock-plain', 'M': 7, 'ms_per_pass': 266.24123852381405, 'rep': 2, 'load': 11.19}
+{'build': 'stock-plain', 'M': 8, 'ms_per_pass': 233.24373372487182, 'rep': 2, 'load': 11.19}
+{'build': 'stock-plain', 'M': 16, 'ms_per_pass': 356.8850952895472, 'rep': 2, 'load': 11.19}
+{'build': 'kurn', 'M': 1, 'ms_per_pass': 74.83788617097643, 'rep': 2, 'load': 11.19}
+{'build': 'kurn', 'M': 2, 'ms_per_pass': 100.84672422358989, 'rep': 2, 'load': 11.19}
+{'build': 'kurn', 'M': 3, 'ms_per_pass': 121.28500982772434, 'rep': 2, 'load': 11.19}
+{'build': 'kurn', 'M': 4, 'ms_per_pass': 122.05215813541406, 'rep': 2, 'load': 11.19}
+{'build': 'kurn', 'M': 5, 'ms_per_pass': 143.2388170089449, 'rep': 2, 'load': 11.19}
+{'build': 'kurn', 'M': 6, 'ms_per_pass': 143.20674803562707, 'rep': 2, 'load': 11.19}
+{'build': 'kurn', 'M': 7, 'ms_per_pass': 143.62170273294868, 'rep': 2, 'load': 11.19}
+{'build': 'kurn', 'M': 8, 'ms_per_pass': 143.95904912096896, 'rep': 2, 'load': 11.19}
+{'build': 'kurn', 'M': 16, 'ms_per_pass': 197.03443472298434, 'rep': 2, 'load': 11.19}
+rep 1 stock greedy p0: {'tok_s': 13.254325524847003, 'n': 192} load 8.61
+rep 1 stock spec-td8 p0: {'tok_s': 29.906822963630898, 'n': 199, 'n_drafted': 256, 'n_accept': 167} load 8.61
+rep 1 stock spec-td2 p0: {'tok_s': 17.468398876404496, 'n': 199, 'n_drafted': 248, 'n_accept': 168} load 8.61
+rep 1 stock greedy p1: {'tok_s': 13.17290437023172, 'n': 192} load 8.61
+rep 1 stock spec-td8 p1: {'tok_s': 13.784729662166988, 'n': 193, 'n_drafted': 526, 'n_accept': 126} load 8.61
+rep 1 stock spec-td2 p1: {'tok_s': 7.710131032278683, 'n': 193, 'n_drafted': 542, 'n_accept': 123} load 8.61
+rep 1 stock greedy p2: {'tok_s': 13.339451322526282, 'n': 192} load 8.61
+rep 1 stock spec-td8 p2: {'tok_s': 11.805513296415748, 'n': 194, 'n_drafted': 627, 'n_accept': 114} load 8.61
+rep 1 stock spec-td2 p2: {'tok_s': 7.38558089698454, 'n': 193, 'n_drafted': 558, 'n_accept': 122} load 8.61
+rep 1 kurn greedy p0: {'tok_s': 12.889859190098429, 'n': 192} load 4.86
+rep 1 kurn spec-td8 p0: {'tok_s': 24.24168595444025, 'n': 199, 'n_drafted': 240, 'n_accept': 169} load 4.86
+rep 1 kurn spec-td2 p0: {'tok_s': 14.623750734861845, 'n': 199, 'n_drafted': 240, 'n_accept': 169} load 4.86
+rep 1 kurn greedy p1: {'tok_s': 10.777467306468287, 'n': 192} load 4.86
+rep 1 kurn spec-td8 p1: {'tok_s': 11.070957379682213, 'n': 193, 'n_drafted': 526, 'n_accept': 126} load 4.86
+rep 1 kurn spec-td2 p1: {'tok_s': 6.7430647753476345, 'n': 193, 'n_drafted': 526, 'n_accept': 126} load 4.86
+rep 1 kurn greedy p2: {'tok_s': 9.752097594499613, 'n': 192} load 4.86
+rep 1 kurn spec-td8 p2: {'tok_s': 7.613814756671899, 'n': 194, 'n_drafted': 635, 'n_accept': 113} load 4.86
+rep 1 kurn spec-td2 p2: {'tok_s': 4.872902642419372, 'n': 194, 'n_drafted': 635, 'n_accept': 113} load 4.86
+rep 2 stock greedy p0: {'tok_s': 9.646372080267918, 'n': 192} load 5.35
+rep 2 stock spec-td8 p0: {'tok_s': 25.221799746514577, 'n': 199, 'n_drafted': 248, 'n_accept': 168} load 5.35
+rep 2 stock spec-td2 p0: {'tok_s': 14.122489532325599, 'n': 199, 'n_drafted': 256, 'n_accept': 167} load 5.35
+rep 2 stock greedy p1: {'tok_s': 9.673820059856128, 'n': 192} load 5.35
+rep 2 stock spec-td8 p1: {'tok_s': 11.023532099611607, 'n': 193, 'n_drafted': 534, 'n_accept': 124} load 5.35
+rep 2 stock spec-td2 p1: {'tok_s': 6.338467601563269, 'n': 193, 'n_drafted': 534, 'n_accept': 124} load 5.35
+rep 2 stock greedy p2: {'tok_s': 9.919465366783918, 'n': 192} load 5.35
+rep 2 stock spec-td8 p2: {'tok_s': 9.730651552390029, 'n': 194, 'n_drafted': 627, 'n_accept': 114} load 5.35
+rep 2 stock spec-td2 p2: {'tok_s': 4.876939404659625, 'n': 193, 'n_drafted': 713, 'n_accept': 102} load 5.35
+rep 2 kurn greedy p0: {'tok_s': 11.583943562541771, 'n': 192} load 6.73
+rep 2 kurn spec-td8 p0: {'tok_s': 23.84947267497603, 'n': 199, 'n_drafted': 240, 'n_accept': 169} load 6.73
+rep 2 kurn spec-td2 p0: {'tok_s': 15.181568507781506, 'n': 199, 'n_drafted': 240, 'n_accept': 169} load 6.73
+rep 2 kurn greedy p1: {'tok_s': 11.762423675110773, 'n': 192} load 6.73
+rep 2 kurn spec-td8 p1: {'tok_s': 9.89540607054963, 'n': 193, 'n_drafted': 526, 'n_accept': 126} load 6.73
+rep 2 kurn spec-td2 p1: {'tok_s': 6.781447645818693, 'n': 193, 'n_drafted': 526, 'n_accept': 126} load 6.73
+rep 2 kurn greedy p2: {'tok_s': 10.673742258742688, 'n': 192} load 6.73
+rep 2 kurn spec-td8 p2: {'tok_s': 7.7755511022044095, 'n': 194, 'n_drafted': 635, 'n_accept': 113} load 6.73
+rep 2 kurn spec-td2 p2: {'tok_s': 5.636913063691307, 'n': 194, 'n_drafted': 635, 'n_accept': 113} load 6.73
+rep 3 stock greedy p0: {'tok_s': 10.583887001767676, 'n': 192} load 4.92
+rep 3 stock spec-td8 p0: {'tok_s': 28.778018799710775, 'n': 199, 'n_drafted': 240, 'n_accept': 169} load 4.92
+rep 3 stock spec-td2 p0: {'tok_s': 15.095198361526208, 'n': 199, 'n_drafted': 240, 'n_accept': 169} load 4.92
+rep 3 stock greedy p1: {'tok_s': 9.022290726549484, 'n': 192} load 4.92
+rep 3 stock spec-td8 p1: {'tok_s': 9.692647649658499, 'n': 193, 'n_drafted': 534, 'n_accept': 124} load 4.92
+rep 3 stock spec-td2 p1: {'tok_s': 6.325811921220817, 'n': 194, 'n_drafted': 530, 'n_accept': 126} load 4.92
+rep 3 stock greedy p2: {'tok_s': 10.211572010027655, 'n': 192} load 4.92
+rep 3 stock spec-td8 p2: {'tok_s': 10.27324719339123, 'n': 194, 'n_drafted': 616, 'n_accept': 116} load 4.92
+rep 3 stock spec-td2 p2: {'tok_s': 6.2619024563442105, 'n': 194, 'n_drafted': 616, 'n_accept': 116} load 4.92
+rep 3 kurn greedy p0: {'tok_s': 12.552625733277077, 'n': 192} load 5.91
+rep 3 kurn spec-td8 p0: {'tok_s': 24.1358399029715, 'n': 199, 'n_drafted': 240, 'n_accept': 169} load 5.91
+rep 3 kurn spec-td2 p0: {'tok_s': 14.618379490193199, 'n': 199, 'n_drafted': 240, 'n_accept': 169} load 5.91
+rep 3 kurn greedy p1: {'tok_s': 12.099719425877817, 'n': 192} load 5.91
+rep 3 kurn spec-td8 p1: {'tok_s': 10.617229618219826, 'n': 193, 'n_drafted': 526, 'n_accept': 126} load 5.91
+rep 3 kurn spec-td2 p1: {'tok_s': 6.422628951747088, 'n': 193, 'n_drafted': 526, 'n_accept': 126} load 5.91
+rep 3 kurn greedy p2: {'tok_s': 12.560748646924589, 'n': 192} load 5.91
+rep 3 kurn spec-td8 p2: {'tok_s': 8.628357943426435, 'n': 194, 'n_drafted': 635, 'n_accept': 113} load 5.91
+rep 3 kurn spec-td2 p2: {'tok_s': 5.395183269369821, 'n': 194, 'n_drafted': 635, 'n_accept': 113} load 5.91
+  stock spec-td8 p1 differs at char 623: ref ...'an vary depending on the architecture.\n\n- **Why cache lines?**  \n  Caches are de'
+                          got ...'an vary depending on the architecture.\n\n### Key Points:\n- A cache line contains '
+  stock spec-td2 p1 differs at char 673: ref ...'che lines?**  \n  Caches are designed to work with **blocks of data**, not indivi'
+                          got ...'che lines?**  \n  Caches are designed to take advantage of **spatial locality** —'
+  stock spec-td8 p2 differs at char 560: ref ...'iately drawn to Jane Bennet, the eldest sister, while Darcy, who is proud and al'
+                          got ...'iately drawn to Jane Bennet, the eldest daughter, while Darcy, who is proud and '
+  stock spec-td2 p2 differs at char 504: ref ...'o rents a house near the Bennet family. Bingley is immediately drawn to Jane Ben'
+                          got ...'o rents a house near the Bennet family. Mr. Bingley is immediately drawn to the '
+wrote /workspace/wt/final/kurn/benchmarks/v0.2/final/results/spec_8b.csv (15:50:20)
+| build | config | prompt | tok/s | J/token | accept % | identical to greedy |
+|---|---|---|---|---|---|---|
+| stock | greedy | 0 | 10.58 | 3.335 |  | True |
+| stock | spec-td8 | 0 | 28.78 | 1.526 | 67.7 | True |
+| stock | spec-td2 | 0 | 15.1 | 1.468 | 67.7 | True |
+| stock | greedy | 1 | 9.67 | 3.352 |  | True |
+| stock | spec-td8 | 1 | 11.02 | 3.213 | 23.5 | False |
+| stock | spec-td2 | 1 | 6.34 | 3.288 | 23.2 | False |
+| stock | greedy | 2 | 10.21 | 3.309 |  | True |
+| stock | spec-td8 | 2 | 10.27 | 3.772 | 18.4 | False |
+| stock | spec-td2 | 2 | 6.26 | 3.418 | 18.0 | False |
+| kurn | greedy | 0 | 12.55 | 3.416 |  | True |
+| kurn | spec-td8 | 0 | 24.14 | 1.78 | 70.4 | True |
+| kurn | spec-td2 | 0 | 14.62 | 1.799 | 70.4 | True |
+| kurn | greedy | 1 | 11.76 | 4.07 |  | True |
+| kurn | spec-td8 | 1 | 10.62 | 4.019 | 24.0 | True |
+| kurn | spec-td2 | 1 | 6.74 | 3.941 | 24.0 | True |
+| kurn | greedy | 2 | 10.67 | 4.513 |  | True |
+| kurn | spec-td8 | 2 | 7.78 | 5.814 | 17.8 | True |
+| kurn | spec-td2 | 2 | 5.4 | 5.671 | 17.8 | True |

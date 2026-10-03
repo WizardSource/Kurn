@@ -1,0 +1,273 @@
+### headline queued 13:19:10
+=== headline 13:19:10 load=1.07
+rep0 read roofline 8T: 72.1 GB/s DRAM, 127.6 GB/s L2
+rep0 q8_0 vnni16 a64 r8           hot  T=1      6.87 us   163.0 GB/s busy 0.00 drift +0.000
+rep0 q8_0 vnni16 a64 r8           cold T=8    155.59 us   114.7 GB/s busy 0.00 drift +0.000
+rep0 q4_0 i16 r2 (v0.2 base)      hot  T=1      7.59 us    78.4 GB/s busy 0.95 drift +0.000
+rep0 q4_0 i16 r2 (v0.2 base)      cold T=8    106.41 us    88.9 GB/s busy 0.00 drift +0.000
+rep0 q4_0 pair r2                 hot  T=1      5.14 us   115.8 GB/s busy 0.00 drift +0.000
+rep0 q4_0 pair r2                 cold T=8    109.23 us    86.6 GB/s busy 0.00 drift +0.000
+rep0 q4_K i16 r4 pf4 (v0.2 base)  hot  T=1      8.30 us    71.7 GB/s busy 0.00 drift +0.000
+rep0 q4_K i16 r4 pf4 (v0.2 base)  cold T=8     99.39 us    95.2 GB/s busy 0.00 drift +0.000
+rep0 q4_K mask16 dpmin r2         hot  T=1      6.12 us    97.3 GB/s busy 0.00 drift +0.000
+rep0 q4_K mask16 dpmin r2         cold T=8    103.29 us    91.6 GB/s busy 0.02 drift +0.000
+rep0 q4_K pair dpmin r2           hot  T=1      5.45 us   109.3 GB/s busy 0.00 drift +0.000
+rep0 q4_K pair dpmin r2           cold T=8    101.22 us    93.4 GB/s busy 0.00 drift +0.000
+rep0 v0.1 q4_K r4 pf4             hot  T=1     22.47 us    26.5 GB/s busy 0.00 drift +0.000
+rep0 v0.1 q4_K r4 pf4             cold T=8    177.21 us    53.4 GB/s busy 0.00 drift +0.000
+rep0 iq4_nl i16 r4 (v0.2 base)    hot  T=1      9.28 us    64.1 GB/s busy 0.00 drift +0.000
+rep0 iq4_nl i16 r4 (v0.2 base)    cold T=8    104.91 us    90.2 GB/s busy 0.00 drift +0.000
+rep0 iq4_nl perm r2               hot  T=1      7.56 us    78.7 GB/s busy 0.00 drift +0.000
+rep0 iq4_nl perm r2               cold T=8    115.22 us    82.1 GB/s busy 0.00 drift +0.000
+rep0 mxfp4 perm r2                hot  T=1      8.14 us    69.1 GB/s busy 0.00 drift +0.000
+rep0 mxfp4 perm r2                cold T=8    107.75 us    82.9 GB/s busy 0.00 drift +0.000
+rep0 nvfp4 perm r2                hot  T=1      8.54 us    69.7 GB/s busy 0.00 drift +0.000
+rep0 nvfp4 perm r2                cold T=8    121.50 us    77.8 GB/s busy 0.02 drift +0.000
+rep1 read roofline 8T: 74.3 GB/s DRAM, 126.1 GB/s L2
+rep1 q8_0 vnni16 a64 r8           hot  T=1      6.86 us   163.3 GB/s busy 0.00 drift +0.000
+rep1 q8_0 vnni16 a64 r8           cold T=8    192.40 us    92.8 GB/s busy 0.00 drift +0.000
+rep1 q4_0 i16 r2 (v0.2 base)      hot  T=1      7.65 us    77.8 GB/s busy 0.00 drift +0.000
+rep1 q4_0 i16 r2 (v0.2 base)      cold T=8    126.14 us    75.0 GB/s busy 0.02 drift +0.000
+rep1 q4_0 pair r2                 hot  T=1      5.14 us   115.9 GB/s busy 0.02 drift +0.000
+rep1 q4_0 pair r2                 cold T=8    103.83 us    91.1 GB/s busy 0.00 drift +0.000
+rep1 q4_K i16 r4 pf4 (v0.2 base)  hot  T=1      8.30 us    71.8 GB/s busy 0.00 drift +0.000
+rep1 q4_K i16 r4 pf4 (v0.2 base)  cold T=8    112.47 us    84.1 GB/s busy 0.00 drift +0.000
+rep1 q4_K mask16 dpmin r2         hot  T=1      6.13 us    97.2 GB/s busy 0.00 drift +0.000
+rep1 q4_K mask16 dpmin r2         cold T=8    109.34 us    86.5 GB/s busy 0.00 drift +0.000
+rep1 q4_K pair dpmin r2           hot  T=1      5.45 us   109.2 GB/s busy 0.00 drift +0.000
+rep1 q4_K pair dpmin r2           cold T=8    107.69 us    87.8 GB/s busy 0.00 drift +0.000
+rep1 v0.1 q4_K r4 pf4             hot  T=1     22.46 us    26.5 GB/s busy 0.00 drift +0.000
+rep1 v0.1 q4_K r4 pf4             cold T=8    174.90 us    54.1 GB/s busy 0.00 drift +0.000
+rep1 iq4_nl i16 r4 (v0.2 base)    hot  T=1      9.34 us    63.7 GB/s busy 0.02 drift +0.000
+rep1 iq4_nl i16 r4 (v0.2 base)    cold T=8    100.31 us    94.3 GB/s busy 0.00 drift +0.000
+rep1 iq4_nl perm r2               hot  T=1      7.58 us    78.6 GB/s busy 0.00 drift +0.000
+rep1 iq4_nl perm r2               cold T=8    110.34 us    85.7 GB/s busy 0.00 drift +0.000
+rep1 mxfp4 perm r2                hot  T=1      8.13 us    69.1 GB/s busy 0.00 drift +0.000
+rep1 mxfp4 perm r2                cold T=8    106.10 us    84.2 GB/s busy 0.00 drift +0.000
+rep1 nvfp4 perm r2                hot  T=1      8.54 us    69.7 GB/s busy 0.00 drift +0.000
+rep1 nvfp4 perm r2                cold T=8    120.14 us    78.7 GB/s busy 0.00 drift +0.000
+rep2 read roofline 8T: 72.4 GB/s DRAM, 127.0 GB/s L2
+rep2 q8_0 vnni16 a64 r8           hot  T=1      6.86 us   163.1 GB/s busy 0.00 drift +0.000
+rep2 q8_0 vnni16 a64 r8           cold T=8    167.70 us   106.4 GB/s busy 0.00 drift +0.000
+rep2 q4_0 i16 r2 (v0.2 base)      hot  T=1      7.61 us    78.2 GB/s busy 0.00 drift +0.000
+rep2 q4_0 i16 r2 (v0.2 base)      cold T=8    112.14 us    84.3 GB/s busy 0.00 drift +0.000
+rep2 q4_0 pair r2                 hot  T=1      5.15 us   115.6 GB/s busy 0.00 drift +0.000
+rep2 q4_0 pair r2                 cold T=8     99.74 us    94.8 GB/s busy 0.00 drift +0.000
+rep2 q4_K i16 r4 pf4 (v0.2 base)  hot  T=1      8.34 us    71.4 GB/s busy 0.00 drift +0.000
+rep2 q4_K i16 r4 pf4 (v0.2 base)  cold T=8    100.11 us    94.5 GB/s busy 0.00 drift +0.000
+rep2 q4_K mask16 dpmin r2         hot  T=1      6.13 us    97.2 GB/s busy 0.00 drift +0.000
+rep2 q4_K mask16 dpmin r2         cold T=8    107.94 us    87.6 GB/s busy 0.00 drift +0.000
+rep2 q4_K pair dpmin r2           hot  T=1      5.44 us   109.4 GB/s busy 0.00 drift +0.000
+rep2 q4_K pair dpmin r2           cold T=8    112.59 us    84.0 GB/s busy 0.00 drift +0.000
+rep2 v0.1 q4_K r4 pf4             hot  T=1     22.47 us    26.5 GB/s busy 0.00 drift +0.000
+rep2 v0.1 q4_K r4 pf4             cold T=8    176.97 us    53.4 GB/s busy 0.00 drift +0.000
+rep2 iq4_nl i16 r4 (v0.2 base)    hot  T=1      9.29 us    64.1 GB/s busy 0.00 drift +0.000
+rep2 iq4_nl i16 r4 (v0.2 base)    cold T=8     97.64 us    96.9 GB/s busy 0.00 drift +0.000
+rep2 iq4_nl perm r2               hot  T=1      7.64 us    77.9 GB/s busy 0.00 drift +0.000
+rep2 iq4_nl perm r2               cold T=8    108.48 us    87.2 GB/s busy 0.02 drift +0.000
+rep2 mxfp4 perm r2                hot  T=1      8.17 us    68.8 GB/s busy 0.00 drift +0.000
+rep2 mxfp4 perm r2                cold T=8    105.38 us    84.8 GB/s busy 0.00 drift +0.000
+rep2 nvfp4 perm r2                hot  T=1      8.53 us    69.7 GB/s busy 0.00 drift +0.000
+rep2 nvfp4 perm r2                cold T=8    121.09 us    78.1 GB/s busy 0.02 drift +0.000
+
+median of 3 (2026-10-03 13:22), wrote /workspace/wt/final/kurn/benchmarks/v0.2/fourbit/results/headline.csv
+config                       regime          us    GB/s  %roof  uJ/call  spread
+q8_0 vnni16 a64 r8           hot/1        6.86   163.1      -     37.5    0.2%
+q8_0 vnni16 a64 r8           cold/8      167.70   106.4    83%   7326.3   22.0%
+q4_0 i16 r2 (v0.2 base)      hot/1        7.61    78.2      -     41.6    0.8%
+q4_0 i16 r2 (v0.2 base)      cold/8      112.14    84.3    66%   4905.5   17.6%
+q4_0 pair r2                 hot/1        5.14   115.8      -     28.1    0.2%
+q4_0 pair r2                 cold/8      103.83    91.1    71%   4541.1    9.1%
+q4_K i16 r4 pf4 (v0.2 base)  hot/1        8.30    71.7      -     45.4    0.4%
+q4_K i16 r4 pf4 (v0.2 base)  cold/8      100.11    94.5    73%   4377.6   13.1%
+q4_K mask16 dpmin r2         hot/1        6.13    97.2      -     33.5    0.2%
+q4_K mask16 dpmin r2         cold/8      107.94    87.6    68%   4722.2    5.6%
+q4_K pair dpmin r2           hot/1        5.45   109.3      -     29.8    0.2%
+q4_K pair dpmin r2           cold/8      107.69    87.8    68%   4711.2   10.6%
+v0.1 q4_K r4 pf4             hot/1       22.47    26.5      -    122.9    0.1%
+v0.1 q4_K r4 pf4             cold/8      176.97    53.4    42%   7741.6    1.3%
+iq4_nl i16 r4 (v0.2 base)    hot/1        9.29    64.1      -     50.8    0.6%
+iq4_nl i16 r4 (v0.2 base)    cold/8      100.31    94.3    73%   4387.7    7.3%
+iq4_nl perm r2               hot/1        7.58    78.6      -     41.4    1.0%
+iq4_nl perm r2               cold/8      110.34    85.7    67%   4826.5    6.1%
+mxfp4 perm r2                hot/1        8.14    69.1      -     44.5    0.4%
+mxfp4 perm r2                cold/8      106.10    84.2    65%   4640.4    2.2%
+nvfp4 perm r2                hot/1        8.54    69.7      -     46.7    0.1%
+nvfp4 perm r2                cold/8      121.09    78.1    61%   5297.1    1.1%
+### compare queued 13:22:28
+=== compare 13:22:28 load=2.15
+rep0 read roofline 8T: 75.1 GB/s DRAM, 126.6 GB/s L2
+rep0 mxfp4 lut r1                 hot  T=1      9.21 us    61.1 GB/s busy 0.00 drift +0.000
+rep0 mxfp4 lut r1                 cold T=8    143.67 us    62.2 GB/s busy 0.02 drift +0.000
+rep0 mxfp4 lut r2                 hot  T=1      9.07 us    62.0 GB/s busy 0.00 drift +0.000
+rep0 mxfp4 lut r2                 cold T=8    112.74 us    79.2 GB/s busy 0.00 drift +0.000
+rep0 mxfp4 perm r1                hot  T=1      9.27 us    60.7 GB/s busy 0.00 drift +0.000
+rep0 mxfp4 perm r1                cold T=8    135.11 us    66.1 GB/s busy 0.00 drift +0.000
+rep0 nvfp4 lut r2                 hot  T=1     10.54 us    56.5 GB/s busy 0.00 drift +0.000
+rep0 nvfp4 lut r2                 cold T=8    124.19 us    76.2 GB/s busy 0.00 drift +0.000
+rep0 nvfp4 perm r1                hot  T=1      8.93 us    66.7 GB/s busy 0.00 drift +0.000
+rep0 nvfp4 perm r1                cold T=8    153.44 us    61.6 GB/s busy 0.02 drift +0.000
+rep0 nvfp4 perm packed r2         hot  T=1     10.12 us    58.8 GB/s busy 0.00 drift +0.000
+rep0 nvfp4 perm packed r2         cold T=8    111.48 us    84.8 GB/s busy 0.02 drift +0.000
+rep0 ggml vec_dot q8_0            hot  T=1     34.34 us    32.6 GB/s busy 0.02 drift +0.000
+rep0 ggml vec_dot q8_0            cold T=8    319.35 us    55.9 GB/s busy 0.00 drift +0.000
+rep0 ggml graph-amx q8_0          hot  T=1     10.44 us   107.2 GB/s busy 0.00 drift +0.000
+rep0 ggml graph-amx q8_0          cold T=8    202.47 us    88.1 GB/s busy 0.00 drift +0.000
+rep0 ggml vec_dot q4_0            hot  T=1     33.98 us    17.5 GB/s busy 0.00 drift +0.000
+rep0 ggml vec_dot q4_0            cold T=8    234.66 us    40.3 GB/s busy 0.00 drift +0.000
+rep0 ggml graph-repack q4_0       hot  T=1     28.14 us    21.2 GB/s busy 0.00 drift +0.000
+rep0 ggml graph-repack q4_0       cold T=8    194.50 us    48.6 GB/s busy 0.00 drift +0.000
+rep0 ggml graph-amx q4_0          hot  T=1      9.57 us    62.2 GB/s busy 0.00 drift +0.000
+rep0 ggml graph-amx q4_0          cold T=8    117.87 us    80.2 GB/s busy 0.00 drift +0.000
+rep0 ggml vec_dot q4_K            hot  T=1     25.10 us    23.7 GB/s busy 0.00 drift +0.000
+rep0 ggml vec_dot q4_K            cold T=8    225.87 us    41.9 GB/s busy 0.00 drift +0.000
+rep0 ggml graph-repack q4_K       hot  T=1     28.74 us    20.7 GB/s busy 0.00 drift +0.000
+rep0 ggml graph-repack q4_K       cold T=8    217.88 us    43.4 GB/s busy 0.00 drift +0.000
+rep0 ggml graph-amx q4_K          hot  T=1     14.28 us    41.7 GB/s busy 0.02 drift +0.000
+rep0 ggml graph-amx q4_K          cold T=8    193.80 us    48.8 GB/s busy 0.00 drift +0.000
+rep0 ggml vec_dot iq4_nl          hot  T=1     41.36 us    14.4 GB/s busy 0.00 drift +0.000
+rep0 ggml vec_dot iq4_nl          cold T=8    258.53 us    36.6 GB/s busy 0.00 drift +0.000
+rep0 ggml graph-repack iq4_nl     hot  T=1     28.14 us    21.2 GB/s busy 0.00 drift +0.000
+rep0 ggml graph-repack iq4_nl     cold T=8    185.27 us    51.0 GB/s busy 0.00 drift +0.000
+rep0 ggml vec_dot mxfp4           hot  T=1     40.58 us    13.9 GB/s busy 0.00 drift +0.000
+rep0 ggml vec_dot mxfp4           cold T=8    275.07 us    32.5 GB/s busy 0.00 drift +0.000
+rep0 ggml graph-repack mxfp4      hot  T=1     30.18 us    18.6 GB/s busy 0.00 drift +0.000
+rep0 ggml graph-repack mxfp4      cold T=8    201.58 us    44.3 GB/s busy 0.00 drift +0.000
+rep0 ggml vec_dot nvfp4           hot  T=1     57.39 us    10.4 GB/s busy 0.02 drift +0.000
+rep0 ggml vec_dot nvfp4           cold T=8    254.41 us    37.2 GB/s busy 0.00 drift +0.000
+rep0 q4_0 verify mask16 c8        hot  T=1     34.19 us    18.5 GB/s busy 0.02 drift +0.000
+rep0 q4_0 verify mask16 c8        cold T=8    211.51 us    45.4 GB/s busy 0.00 drift +0.000
+rep0 q4_0 verify i16 c8           hot  T=1     36.48 us    17.3 GB/s busy 0.02 drift +0.000
+rep0 q4_0 verify i16 c8           cold T=8    201.61 us    47.6 GB/s busy 0.00 drift +0.000
+rep1 read roofline 8T: 77.7 GB/s DRAM, 127.6 GB/s L2
+rep1 mxfp4 lut r1                 hot  T=1      9.49 us    59.3 GB/s busy 0.02 drift +0.000
+rep1 mxfp4 lut r1                 cold T=8    132.03 us    67.7 GB/s busy 0.00 drift +0.000
+rep1 mxfp4 lut r2                 hot  T=1      8.98 us    62.6 GB/s busy 0.02 drift +0.000
+rep1 mxfp4 lut r2                 cold T=8    105.90 us    84.4 GB/s busy 0.00 drift +0.000
+rep1 mxfp4 perm r1                hot  T=1      9.26 us    60.7 GB/s busy 0.00 drift +0.000
+rep1 mxfp4 perm r1                cold T=8    129.70 us    68.9 GB/s busy 0.00 drift +0.000
+rep1 nvfp4 lut r2                 hot  T=1     10.52 us    56.6 GB/s busy 0.00 drift +0.000
+rep1 nvfp4 lut r2                 cold T=8    124.16 us    76.2 GB/s busy 0.00 drift +0.000
+rep1 nvfp4 perm r1                hot  T=1      8.77 us    67.9 GB/s busy 0.00 drift +0.000
+rep1 nvfp4 perm r1                cold T=8    152.50 us    62.0 GB/s busy 0.00 drift +0.000
+rep1 nvfp4 perm packed r2         hot  T=1     10.15 us    58.6 GB/s busy 0.00 drift +0.000
+rep1 nvfp4 perm packed r2         cold T=8    124.89 us    75.7 GB/s busy 0.00 drift +0.000
+rep1 ggml vec_dot q8_0            hot  T=1     31.32 us    35.7 GB/s busy 0.00 drift +0.000
+rep1 ggml vec_dot q8_0            cold T=8    364.78 us    48.9 GB/s busy 0.00 drift +0.000
+rep1 ggml graph-amx q8_0          hot  T=1     11.47 us    97.6 GB/s busy 0.00 drift +0.000
+rep1 ggml graph-amx q8_0          cold T=8    196.01 us    91.0 GB/s busy 0.00 drift +0.000
+rep1 ggml vec_dot q4_0            hot  T=1     35.91 us    16.6 GB/s busy 0.00 drift +0.000
+rep1 ggml vec_dot q4_0            cold T=8    245.88 us    38.5 GB/s busy 0.00 drift +0.000
+rep1 ggml graph-repack q4_0       hot  T=1     28.80 us    20.7 GB/s busy 0.02 drift +0.000
+rep1 ggml graph-repack q4_0       cold T=8    206.29 us    45.8 GB/s busy 0.02 drift +0.000
+rep1 ggml graph-amx q4_0          hot  T=1      9.60 us    62.0 GB/s busy 0.00 drift +0.000
+rep1 ggml graph-amx q4_0          cold T=8    106.94 us    88.4 GB/s busy 0.00 drift +0.000
+rep1 ggml vec_dot q4_K            hot  T=1     25.09 us    23.7 GB/s busy 0.00 drift +0.000
+rep1 ggml vec_dot q4_K            cold T=8    220.64 us    42.9 GB/s busy 0.00 drift +0.000
+rep1 ggml graph-repack q4_K       hot  T=1     28.63 us    20.8 GB/s busy 0.00 drift +0.000
+rep1 ggml graph-repack q4_K       cold T=8    212.22 us    44.6 GB/s busy 0.00 drift +0.000
+rep1 ggml graph-amx q4_K          hot  T=1     14.01 us    42.5 GB/s busy 0.00 drift +0.000
+rep1 ggml graph-amx q4_K          cold T=8    286.98 us    33.0 GB/s busy 0.00 drift +0.000
+rep1 ggml vec_dot iq4_nl          hot  T=1     41.99 us    14.2 GB/s busy 0.02 drift +0.000
+rep1 ggml vec_dot iq4_nl          cold T=8    248.55 us    38.1 GB/s busy 0.00 drift +0.000
+rep1 ggml graph-repack iq4_nl     hot  T=1     29.64 us    20.1 GB/s busy 0.02 drift +0.000
+rep1 ggml graph-repack iq4_nl     cold T=8    267.95 us    35.3 GB/s busy 0.00 drift +0.000
+rep1 ggml vec_dot mxfp4           hot  T=1     40.84 us    13.8 GB/s busy 0.02 drift +0.000
+rep1 ggml vec_dot mxfp4           cold T=8    240.90 us    37.1 GB/s busy 0.00 drift +0.000
+rep1 ggml graph-repack mxfp4      hot  T=1     30.18 us    18.6 GB/s busy 0.00 drift +0.000
+rep1 ggml graph-repack mxfp4      cold T=8    199.50 us    44.8 GB/s busy 0.00 drift +0.000
+rep1 ggml vec_dot nvfp4           hot  T=1     55.08 us    10.8 GB/s busy 0.00 drift +0.000
+rep1 ggml vec_dot nvfp4           cold T=8    264.99 us    35.7 GB/s busy 0.00 drift +0.000
+rep1 q4_0 verify mask16 c8        hot  T=1     32.16 us    19.7 GB/s busy 0.02 drift +0.000
+rep1 q4_0 verify mask16 c8        cold T=8    223.11 us    43.0 GB/s busy 0.00 drift +0.000
+rep1 q4_0 verify i16 c8           hot  T=1     35.61 us    17.8 GB/s busy 0.00 drift +0.000
+rep1 q4_0 verify i16 c8           cold T=8    239.14 us    40.2 GB/s busy 0.00 drift +0.000
+rep2 read roofline 8T: 62.7 GB/s DRAM, 126.2 GB/s L2
+rep2 mxfp4 lut r1                 hot  T=1      9.48 us    59.3 GB/s busy 0.00 drift +0.000
+rep2 mxfp4 lut r1                 cold T=8    141.40 us    63.2 GB/s busy 0.04 drift +0.000
+rep2 mxfp4 lut r2                 hot  T=1      8.97 us    62.7 GB/s busy 0.04 drift +0.000
+rep2 mxfp4 lut r2                 cold T=8    109.00 us    82.0 GB/s busy 0.00 drift +0.000
+rep2 mxfp4 perm r1                hot  T=1     10.26 us    54.8 GB/s busy 0.00 drift +0.000
+rep2 mxfp4 perm r1                cold T=8    135.25 us    66.1 GB/s busy 0.00 drift +0.000
+rep2 nvfp4 lut r2                 hot  T=1     10.51 us    56.6 GB/s busy 0.00 drift +0.000
+rep2 nvfp4 lut r2                 cold T=8    130.59 us    72.4 GB/s busy 0.00 drift +0.000
+rep2 nvfp4 perm r1                hot  T=1      8.77 us    67.8 GB/s busy 0.00 drift +0.000
+rep2 nvfp4 perm r1                cold T=8    168.43 us    56.2 GB/s busy 0.00 drift +0.000
+rep2 nvfp4 perm packed r2         hot  T=1     10.13 us    58.8 GB/s busy 0.00 drift +0.000
+rep2 nvfp4 perm packed r2         cold T=8    127.70 us    74.1 GB/s busy 0.00 drift +0.000
+rep2 ggml vec_dot q8_0            hot  T=1     38.82 us    28.8 GB/s busy 0.00 drift +0.000
+rep2 ggml vec_dot q8_0            cold T=8    356.52 us    50.1 GB/s busy 0.04 drift +0.000
+rep2 ggml graph-amx q8_0          hot  T=1     12.08 us    92.7 GB/s busy 0.00 drift +0.000
+rep2 ggml graph-amx q8_0          cold T=8    193.88 us    92.0 GB/s busy 0.00 drift +0.000
+rep2 ggml vec_dot q4_0            hot  T=1     41.33 us    14.4 GB/s busy 0.00 drift +0.000
+rep2 ggml vec_dot q4_0            cold T=8    243.37 us    38.9 GB/s busy 0.00 drift +0.000
+rep2 ggml graph-repack q4_0       hot  T=1     28.14 us    21.1 GB/s busy 0.00 drift +0.000
+rep2 ggml graph-repack q4_0       cold T=8    210.54 us    44.9 GB/s busy 0.00 drift +0.000
+rep2 ggml graph-amx q4_0          hot  T=1      9.53 us    62.5 GB/s busy 0.00 drift +0.000
+rep2 ggml graph-amx q4_0          cold T=8    103.07 us    91.8 GB/s busy 0.02 drift +0.000
+rep2 ggml vec_dot q4_K            hot  T=1     25.10 us    23.7 GB/s busy 0.00 drift +0.000
+rep2 ggml vec_dot q4_K            cold T=8    215.01 us    44.0 GB/s busy 0.00 drift +0.000
+rep2 ggml graph-repack q4_K       hot  T=1     28.67 us    20.8 GB/s busy 0.00 drift +0.000
+rep2 ggml graph-repack q4_K       cold T=8    205.54 us    46.0 GB/s busy 0.00 drift +0.000
+rep2 ggml graph-amx q4_K          hot  T=1     13.92 us    42.8 GB/s busy 0.00 drift +0.000
+rep2 ggml graph-amx q4_K          cold T=8    165.11 us    57.3 GB/s busy 0.00 drift +0.000
+rep2 ggml vec_dot iq4_nl          hot  T=1     41.33 us    14.4 GB/s busy 0.00 drift +0.000
+rep2 ggml vec_dot iq4_nl          cold T=8    249.77 us    37.9 GB/s busy 0.00 drift +0.000
+rep2 ggml graph-repack iq4_nl     hot  T=1     28.15 us    21.1 GB/s busy 0.00 drift +0.000
+rep2 ggml graph-repack iq4_nl     cold T=8    211.40 us    44.7 GB/s busy 0.02 drift +0.000
+rep2 ggml vec_dot mxfp4           hot  T=1     40.55 us    13.9 GB/s busy 0.02 drift +0.000
+rep2 ggml vec_dot mxfp4           cold T=8    240.37 us    37.2 GB/s busy 0.00 drift +0.000
+rep2 ggml graph-repack mxfp4      hot  T=1     30.20 us    18.6 GB/s busy 0.00 drift +0.000
+rep2 ggml graph-repack mxfp4      cold T=8    195.06 us    45.8 GB/s busy 0.00 drift +0.000
+rep2 ggml vec_dot nvfp4           hot  T=1     54.93 us    10.8 GB/s busy 0.00 drift +0.000
+rep2 ggml vec_dot nvfp4           cold T=8    268.21 us    35.3 GB/s busy 0.00 drift +0.000
+rep2 q4_0 verify mask16 c8        hot  T=1     32.15 us    19.7 GB/s busy 0.00 drift +0.000
+rep2 q4_0 verify mask16 c8        cold T=8    216.39 us    44.4 GB/s busy 0.00 drift +0.000
+rep2 q4_0 verify i16 c8           hot  T=1     35.53 us    17.8 GB/s busy 0.00 drift +0.000
+rep2 q4_0 verify i16 c8           cold T=8    199.40 us    48.2 GB/s busy 0.00 drift +0.000
+
+median of 3 (2026-10-03 13:27), wrote /workspace/wt/final/kurn/benchmarks/v0.2/fourbit/results/compare.csv
+config                       regime          us    GB/s  %roof  uJ/call  spread
+mxfp4 lut r1                 hot/1        9.48    59.3      -     51.9    3.0%
+mxfp4 lut r1                 cold/8      141.40    63.2    49%   6173.7    8.2%
+mxfp4 lut r2                 hot/1        8.98    62.6      -     49.1    1.1%
+mxfp4 lut r2                 cold/8      109.00    82.0    64%   4765.6    6.3%
+mxfp4 perm r1                hot/1        9.27    60.7      -     50.7   10.7%
+mxfp4 perm r1                cold/8      135.11    66.1    51%   5910.7    4.1%
+nvfp4 lut r2                 hot/1       10.52    56.6      -     57.5    0.2%
+nvfp4 lut r2                 cold/8      124.19    76.2    59%   5431.9    5.2%
+nvfp4 perm r1                hot/1        8.77    67.8      -     48.0    1.8%
+nvfp4 perm r1                cold/8      153.44    61.6    48%   6712.2   10.4%
+nvfp4 perm packed r2         hot/1       10.13    58.8      -     55.4    0.3%
+nvfp4 perm packed r2         cold/8      124.89    75.7    59%   5462.9   13.0%
+ggml vec_dot q8_0            hot/1       34.34    32.6      -    187.8   21.8%
+ggml vec_dot q8_0            cold/8      356.52    50.1    39%  15594.3   12.7%
+ggml graph-amx q8_0          hot/1       11.47    97.6      -     62.7   14.3%
+ggml graph-amx q8_0          cold/8      196.01    91.0    71%   8519.0    4.4%
+ggml vec_dot q4_0            hot/1       35.91    16.6      -    196.4   20.5%
+ggml vec_dot q4_0            cold/8      243.37    38.9    30%  10643.2    4.6%
+ggml graph-repack q4_0       hot/1       28.14    21.1      -    153.9    2.4%
+ggml graph-repack q4_0       cold/8      206.29    45.8    36%   8997.9    7.8%
+ggml graph-amx q4_0          hot/1        9.57    62.2      -     52.3    0.8%
+ggml graph-amx q4_0          cold/8      106.94    88.4    69%   4686.6   13.8%
+ggml vec_dot q4_K            hot/1       25.10    23.7      -    137.3    0.0%
+ggml vec_dot q4_K            cold/8      220.64    42.9    33%   9648.3    4.9%
+ggml graph-repack q4_K       hot/1       28.67    20.8      -    156.8    0.4%
+ggml graph-repack q4_K       cold/8      212.22    44.6    35%   9307.7    5.8%
+ggml graph-amx q4_K          hot/1       14.01    42.5      -     76.6    2.6%
+ggml graph-amx q4_K          cold/8      193.80    48.8    38%   8465.1   62.9%
+ggml vec_dot iq4_nl          hot/1       41.36    14.4      -    226.2    1.6%
+ggml vec_dot iq4_nl          cold/8      249.77    37.9    29%  10919.6    4.0%
+ggml graph-repack iq4_nl     hot/1       28.15    21.1      -    153.9    5.3%
+ggml graph-repack iq4_nl     cold/8      211.40    44.7    35%   9207.6   39.1%
+ggml vec_dot mxfp4           hot/1       40.58    13.9      -    222.0    0.7%
+ggml vec_dot mxfp4           cold/8      240.90    37.1    29%  10518.1   14.4%
+ggml graph-repack mxfp4      hot/1       30.18    18.6      -    165.1    0.1%
+ggml graph-repack mxfp4      cold/8      199.50    44.8    35%   8731.5    3.3%
+ggml vec_dot nvfp4           hot/1       55.08    10.8      -    301.0    4.5%
+ggml vec_dot nvfp4           cold/8      264.99    35.7    28%  11589.2    5.2%
+q4_0 verify mask16 c8        hot/1       32.16    19.7      -    175.9    6.3%
+q4_0 verify mask16 c8        cold/8      216.39    44.4    34%   9465.8    5.4%
+q4_0 verify i16 c8           hot/1       35.61    17.8      -    194.8    2.7%
+q4_0 verify i16 c8           cold/8      201.61    47.6    37%   8818.0   19.7%
+=== done 13:27:44

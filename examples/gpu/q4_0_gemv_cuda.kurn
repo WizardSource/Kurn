@@ -1,0 +1,12 @@
+# Q4_0 decode GEMV on CUDA (dp4a). Batch 1; `cols` > 1 serves small batches.
+kernel   q4_0_gemv_cuda
+op       gemv
+weights  q4_0
+target   cuda
+arch     sm_80
+layout   split        # 16-byte-aligned quant plane, repacked once on the device
+tpr      32
+rpb      4
+sub      2
+unroll   2
+tune     layout=native,split tpr=16,32,64 rpb=2,4,8 sub=1,2,4 unroll=1,2,4

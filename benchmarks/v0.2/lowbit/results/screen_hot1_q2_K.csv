@@ -1,0 +1,7 @@
+format,family,rows,prefetch,us,cpu_us,energy_uJ,drift_s,key
+q2_K,k16,1,0,9.466,9.465812640015145,51.78,0.0000,gemv|q2_K|avx512_vnni|k16|packed|1|1|once|0|auto|auto|auto|auto|0|auto|0|1|auto|0|0|0|t0|rec|1|0|0|auto|auto
+q2_K,k16,1,8,9.616,9.61598128145133,52.6,0.0000,gemv|q2_K|avx512_vnni|k16|packed|1|1|once|8|auto|auto|auto|auto|0|auto|0|1|auto|0|0|0|t0|rec|1|0|0|auto|auto
+q2_K,k16,2,0,8.814,8.813879014014162,48.21,0.0000,gemv|q2_K|avx512_vnni|k16|packed|2|1|once|0|auto|auto|auto|auto|0|auto|0|1|auto|0|0|0|t0|rec|1|0|0|auto|auto
+q2_K,k16,2,8,8.95,8.949433174224342,48.95,0.0000,gemv|q2_K|avx512_vnni|k16|packed|2|1|once|8|auto|auto|auto|auto|0|auto|0|1|auto|0|0|0|t0|rec|1|0|0|auto|auto
+q2_K,k16,4,0,8.764,8.763408506660435,47.94,0.0000,gemv|q2_K|avx512_vnni|k16|packed|4|1|once|0|auto|auto|auto|auto|0|auto|0|1|auto|0|0|0|t0|rec|1|0|0|auto|auto
+q2_K,k16,4,8,8.784,8.783597821631433,48.05,0.0000,gemv|q2_K|avx512_vnni|k16|packed|4|1|once|8|auto|auto|auto|auto|0|auto|0|1|auto|0|0|0|t0|rec|1|0|0|auto|auto

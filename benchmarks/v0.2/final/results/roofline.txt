@@ -1,0 +1,4 @@
+dram: 11.2 GB/s (threads=1, streams=4)
+l2: 19.1 GB/s (threads=1, streams=4)
+dram: 65.9 GB/s (threads=8, streams=4)
+l2: 124.9 GB/s (threads=8, streams=4)

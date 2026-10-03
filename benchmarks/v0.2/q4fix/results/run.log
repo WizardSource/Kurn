@@ -1,0 +1,121 @@
+  rep 1 Qwen3-1.7B-Q4_0.gguf stock-amx: decode [71.339913] prefill [743.133059] load 5.37
+  rep 1 Qwen3-1.7B-Q4_0.gguf stock-noamx: decode [45.492793] prefill [376.988119] load 5.37
+  rep 1 Qwen3-1.7B-Q4_0.gguf kurn-0.2.0: decode [64.163745] prefill [817.996556] load 5.37
+  rep 1 Qwen3-1.7B-Q4_0.gguf kurn-0.2.1: decode [75.64296] prefill [1126.754525] load 5.37
+  rep 1 Qwen3-1.7B-Q4_0.gguf kurn-0.2.1-amxbuild: decode [73.032286] prefill [1122.214481] load 5.37
+  rep 1 Qwen3-1.7B-Q4_K_M.gguf stock-amx: decode [48.668678] prefill [737.285265] load 5.37
+  rep 1 Qwen3-1.7B-Q4_K_M.gguf stock-noamx: decode [45.071765] prefill [484.463817] load 5.37
+  rep 1 Qwen3-1.7B-Q4_K_M.gguf kurn-0.2.0: decode [56.721888] prefill [731.032513] load 5.37
+  rep 1 Qwen3-1.7B-Q4_K_M.gguf kurn-0.2.1: decode [62.621176] prefill [938.266642] load 5.37
+  rep 1 Qwen3-1.7B-Q4_K_M.gguf kurn-0.2.1-amxbuild: decode [57.110541] prefill [852.545104] load 5.37
+  rep 1 Qwen3-1.7B-Q8_0.gguf stock-amx: decode [60.892735] prefill [759.226226] load 5.37
+  rep 1 Qwen3-1.7B-Q8_0.gguf stock-noamx: decode [30.147329] prefill [277.516872] load 5.37
+  rep 1 Qwen3-1.7B-Q8_0.gguf kurn-0.2.0: decode [58.919115] prefill [859.929698] load 5.37
+  rep 1 Qwen3-1.7B-Q8_0.gguf kurn-0.2.1: decode [63.507521] prefill [1005.47407] load 5.37
+  rep 1 Qwen3-1.7B-Q8_0.gguf kurn-0.2.1-amxbuild: decode [63.56547] prefill [1068.593461] load 5.37
+  rep 1 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf stock-amx: decode [75.090653] prefill [318.858366] load 5.37
+  rep 1 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf stock-noamx: decode [62.325873] prefill [307.3254] load 5.37
+  rep 1 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf kurn-0.2.0: decode [94.911682] prefill [801.666685] load 5.37
+  rep 1 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf kurn-0.2.1: decode [116.309621] prefill [1230.997699] load 5.37
+  rep 1 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf kurn-0.2.1-amxbuild: decode [106.620972] prefill [1227.450965] load 5.37
+  rep 2 Qwen3-1.7B-Q4_0.gguf stock-amx: decode [71.1132] prefill [756.94857] load 3.27
+  rep 2 Qwen3-1.7B-Q4_0.gguf stock-noamx: decode [45.116208] prefill [377.856859] load 3.27
+  rep 2 Qwen3-1.7B-Q4_0.gguf kurn-0.2.0: decode [63.842702] prefill [807.657495] load 3.27
+  rep 2 Qwen3-1.7B-Q4_0.gguf kurn-0.2.1: decode [75.817977] prefill [1158.839508] load 3.27
+  rep 2 Qwen3-1.7B-Q4_0.gguf kurn-0.2.1-amxbuild: decode [74.796048] prefill [1139.425871] load 3.27
+  rep 2 Qwen3-1.7B-Q4_K_M.gguf stock-amx: decode [48.511647] prefill [742.195157] load 3.27
+  rep 2 Qwen3-1.7B-Q4_K_M.gguf stock-noamx: decode [47.509579] prefill [496.828347] load 3.27
+  rep 2 Qwen3-1.7B-Q4_K_M.gguf kurn-0.2.0: decode [55.947029] prefill [710.299044] load 3.27
+  rep 2 Qwen3-1.7B-Q4_K_M.gguf kurn-0.2.1: decode [64.446641] prefill [952.370578] load 3.27
+  rep 2 Qwen3-1.7B-Q4_K_M.gguf kurn-0.2.1-amxbuild: decode [60.263743] prefill [876.958981] load 3.27
+  rep 2 Qwen3-1.7B-Q8_0.gguf stock-amx: decode [59.923633] prefill [766.706224] load 3.27
+  rep 2 Qwen3-1.7B-Q8_0.gguf stock-noamx: decode [29.887974] prefill [275.021851] load 3.27
+  rep 2 Qwen3-1.7B-Q8_0.gguf kurn-0.2.0: decode [57.673367] prefill [861.127623] load 3.27
+  rep 2 Qwen3-1.7B-Q8_0.gguf kurn-0.2.1: decode [63.733427] prefill [1082.675586] load 3.27
+  rep 2 Qwen3-1.7B-Q8_0.gguf kurn-0.2.1-amxbuild: decode [63.384905] prefill [1073.444057] load 3.27
+  rep 2 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf stock-amx: decode [74.219746] prefill [328.567235] load 3.27
+  rep 2 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf stock-noamx: decode [66.809838] prefill [309.091571] load 3.27
+  rep 2 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf kurn-0.2.0: decode [94.753189] prefill [744.152957] load 3.27
+  rep 2 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf kurn-0.2.1: decode [110.856114] prefill [1139.355849] load 3.27
+  rep 2 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf kurn-0.2.1-amxbuild: decode [112.363882] prefill [1247.781049] load 3.27
+  rep 3 Qwen3-1.7B-Q4_0.gguf stock-amx: decode [70.092076] prefill [762.299476] load 3.62
+  rep 3 Qwen3-1.7B-Q4_0.gguf stock-noamx: decode [45.360648] prefill [382.607927] load 3.62
+  rep 3 Qwen3-1.7B-Q4_0.gguf kurn-0.2.0: decode [66.636982] prefill [820.316406] load 3.62
+  rep 3 Qwen3-1.7B-Q4_0.gguf kurn-0.2.1: decode [79.327638] prefill [1166.531908] load 3.62
+  rep 3 Qwen3-1.7B-Q4_0.gguf kurn-0.2.1-amxbuild: decode [74.986316] prefill [1180.032334] load 3.62
+  rep 3 Qwen3-1.7B-Q4_K_M.gguf stock-amx: decode [47.946211] prefill [725.331927] load 3.62
+  rep 3 Qwen3-1.7B-Q4_K_M.gguf stock-noamx: decode [45.766516] prefill [497.577032] load 3.62
+  rep 3 Qwen3-1.7B-Q4_K_M.gguf kurn-0.2.0: decode [56.011223] prefill [728.98241] load 3.62
+  rep 3 Qwen3-1.7B-Q4_K_M.gguf kurn-0.2.1: decode [63.504806] prefill [938.223244] load 3.62
+  rep 3 Qwen3-1.7B-Q4_K_M.gguf kurn-0.2.1-amxbuild: decode [60.596673] prefill [889.50408] load 3.62
+  rep 3 Qwen3-1.7B-Q8_0.gguf stock-amx: decode [61.039214] prefill [764.821669] load 3.62
+  rep 3 Qwen3-1.7B-Q8_0.gguf stock-noamx: decode [29.673494] prefill [279.4085] load 3.62
+  rep 3 Qwen3-1.7B-Q8_0.gguf kurn-0.2.0: decode [58.404938] prefill [856.365706] load 3.62
+  rep 3 Qwen3-1.7B-Q8_0.gguf kurn-0.2.1: decode [62.463102] prefill [1047.878414] load 3.62
+  rep 3 Qwen3-1.7B-Q8_0.gguf kurn-0.2.1-amxbuild: decode [63.225159] prefill [1064.675938] load 3.62
+  rep 3 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf stock-amx: decode [76.201374] prefill [331.52556] load 3.62
+  rep 3 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf stock-noamx: decode [67.099612] prefill [308.690777] load 3.62
+  rep 3 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf kurn-0.2.0: decode [94.649788] prefill [781.531009] load 3.62
+  rep 3 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf kurn-0.2.1: decode [110.562549] prefill [1227.730065] load 3.62
+  rep 3 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf kurn-0.2.1-amxbuild: decode [113.112453] prefill [1221.165463] load 3.62
+  ppl_ub1 Qwen3-1.7B-Q4_0.gguf stock-amx: (21.8727, 3.09309)
+  ppl_ub1 Qwen3-1.7B-Q4_0.gguf stock-noamx: (21.8727, 3.09309)
+  ppl_ub1 Qwen3-1.7B-Q4_0.gguf kurn-0.2.0: (21.8727, 3.09309)
+  ppl_ub1 Qwen3-1.7B-Q4_0.gguf kurn-0.2.1: (21.8727, 3.09309)
+  ppl_ub1 Qwen3-1.7B-Q4_0.gguf kurn-0.2.1-amxbuild: (21.8727, 3.09309)
+  ppl_batched Qwen3-1.7B-Q4_0.gguf stock-amx: (21.3315, 0.86357)
+  ppl_batched Qwen3-1.7B-Q4_0.gguf stock-noamx: (21.3315, 0.86357)
+  ppl_batched Qwen3-1.7B-Q4_0.gguf kurn-0.2.0: (21.3315, 0.86357)
+  ppl_batched Qwen3-1.7B-Q4_0.gguf kurn-0.2.1: (21.3315, 0.86357)
+  ppl_batched Qwen3-1.7B-Q4_0.gguf kurn-0.2.1-amxbuild: (21.3315, 0.86357)
+  ppl_ub1 Qwen3-1.7B-Q4_K_M.gguf stock-amx: (18.3215, 2.45621)
+  ppl_ub1 Qwen3-1.7B-Q4_K_M.gguf stock-noamx: (18.3779, 2.45717)
+  ppl_ub1 Qwen3-1.7B-Q4_K_M.gguf kurn-0.2.0: (18.434, 2.46146)
+  ppl_ub1 Qwen3-1.7B-Q4_K_M.gguf kurn-0.2.1: (18.434, 2.46146)
+  ppl_ub1 Qwen3-1.7B-Q4_K_M.gguf kurn-0.2.1-amxbuild: (18.3215, 2.45621)
+  ppl_batched Qwen3-1.7B-Q4_K_M.gguf stock-amx: (19.3555, 0.77519)
+  ppl_batched Qwen3-1.7B-Q4_K_M.gguf stock-noamx: (19.3441, 0.77447)
+  ppl_batched Qwen3-1.7B-Q4_K_M.gguf kurn-0.2.0: (19.2928, 0.77126)
+  ppl_batched Qwen3-1.7B-Q4_K_M.gguf kurn-0.2.1: (19.2928, 0.77126)
+  ppl_batched Qwen3-1.7B-Q4_K_M.gguf kurn-0.2.1-amxbuild: (19.3555, 0.77519)
+  ppl_ub1 Qwen3-1.7B-Q8_0.gguf stock-amx: (18.2182, 2.48345)
+  ppl_ub1 Qwen3-1.7B-Q8_0.gguf stock-noamx: (18.2006, 2.49105)
+  ppl_ub1 Qwen3-1.7B-Q8_0.gguf kurn-0.2.0: (18.2182, 2.48345)
+  ppl_ub1 Qwen3-1.7B-Q8_0.gguf kurn-0.2.1: (18.2182, 2.48345)
+  ppl_ub1 Qwen3-1.7B-Q8_0.gguf kurn-0.2.1-amxbuild: (18.2182, 2.48345)
+  ppl_batched Qwen3-1.7B-Q8_0.gguf stock-amx: (19.1285, 0.77298)
+  ppl_batched Qwen3-1.7B-Q8_0.gguf stock-noamx: (19.1673, 0.77537)
+  ppl_batched Qwen3-1.7B-Q8_0.gguf kurn-0.2.0: (19.1285, 0.77298)
+  ppl_batched Qwen3-1.7B-Q8_0.gguf kurn-0.2.1: (19.1285, 0.77298)
+  ppl_batched Qwen3-1.7B-Q8_0.gguf kurn-0.2.1-amxbuild: (19.1285, 0.77298)
+  ppl_ub1 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf stock-amx: (5.6785, 0.56775)
+  ppl_ub1 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf stock-noamx: (5.6785, 0.56775)
+  ppl_ub1 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf kurn-0.2.0: (5.6785, 0.56775)
+  ppl_ub1 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf kurn-0.2.1: (5.6785, 0.56775)
+  ppl_ub1 OLMoE-1B-7B-0125-Instruct-Q4_0.gguf kurn-0.2.1-amxbuild: (5.6785, 0.56775)
+  ppl_batched OLMoE-1B-7B-0125-Instruct-Q4_0.gguf stock-amx: (8.6903, 0.28232)
+  ppl_batched OLMoE-1B-7B-0125-Instruct-Q4_0.gguf stock-noamx: (8.6903, 0.28232)
+  ppl_batched OLMoE-1B-7B-0125-Instruct-Q4_0.gguf kurn-0.2.0: (8.6903, 0.28232)
+  ppl_batched OLMoE-1B-7B-0125-Instruct-Q4_0.gguf kurn-0.2.1: (8.6903, 0.28232)
+  ppl_batched OLMoE-1B-7B-0125-Instruct-Q4_0.gguf kurn-0.2.1-amxbuild: (8.6903, 0.28232)
+  {"model": "Qwen3-1.7B-Q4_0", "mode": "stock-amx", "threads": 8, "decode_tok_s": 71.113, "decode_spread": 0.018, "decode_J_tok": 0.613, "prefill_tok_s": 756.949, "prefill_spread": 0.025, "prefill_J_tok": 0.057, "ppl_ub1": 21.8727, "ppl_ub1_err": 3.09309, "ppl_batched": 21.3315, "ppl_batched_err": 0.86357, "rss_mb": 2082, "anon_mb": 1078, "file_mb": 1016, "max_load": 5.37, "min_cpu_wall": 2.6, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+  {"model": "Qwen3-1.7B-Q4_0", "mode": "stock-noamx", "threads": 8, "decode_tok_s": 45.361, "decode_spread": 0.008, "decode_J_tok": 0.965, "prefill_tok_s": 377.857, "prefill_spread": 0.015, "prefill_J_tok": 0.113, "ppl_ub1": 21.8727, "ppl_ub1_err": 3.09309, "ppl_batched": 21.3315, "ppl_batched_err": 0.86357, "rss_mb": 1839, "anon_mb": 834, "file_mb": 1016, "max_load": 5.37, "min_cpu_wall": 1.37, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+  {"model": "Qwen3-1.7B-Q4_0", "mode": "kurn-0.2.0", "threads": 8, "decode_tok_s": 64.164, "decode_spread": 0.044, "decode_J_tok": 0.681, "prefill_tok_s": 817.997, "prefill_spread": 0.015, "prefill_J_tok": 0.053, "ppl_ub1": 21.8727, "ppl_ub1_err": 3.09309, "ppl_batched": 21.3315, "ppl_batched_err": 0.86357, "rss_mb": 1849, "anon_mb": 844, "file_mb": 1016, "max_load": 5.37, "min_cpu_wall": 1.1, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+  {"model": "Qwen3-1.7B-Q4_0", "mode": "kurn-0.2.1", "threads": 8, "decode_tok_s": 75.818, "decode_spread": 0.049, "decode_J_tok": 0.577, "prefill_tok_s": 1158.84, "prefill_spread": 0.034, "prefill_J_tok": 0.037, "ppl_ub1": 21.8727, "ppl_ub1_err": 3.09309, "ppl_batched": 21.3315, "ppl_batched_err": 0.86357, "rss_mb": 1871, "anon_mb": 867, "file_mb": 1016, "max_load": 5.37, "min_cpu_wall": 1.12, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+  {"model": "Qwen3-1.7B-Q4_0", "mode": "kurn-0.2.1-amxbuild", "threads": 8, "decode_tok_s": 74.796, "decode_spread": 0.026, "decode_J_tok": 0.583, "prefill_tok_s": 1139.426, "prefill_spread": 0.051, "prefill_J_tok": 0.037, "ppl_ub1": 21.8727, "ppl_ub1_err": 3.09309, "ppl_batched": 21.3315, "ppl_batched_err": 0.86357, "rss_mb": 2115, "anon_mb": 1111, "file_mb": 1016, "max_load": 5.37, "min_cpu_wall": 1.22, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+  {"model": "Qwen3-1.7B-Q4_K_M", "mode": "stock-amx", "threads": 8, "decode_tok_s": 48.512, "decode_spread": 0.015, "decode_J_tok": 0.9, "prefill_tok_s": 737.285, "prefill_spread": 0.023, "prefill_J_tok": 0.057, "ppl_ub1": 18.3215, "ppl_ub1_err": 2.45621, "ppl_batched": 19.3555, "ppl_batched_err": 0.77519, "rss_mb": 2201, "anon_mb": 1146, "file_mb": 1067, "max_load": 5.37, "min_cpu_wall": 2.94, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+  {"model": "Qwen3-1.7B-Q4_K_M", "mode": "stock-noamx", "threads": 8, "decode_tok_s": 45.767, "decode_spread": 0.053, "decode_J_tok": 0.956, "prefill_tok_s": 496.828, "prefill_spread": 0.026, "prefill_J_tok": 0.088, "ppl_ub1": 18.3779, "ppl_ub1_err": 2.45717, "ppl_batched": 19.3441, "ppl_batched_err": 0.77447, "rss_mb": 1779, "anon_mb": 724, "file_mb": 1066, "max_load": 5.37, "min_cpu_wall": 1.35, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+  {"model": "Qwen3-1.7B-Q4_K_M", "mode": "kurn-0.2.0", "threads": 8, "decode_tok_s": 56.011, "decode_spread": 0.014, "decode_J_tok": 0.78, "prefill_tok_s": 728.982, "prefill_spread": 0.028, "prefill_J_tok": 0.059, "ppl_ub1": 18.434, "ppl_ub1_err": 2.46146, "ppl_batched": 19.2928, "ppl_batched_err": 0.77126, "rss_mb": 1807, "anon_mb": 751, "file_mb": 1067, "max_load": 5.37, "min_cpu_wall": 1.12, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+  {"model": "Qwen3-1.7B-Q4_K_M", "mode": "kurn-0.2.1", "threads": 8, "decode_tok_s": 63.505, "decode_spread": 0.029, "decode_J_tok": 0.687, "prefill_tok_s": 938.267, "prefill_spread": 0.015, "prefill_J_tok": 0.045, "ppl_ub1": 18.434, "ppl_ub1_err": 2.46146, "ppl_batched": 19.2928, "ppl_batched_err": 0.77126, "rss_mb": 1824, "anon_mb": 769, "file_mb": 1067, "max_load": 5.37, "min_cpu_wall": 1.11, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+  {"model": "Qwen3-1.7B-Q4_K_M", "mode": "kurn-0.2.1-amxbuild", "threads": 8, "decode_tok_s": 60.264, "decode_spread": 0.058, "decode_J_tok": 0.725, "prefill_tok_s": 876.959, "prefill_spread": 0.042, "prefill_J_tok": 0.049, "ppl_ub1": 18.3215, "ppl_ub1_err": 2.45621, "ppl_batched": 19.3555, "ppl_batched_err": 0.77519, "rss_mb": 2229, "anon_mb": 1174, "file_mb": 1067, "max_load": 5.37, "min_cpu_wall": 1.26, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+  {"model": "Qwen3-1.7B-Q8_0", "mode": "stock-amx", "threads": 8, "decode_tok_s": 60.893, "decode_spread": 0.018, "decode_J_tok": 0.716, "prefill_tok_s": 764.822, "prefill_spread": 0.01, "prefill_J_tok": 0.056, "ppl_ub1": 18.2182, "ppl_ub1_err": 2.48345, "ppl_batched": 19.1285, "ppl_batched_err": 0.77298, "rss_mb": 3769, "anon_mb": 2027, "file_mb": 1760, "max_load": 5.37, "min_cpu_wall": 0.55, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+  {"model": "Qwen3-1.7B-Q8_0", "mode": "stock-noamx", "threads": 8, "decode_tok_s": 29.888, "decode_spread": 0.016, "decode_J_tok": 1.463, "prefill_tok_s": 277.517, "prefill_spread": 0.016, "prefill_J_tok": 0.155, "ppl_ub1": 18.2006, "ppl_ub1_err": 2.49105, "ppl_batched": 19.1673, "ppl_batched_err": 0.77537, "rss_mb": 1833, "anon_mb": 78, "file_mb": 1755, "max_load": 5.37, "min_cpu_wall": 2.24, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+  {"model": "Qwen3-1.7B-Q8_0", "mode": "kurn-0.2.0", "threads": 8, "decode_tok_s": 58.405, "decode_spread": 0.021, "decode_J_tok": 0.747, "prefill_tok_s": 859.93, "prefill_spread": 0.006, "prefill_J_tok": 0.05, "ppl_ub1": 18.2182, "ppl_ub1_err": 2.48345, "ppl_batched": 19.1285, "ppl_batched_err": 0.77298, "rss_mb": 3584, "anon_mb": 1842, "file_mb": 1760, "max_load": 5.37, "min_cpu_wall": 1.12, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+  {"model": "Qwen3-1.7B-Q8_0", "mode": "kurn-0.2.1", "threads": 8, "decode_tok_s": 63.508, "decode_spread": 0.02, "decode_J_tok": 0.696, "prefill_tok_s": 1047.878, "prefill_spread": 0.074, "prefill_J_tok": 0.04, "ppl_ub1": 18.2182, "ppl_ub1_err": 2.48345, "ppl_batched": 19.1285, "ppl_batched_err": 0.77298, "rss_mb": 3635, "anon_mb": 1892, "file_mb": 1760, "max_load": 5.37, "min_cpu_wall": 1.11, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+  {"model": "Qwen3-1.7B-Q8_0", "mode": "kurn-0.2.1-amxbuild", "threads": 8, "decode_tok_s": 63.385, "decode_spread": 0.005, "decode_J_tok": 0.691, "prefill_tok_s": 1068.593, "prefill_spread": 0.008, "prefill_J_tok": 0.04, "ppl_ub1": 18.2182, "ppl_ub1_err": 2.48345, "ppl_batched": 19.1285, "ppl_batched_err": 0.77298, "rss_mb": 3636, "anon_mb": 1893, "file_mb": 1760, "max_load": 5.37, "min_cpu_wall": 1.12, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+  {"model": "OLMoE-1B-7B-0125-Instruct-Q4_0", "mode": "stock-amx", "threads": 8, "decode_tok_s": 75.091, "decode_spread": 0.026, "decode_J_tok": 0.571, "prefill_tok_s": 328.567, "prefill_spread": 0.039, "prefill_J_tok": 0.131, "ppl_ub1": 5.6785, "ppl_ub1_err": 0.56775, "ppl_batched": 8.6903, "ppl_batched_err": 0.28232, "rss_mb": 7450, "anon_mb": 3733, "file_mb": 3757, "max_load": 5.37, "min_cpu_wall": 1.13, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+  {"model": "OLMoE-1B-7B-0125-Instruct-Q4_0", "mode": "stock-noamx", "threads": 8, "decode_tok_s": 66.81, "decode_spread": 0.071, "decode_J_tok": 0.654, "prefill_tok_s": 308.691, "prefill_spread": 0.006, "prefill_J_tok": 0.141, "ppl_ub1": 5.6785, "ppl_ub1_err": 0.56775, "ppl_batched": 8.6903, "ppl_batched_err": 0.28232, "rss_mb": 7336, "anon_mb": 3652, "file_mb": 3756, "max_load": 5.37, "min_cpu_wall": 1.1, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+  {"model": "OLMoE-1B-7B-0125-Instruct-Q4_0", "mode": "kurn-0.2.0", "threads": 8, "decode_tok_s": 94.753, "decode_spread": 0.003, "decode_J_tok": 0.461, "prefill_tok_s": 781.531, "prefill_spread": 0.074, "prefill_J_tok": 0.055, "ppl_ub1": 5.6785, "ppl_ub1_err": 0.56775, "ppl_batched": 8.6903, "ppl_batched_err": 0.28232, "rss_mb": 7423, "anon_mb": 3700, "file_mb": 3756, "max_load": 5.37, "min_cpu_wall": 1.02, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+  {"model": "OLMoE-1B-7B-0125-Instruct-Q4_0", "mode": "kurn-0.2.1", "threads": 8, "decode_tok_s": 110.856, "decode_spread": 0.052, "decode_J_tok": 0.392, "prefill_tok_s": 1227.73, "prefill_spread": 0.075, "prefill_J_tok": 0.037, "ppl_ub1": 5.6785, "ppl_ub1_err": 0.56775, "ppl_batched": 8.6903, "ppl_batched_err": 0.28232, "rss_mb": 7632, "anon_mb": 3930, "file_mb": 3757, "max_load": 5.37, "min_cpu_wall": 1.02, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+  {"model": "OLMoE-1B-7B-0125-Instruct-Q4_0", "mode": "kurn-0.2.1-amxbuild", "threads": 8, "decode_tok_s": 112.364, "decode_spread": 0.058, "decode_J_tok": 0.389, "prefill_tok_s": 1227.451, "prefill_spread": 0.022, "prefill_J_tok": 0.036, "ppl_ub1": 5.6785, "ppl_ub1_err": 0.56775, "ppl_batched": 8.6903, "ppl_batched_err": 0.28232, "rss_mb": 7732, "anon_mb": 4011, "file_mb": 3757, "max_load": 5.37, "min_cpu_wall": 1.03, "max_drift_s": 0.0, "reps": 3, "commit": "4ebdf2c74", "timestamp": "2026-10-03T17:25:55Z"}
+FINALDONE

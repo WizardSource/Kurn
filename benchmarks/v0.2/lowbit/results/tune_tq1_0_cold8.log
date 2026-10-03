@@ -1,0 +1,105 @@
+{'layout': 'lut', 'lut': 'auto', 'addsub': 'auto', 'rows': 1, 'prefetch': 0}      147.4 us      5866.6 uJ     24.1 GB/s  relerr 3.9e-07
+{'layout': 'lut', 'lut': 'auto', 'addsub': 'auto', 'rows': 1, 'prefetch': 8}      125.7 us      5047.3 uJ     28.3 GB/s  relerr 3.9e-07
+{'layout': 'lut', 'lut': 'auto', 'addsub': 'auto', 'rows': 2, 'prefetch': 0}       68.1 us      2905.2 uJ     52.3 GB/s  relerr 3.9e-07
+{'layout': 'lut', 'lut': 'auto', 'addsub': 'auto', 'rows': 2, 'prefetch': 8}       74.0 us      3161.3 uJ     48.1 GB/s  relerr 3.9e-07
+skip {'layout': 'lut', 'lut': 'auto', 'addsub': 'sad', 'rows': 1, 'prefetch': 0}: addsub applies to layout=addsub only
+skip {'layout': 'lut', 'lut': 'auto', 'addsub': 'sad', 'rows': 1, 'prefetch': 8}: addsub applies to layout=addsub only
+skip {'layout': 'lut', 'lut': 'auto', 'addsub': 'sad', 'rows': 2, 'prefetch': 0}: addsub applies to layout=addsub only
+skip {'layout': 'lut', 'lut': 'auto', 'addsub': 'sad', 'rows': 2, 'prefetch': 8}: addsub applies to layout=addsub only
+{'layout': 'lut', 'lut': 'tern3', 'addsub': 'auto', 'rows': 1, 'prefetch': 0}       87.8 us      3652.6 uJ     40.5 GB/s  relerr 3.9e-07
+{'layout': 'lut', 'lut': 'tern3', 'addsub': 'auto', 'rows': 1, 'prefetch': 8}      144.0 us      5699.2 uJ     24.7 GB/s  relerr 3.9e-07
+{'layout': 'lut', 'lut': 'tern3', 'addsub': 'auto', 'rows': 2, 'prefetch': 0}      111.3 us      4451.9 uJ     32.0 GB/s  relerr 3.9e-07
+{'layout': 'lut', 'lut': 'tern3', 'addsub': 'auto', 'rows': 2, 'prefetch': 8}      123.8 us      4928.7 uJ     28.8 GB/s  relerr 3.9e-07
+skip {'layout': 'lut', 'lut': 'tern3', 'addsub': 'sad', 'rows': 1, 'prefetch': 0}: addsub applies to layout=addsub only
+skip {'layout': 'lut', 'lut': 'tern3', 'addsub': 'sad', 'rows': 1, 'prefetch': 8}: addsub applies to layout=addsub only
+skip {'layout': 'lut', 'lut': 'tern3', 'addsub': 'sad', 'rows': 2, 'prefetch': 0}: addsub applies to layout=addsub only
+skip {'layout': 'lut', 'lut': 'tern3', 'addsub': 'sad', 'rows': 2, 'prefetch': 8}: addsub applies to layout=addsub only
+{'layout': 'lut', 'lut': 'serial4', 'addsub': 'auto', 'rows': 1, 'prefetch': 0}      198.0 us      7724.0 uJ     18.0 GB/s  relerr 3.9e-07
+{'layout': 'lut', 'lut': 'serial4', 'addsub': 'auto', 'rows': 1, 'prefetch': 8}      168.3 us      6752.5 uJ     21.2 GB/s  relerr 3.9e-07
+{'layout': 'lut', 'lut': 'serial4', 'addsub': 'auto', 'rows': 2, 'prefetch': 0}      183.0 us      7323.2 uJ     19.4 GB/s  relerr 3.9e-07
+{'layout': 'lut', 'lut': 'serial4', 'addsub': 'auto', 'rows': 2, 'prefetch': 8}       96.6 us      4045.4 uJ     36.8 GB/s  relerr 3.9e-07
+skip {'layout': 'lut', 'lut': 'serial4', 'addsub': 'sad', 'rows': 1, 'prefetch': 0}: addsub applies to layout=addsub only
+skip {'layout': 'lut', 'lut': 'serial4', 'addsub': 'sad', 'rows': 1, 'prefetch': 8}: addsub applies to layout=addsub only
+skip {'layout': 'lut', 'lut': 'serial4', 'addsub': 'sad', 'rows': 2, 'prefetch': 0}: addsub applies to layout=addsub only
+skip {'layout': 'lut', 'lut': 'serial4', 'addsub': 'sad', 'rows': 2, 'prefetch': 8}: addsub applies to layout=addsub only
+{'layout': 'lut', 'lut': 'direct2', 'addsub': 'auto', 'rows': 1, 'prefetch': 0}      179.8 us      7283.9 uJ     19.8 GB/s  relerr 3.9e-07
+{'layout': 'lut', 'lut': 'direct2', 'addsub': 'auto', 'rows': 1, 'prefetch': 8}      223.8 us      8851.4 uJ     15.9 GB/s  relerr 3.9e-07
+{'layout': 'lut', 'lut': 'direct2', 'addsub': 'auto', 'rows': 2, 'prefetch': 0}      325.7 us     11588.4 uJ     10.9 GB/s  relerr 3.9e-07
+{'layout': 'lut', 'lut': 'direct2', 'addsub': 'auto', 'rows': 2, 'prefetch': 8}      195.2 us      7768.7 uJ     18.2 GB/s  relerr 3.9e-07
+skip {'layout': 'lut', 'lut': 'direct2', 'addsub': 'sad', 'rows': 1, 'prefetch': 0}: addsub applies to layout=addsub only
+skip {'layout': 'lut', 'lut': 'direct2', 'addsub': 'sad', 'rows': 1, 'prefetch': 8}: addsub applies to layout=addsub only
+skip {'layout': 'lut', 'lut': 'direct2', 'addsub': 'sad', 'rows': 2, 'prefetch': 0}: addsub applies to layout=addsub only
+skip {'layout': 'lut', 'lut': 'direct2', 'addsub': 'sad', 'rows': 2, 'prefetch': 8}: addsub applies to layout=addsub only
+{'layout': 'i16', 'lut': 'auto', 'addsub': 'auto', 'rows': 1, 'prefetch': 0}      207.9 us      8221.7 uJ     17.1 GB/s  relerr 3.7e-07
+{'layout': 'i16', 'lut': 'auto', 'addsub': 'auto', 'rows': 1, 'prefetch': 8}      225.9 us      9054.4 uJ     15.8 GB/s  relerr 3.7e-07
+{'layout': 'i16', 'lut': 'auto', 'addsub': 'auto', 'rows': 2, 'prefetch': 0}      205.5 us      7999.2 uJ     17.3 GB/s  relerr 3.7e-07
+{'layout': 'i16', 'lut': 'auto', 'addsub': 'auto', 'rows': 2, 'prefetch': 8}      185.1 us      7418.6 uJ     19.2 GB/s  relerr 3.7e-07
+skip {'layout': 'i16', 'lut': 'auto', 'addsub': 'sad', 'rows': 1, 'prefetch': 0}: addsub applies to layout=addsub only
+skip {'layout': 'i16', 'lut': 'auto', 'addsub': 'sad', 'rows': 1, 'prefetch': 8}: addsub applies to layout=addsub only
+skip {'layout': 'i16', 'lut': 'auto', 'addsub': 'sad', 'rows': 2, 'prefetch': 0}: addsub applies to layout=addsub only
+skip {'layout': 'i16', 'lut': 'auto', 'addsub': 'sad', 'rows': 2, 'prefetch': 8}: addsub applies to layout=addsub only
+skip {'layout': 'i16', 'lut': 'tern3', 'addsub': 'auto', 'rows': 1, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'tern3', 'addsub': 'auto', 'rows': 1, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'tern3', 'addsub': 'auto', 'rows': 2, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'tern3', 'addsub': 'auto', 'rows': 2, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'tern3', 'addsub': 'sad', 'rows': 1, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'tern3', 'addsub': 'sad', 'rows': 1, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'tern3', 'addsub': 'sad', 'rows': 2, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'tern3', 'addsub': 'sad', 'rows': 2, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'serial4', 'addsub': 'auto', 'rows': 1, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'serial4', 'addsub': 'auto', 'rows': 1, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'serial4', 'addsub': 'auto', 'rows': 2, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'serial4', 'addsub': 'auto', 'rows': 2, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'serial4', 'addsub': 'sad', 'rows': 1, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'serial4', 'addsub': 'sad', 'rows': 1, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'serial4', 'addsub': 'sad', 'rows': 2, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'serial4', 'addsub': 'sad', 'rows': 2, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'direct2', 'addsub': 'auto', 'rows': 1, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'direct2', 'addsub': 'auto', 'rows': 1, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'direct2', 'addsub': 'auto', 'rows': 2, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'direct2', 'addsub': 'auto', 'rows': 2, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'direct2', 'addsub': 'sad', 'rows': 1, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'direct2', 'addsub': 'sad', 'rows': 1, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'direct2', 'addsub': 'sad', 'rows': 2, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'i16', 'lut': 'direct2', 'addsub': 'sad', 'rows': 2, 'prefetch': 8}: lut applies to layout=lut only
+{'layout': 'addsub', 'lut': 'auto', 'addsub': 'auto', 'rows': 1, 'prefetch': 0}      953.0 us     35587.9 uJ      3.7 GB/s  relerr 3.9e-07
+{'layout': 'addsub', 'lut': 'auto', 'addsub': 'auto', 'rows': 1, 'prefetch': 8}      164.9 us      6997.9 uJ     21.6 GB/s  relerr 3.9e-07
+{'layout': 'addsub', 'lut': 'auto', 'addsub': 'auto', 'rows': 2, 'prefetch': 0}      182.2 us      7514.5 uJ     19.5 GB/s  relerr 3.9e-07
+{'layout': 'addsub', 'lut': 'auto', 'addsub': 'auto', 'rows': 2, 'prefetch': 8}      217.6 us      8787.0 uJ     16.4 GB/s  relerr 3.9e-07
+{'layout': 'addsub', 'lut': 'auto', 'addsub': 'sad', 'rows': 1, 'prefetch': 0}      197.3 us      8038.8 uJ     18.0 GB/s  relerr 3.9e-07
+{'layout': 'addsub', 'lut': 'auto', 'addsub': 'sad', 'rows': 1, 'prefetch': 8}      145.2 us      6081.9 uJ     24.5 GB/s  relerr 3.9e-07
+{'layout': 'addsub', 'lut': 'auto', 'addsub': 'sad', 'rows': 2, 'prefetch': 0}      157.1 us      6393.1 uJ     22.7 GB/s  relerr 3.9e-07
+{'layout': 'addsub', 'lut': 'auto', 'addsub': 'sad', 'rows': 2, 'prefetch': 8}      129.0 us      5324.8 uJ     27.6 GB/s  relerr 3.9e-07
+skip {'layout': 'addsub', 'lut': 'tern3', 'addsub': 'auto', 'rows': 1, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'tern3', 'addsub': 'auto', 'rows': 1, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'tern3', 'addsub': 'auto', 'rows': 2, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'tern3', 'addsub': 'auto', 'rows': 2, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'tern3', 'addsub': 'sad', 'rows': 1, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'tern3', 'addsub': 'sad', 'rows': 1, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'tern3', 'addsub': 'sad', 'rows': 2, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'tern3', 'addsub': 'sad', 'rows': 2, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'serial4', 'addsub': 'auto', 'rows': 1, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'serial4', 'addsub': 'auto', 'rows': 1, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'serial4', 'addsub': 'auto', 'rows': 2, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'serial4', 'addsub': 'auto', 'rows': 2, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'serial4', 'addsub': 'sad', 'rows': 1, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'serial4', 'addsub': 'sad', 'rows': 1, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'serial4', 'addsub': 'sad', 'rows': 2, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'serial4', 'addsub': 'sad', 'rows': 2, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'direct2', 'addsub': 'auto', 'rows': 1, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'direct2', 'addsub': 'auto', 'rows': 1, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'direct2', 'addsub': 'auto', 'rows': 2, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'direct2', 'addsub': 'auto', 'rows': 2, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'direct2', 'addsub': 'sad', 'rows': 1, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'direct2', 'addsub': 'sad', 'rows': 1, 'prefetch': 8}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'direct2', 'addsub': 'sad', 'rows': 2, 'prefetch': 0}: lut applies to layout=lut only
+skip {'layout': 'addsub', 'lut': 'direct2', 'addsub': 'sad', 'rows': 2, 'prefetch': 8}: lut applies to layout=lut only
+
+best by energy:
+   layout=lut lut=auto addsub=auto rows=2 prefetch=0  us=68.1  cpu_us=531.1  energy_uJ=2905.2  GBps=52.3  GOPs=492.8
+   layout=lut lut=auto addsub=auto rows=2 prefetch=8  us=74.0  cpu_us=577.9  energy_uJ=3161.3  GBps=48.1  GOPs=453.2
+   layout=lut lut=tern3 addsub=auto rows=1 prefetch=0  us=87.8  cpu_us=667.8  energy_uJ=3652.6  GBps=40.5  GOPs=382.0
+   layout=lut lut=serial4 addsub=auto rows=2 prefetch=8  us=96.6  cpu_us=739.6  energy_uJ=4045.4  GBps=36.8  GOPs=347.2
+   layout=lut lut=tern3 addsub=auto rows=2 prefetch=0  us=111.3  cpu_us=813.9  energy_uJ=4451.9  GBps=32.0  GOPs=301.5
+pareto front (time vs energy):
+   layout=lut lut=auto addsub=auto rows=2 prefetch=0  us=68.1  cpu_us=531.1  energy_uJ=2905.2  GBps=52.3  GOPs=492.8

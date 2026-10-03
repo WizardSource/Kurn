@@ -1,0 +1,6 @@
+# E8P lattice codebook (QuIP#-style, 2.06 bpw) decode GEMV on CUDA: 2 KB codebook in shared memory.
+kernel   e8p_gemv_cuda
+op       gemv
+weights  e8p
+target   cuda
+tune     layout=native,split tpr=16,32 rpb=2,4,8 sub=1,2,4 unroll=1,2

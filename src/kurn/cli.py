@@ -260,4 +260,29 @@ def main(argv=None):  # noqa: F811  (extension commands from kurn.hooks.COMMANDS
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv and argv[0] in hooks.COMMANDS:
         return hooks.COMMANDS[argv[0]](argv[1:])
+    backend = _spec_backend(argv)
+    if backend:
+        return hooks.TARGET_BACKENDS[backend](argv[0], argv[1:])
     return _core_main(argv)
+# --- end attn ---
+
+
+# --- gpu ---
+def _spec_backend(argv):
+    """The hooks.TARGET_BACKENDS target named by a spec command's spec file or target=... override."""
+    from . import hooks
+
+    if len(argv) < 2 or argv[0] not in ("check", "gen", "build", "verify", "tune") or not hooks.TARGET_BACKENDS:
+        return None
+    target = next((t.split("=", 1)[1] for t in argv[1:] if t.startswith("target=")), None)
+    if target is None:
+        path = next((t for t in argv[1:] if not t.startswith("-") and "=" not in t), None)
+        if not path or not os.path.isfile(path):
+            return None
+        try:
+            spec, _ = load(path)
+        except (OSError, SpecError):
+            return None
+        target = spec.get("target")
+    return target if target in hooks.TARGET_BACKENDS else None
+# --- end gpu ---
