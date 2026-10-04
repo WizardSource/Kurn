@@ -21,8 +21,10 @@ hooks.new_key("ilv", _ilv_values, 1)
 # keep the enumerated product (spec.legal_configs) as it was: ilv only re-orders records
 hooks.ENUM_KEYS.add("ilv")
 hooks.EXTRA_INVALID.append(
-    (lambda c: c.get("ilv", 1) != 1 and not (c["layout"] in ("i16", "i8") and generic.nibble_path(generic.RECIPES[c["weights"]], c)),
-     "ilv applies to the 4-bit nibble lowering only (layout=i16/i8, unpack=mask16/perm/pair or MX scales)")
+    (
+        lambda c: c.get("ilv", 1) != 1 and not (c["layout"] in ("i16", "i8") and generic.nibble_path(generic.RECIPES[c["weights"]], c)),
+        "ilv applies to the 4-bit nibble lowering only (layout=i16/i8, unpack=mask16/perm/pair or MX scales)",
+    )
 )
 
 _A5 = {"target": "avx512_vnni", "layout": "i16"}

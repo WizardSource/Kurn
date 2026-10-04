@@ -11,7 +11,7 @@ import sys
 here = os.path.dirname(os.path.abspath(sys.argv[1]))
 true_bpw = {}
 for f in glob.glob(os.path.join(here, "e8p_model_*.json")):
-    true_bpw["qwen3-1.7b-e8p-" + os.path.basename(f)[len("e8p_model_"):-5]] = json.load(open(f))["tensors"]["_total"]["bpw"]
+    true_bpw["qwen3-1.7b-e8p-" + os.path.basename(f)[len("e8p_model_") : -5]] = json.load(open(f))["tensors"]["_total"]["bpw"]
 for f in glob.glob(os.path.join(here, "lorc-*.json")):
     true_bpw["qwen3-1.7b-" + os.path.basename(f)[:-5]] = json.load(open(f))["_total"]["bpw"]
 e2e = {}

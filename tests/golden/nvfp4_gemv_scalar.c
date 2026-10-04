@@ -10,9 +10,6 @@ static inline float f16f(uint16_t h) {
     float f; memcpy(&f, &bb, 4); return f;
 }
 static inline float bitsf(uint32_t u) { float f; memcpy(&f, &u, 4); return f; }
-static inline float e8m0h(uint8_t x) {  /* ggml_e8m0_to_fp32_half */
-    return bitsf(x < 2 ? 0x00200000u << x : (uint32_t)(x - 1) << 23);
-}
 static inline float ue4m3h(uint8_t x) {  /* ggml_ue4m3_to_fp32: UE4M3 scale x 0.5 (the codes are E2M1 x 2) */
     if (x == 0 || x == 0x7F) return 0.0f;
     const int e = (x >> 3) & 15, m = x & 7;

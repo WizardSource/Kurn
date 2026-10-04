@@ -3,10 +3,11 @@
 import itertools
 import json
 
-import numpy as np
 import pytest
 
 from kurn import mixed
+
+np = pytest.importorskip("numpy")
 
 gguf = pytest.importorskip("gguf")
 

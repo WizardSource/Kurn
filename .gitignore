@@ -10,6 +10,3 @@ dist/
 *.o
 *.csv
 !benchmarks/**/*.csv
-.DS_Store
-kurn-gpu-results/
-README_GPU.md

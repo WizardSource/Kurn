@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Markdown tables from results/ (bench sets, AMX, quality, end-to-end, tuner) for fourbit.md.
-    summarize.py [results-dir]
+summarize.py [results-dir]
 """
 
 import csv
@@ -50,9 +50,12 @@ def bench_table(path):
             ratio = f"{statistics.median(float(r['us']) for r in ref) / c[0]:.2f}x"
         out.append(
             f"| {name} | {f'{h[0]:.2f}' if h else '-'} | {f'{h[2]:.1f}' if h else '-'} | "
-            + (f"{c[0]:.1f} | {c[1]:.1f} | {100 * c[1] / ROOF[8]:.0f}% | "
-               f"{f'{100 * c[1] / sroof:.0f}%' if sroof else '-'} | {c[2]:.0f} | {100 * c[3]:.0f}% | {ratio} |"
-               if c else "- | - | - | - | - | - | |")  # fmt: skip
+            + (
+                f"{c[0]:.1f} | {c[1]:.1f} | {100 * c[1] / ROOF[8]:.0f}% | "
+                f"{f'{100 * c[1] / sroof:.0f}%' if sroof else '-'} | {c[2]:.0f} | {100 * c[3]:.0f}% | {ratio} |"
+                if c
+                else "- | - | - | - | - | - | |"
+            )  # fmt: skip
         )
     return "\n".join(out)
 

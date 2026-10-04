@@ -30,19 +30,40 @@ def main():
         by = {}
         for r in rows:
             by.setdefault(r["config"], []).append(r)
-        hdr = ["config", "n", "tok/s (mean)", "tok/s (median lat.)", "tok/s (p10 lat.)", "J/tok", "J/tok +10W", "barriers/tok",
-               "wait", "quiet wait", "runq", "foreign cores"]
+        hdr = [
+            "config",
+            "n",
+            "tok/s (mean)",
+            "tok/s (median lat.)",
+            "tok/s (p10 lat.)",
+            "J/tok",
+            "J/tok +10W",
+            "barriers/tok",
+            "wait",
+            "quiet wait",
+            "runq",
+            "foreign cores",
+        ]
         print(f"\n{path}")
         if md:
             print("| " + " | ".join(hdr) + " |")
             print("|" + "---|" * len(hdr))
         for name, rs in by.items():
             inv = lambda k, rs=rs: [1000.0 / f(r, k) if f(r, k) else None for r in rs]  # noqa: E731
-            cells = [name, str(len(rs)), rng([f(r, "decode_tok_s") for r in rs], "{:.1f}"), rng(inv("med_ms"), "{:.1f}"),
-                     rng(inv("p10_ms"), "{:.1f}"), rng([f(r, "J_per_tok") for r in rs], "{:.3f}"),
-                     rng([f(r, "J_per_tok_10W") for r in rs], "{:.3f}"), rng([f(r, "barriers_per_tok") for r in rs], "{:.0f}"),
-                     rng([f(r, "wait_share") for r in rs], "{:.3f}"), rng([f(r, "quiet_wait_share") for r in rs], "{:.3f}"),
-                     rng([f(r, "runq_share") for r in rs], "{:.3f}"), rng([f(r, "foreign_cpu") for r in rs], "{:.2f}")]
+            cells = [
+                name,
+                str(len(rs)),
+                rng([f(r, "decode_tok_s") for r in rs], "{:.1f}"),
+                rng(inv("med_ms"), "{:.1f}"),
+                rng(inv("p10_ms"), "{:.1f}"),
+                rng([f(r, "J_per_tok") for r in rs], "{:.3f}"),
+                rng([f(r, "J_per_tok_10W") for r in rs], "{:.3f}"),
+                rng([f(r, "barriers_per_tok") for r in rs], "{:.0f}"),
+                rng([f(r, "wait_share") for r in rs], "{:.3f}"),
+                rng([f(r, "quiet_wait_share") for r in rs], "{:.3f}"),
+                rng([f(r, "runq_share") for r in rs], "{:.3f}"),
+                rng([f(r, "foreign_cpu") for r in rs], "{:.2f}"),
+            ]
             print(("| " + " | ".join(cells) + " |") if md else "  ".join(cells))
 
 

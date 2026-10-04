@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Cache-cliff chart: effective bandwidth vs weights touched per token (rtbench `sweep`).
 
-    plot_cliff.py results/cliff.csv [results/cliff-t1.csv] -o cliff.png --summary cliff_summary.csv
+plot_cliff.py results/cliff.csv [results/cliff-t1.csv] -o cliff.png --summary cliff_summary.csv
 """
 
 import argparse

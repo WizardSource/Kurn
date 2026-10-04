@@ -37,6 +37,7 @@ PRELUDE = r"""#ifdef KURN_EMU
 #define KURN_F2H(f) __half_as_ushort(__float2half_rn(f))
 #define KURN_POPC(x) __popc(x)
 #define KURN_LAUNCH(kernel, grid, block, stream, ...) kernel<<<(grid), (block), 0, (stream)>>>(__VA_ARGS__)
+#define KURN_LAUNCH_SMEM(kernel, grid, block, smem, stream, ...) kernel<<<(grid), (block), (smem), (stream)>>>(__VA_ARGS__)
 #endif
 #define KURN_FULL 0xffffffffu
 #define KURN_FN static __device__ __forceinline__ __attribute__((unused))
@@ -173,7 +174,9 @@ def _e8p_table():
     )
 
 
-def _act_macros(act):
+def _act_macros(act, xs=False):
+    if act == "q8_0" and xs:  # split: int8 plane [M][K] + float scale plane [M][K/32]
+        return "#define XD(x, c) ((x)[c])\n#define XP(x, c) ((x) + (size_t)(c) * 32)\n"
     if act == "q8_0":
         return (
             "#define XD(x, c) KURN_H2F(kld_u16((x) + (size_t)(c) * 34))\n"
@@ -205,6 +208,11 @@ def _loadq(dst, ptr, nb, aligned):
     return out
 
 
+def _xload(dst, ptr, nb):
+    """Aligned vector loads of nb activation bytes (xlayout split) into uint32_t dst[], indented for a COLS loop."""
+    return ["  " + ln for ln in _loadq(dst, ptr, nb, True)]
+
+
 def row_bytes(fmt, k):
     f = FORMATS[fmt]
     return k // f["block"] * f["nbytes"]
@@ -223,13 +231,17 @@ def _unit_q8_0(c, split):
     else:
         s = ["const uint8_t *b = wq + (size_t)u * 34;", "const float dw = KURN_H2F(kld_u16(b));"]
         s += _loadq("q", "b + 2 + p * %d" % nb, nb, False)
+    s += ["#pragma unroll", "for (int j = 0; j < COLS; j++) {"]
+    if c["xlayout"] == "split":
+        s += _xload("xa", f"XP(xr[j], u) + p * {nb}", nb)
+        x, xd = "(int)xa[i]", "xd[j]"
+    else:
+        x, xd = f"XQ(xr[j], u, p * {nb} + 4 * i)", "xr[j]"
     s += [
-        "#pragma unroll",
-        "for (int j = 0; j < COLS; j++) {",
         "  int s = 0;",
         "#pragma unroll",
-        f"  for (int i = 0; i < {nb // 4}; i++) s = __dp4a((int)q[i], XQ(xr[j], u, p * {nb} + 4 * i), s);",
-        "  acc[j] += dw * XD(xr[j], u) * (float)s;",
+        f"  for (int i = 0; i < {nb // 4}; i++) s = __dp4a((int)q[i], {x}, s);",
+        f"  acc[j] += dw * XD({xd}, u) * (float)s;",
         "}",
     ]
     return s
@@ -252,13 +264,20 @@ def _unit_q4(c, split, iq4):
         f"for (int i = 0; i < {nb // 4}; i++) {{ lo[i] = {dec[0]}; hi[i] = {dec[1]}; }}",
         "#pragma unroll",
         "for (int j = 0; j < COLS; j++) {",
+    ]
+    if c["xlayout"] == "split":
+        s += _xload("xl", f"XP(xr[j], u) + p * {nb}", nb) + _xload("xh", f"XP(xr[j], u) + 16 + p * {nb}", nb)
+        xl, xh, xd = "(int)xl[i]", "(int)xh[i]", "xd[j]"
+    else:
+        xl, xh, xd = f"XQ(xr[j], u, p * {nb} + 4 * i)", f"XQ(xr[j], u, 16 + p * {nb} + 4 * i)", "xr[j]"
+    s += [
         "  int s = 0;",
         "#pragma unroll",
         f"  for (int i = 0; i < {nb // 4}; i++) {{",
-        f"    s = __dp4a((int)lo[i], XQ(xr[j], u, p * {nb} + 4 * i), s);",
-        f"    s = __dp4a((int)hi[i], XQ(xr[j], u, 16 + p * {nb} + 4 * i), s);",
+        f"    s = __dp4a((int)lo[i], {xl}, s);",
+        f"    s = __dp4a((int)hi[i], {xh}, s);",
         "  }",
-        "  acc[j] += dw * XD(xr[j], u) * (float)s;",
+        f"  acc[j] += dw * XD({xd}, u) * (float)s;",
         "}",
     ]
     return s
@@ -360,10 +379,17 @@ def _unit_crumbs(c, split, bits):
         "#pragma unroll",
         f"  for (int ch = 0; ch < {nch}; ch++) {{",
         f"    const int cc = u * {cpu} + ((v0 + ch * 32) >> 5);",
+    ]
+    if c["xlayout"] == "split":
+        s += ["  " + ln for ln in _xload("xa", "XP(xr[j], cc) + ((v0 + ch * 32) & 31)", 4 * min(8, nwords))]
+        x, xd = "(int)xa[w]", "xd[j]"
+    else:
+        x, xd = "XQ(xr[j], cc, ((v0 + ch * 32) & 31) + 4 * w)", "xr[j]"
+    s += [
         "    int s = 0;",
         "#pragma unroll",
-        f"    for (int w = 0; w < {min(8, nwords)}; w++) s = __dp4a((int)e[ch * 8 + w], XQ(xr[j], cc, ((v0 + ch * 32) & 31) + 4 * w), s);",
-        "    a += XD(xr[j], cc) * (float)s;",
+        f"    for (int w = 0; w < {min(8, nwords)}; w++) s = __dp4a((int)e[ch * 8 + w], {x}, s);",
+        f"    a += XD({xd}, cc) * (float)s;",
         "  }",
         "  acc[j] += dw * a;",
         "}",
@@ -454,7 +480,7 @@ def _table_setup(c):
 
 
 def _lb(nt, c):
-    return f"{nt}, {c['minb']}" if c["minb"] else f"{nt}"
+    return f"{nt}, {max(1, c['minb'])}"  # an explicit minimum of 1 block stops ptxas from capping registers and spilling
 
 
 def _indent(lines, n):
@@ -572,7 +598,10 @@ def _gemv_kernel(c):
     split = c["layout"] == "split"
     tables, prologue = _table_setup(c)
     nt = threads(c)
-    body = UNITS[w](c, split)
+    xs = c["xlayout"] == "split"
+    # dev2 keeps 32-bit column offsets instead of per-column pointers; with xlayout split the offset is cj * K, so the
+    # column's scale row (K / 32 floats per column) starts at offset / 32
+    body = [ln.replace("xr[j]", "(xb + xo[j])").replace("xd[j]", "(xdb + (xo[j] >> 5))") for ln in UNITS[w](c, split)]
     tpr = c["tpr"]
     red = []
     for m in (16, 8, 4, 2, 1):
@@ -610,11 +639,14 @@ def _gemv_kernel(c):
     ws = f"W + (size_t)N * {rowq} + (size_t)wrow * {rows}" if split else "wq"
     rowb = rowq if split else f"((size_t)K / {f['block']} * {f['nbytes']})"
     tab_arg = "const uint32_t *__restrict__ tab"
-    return f"""{tables}{_act_macros(f["act"])}
+    xd_param, xd_arg = ("const float *__restrict__ xdb, ", "xdb, ") if xs else ("", "")
+    xinit = "min(col0 + j, M - 1) * K" if xs else f"min(col0 + j, M - 1) * (int){xrow}"
+    xdecl = "\n  const float *xdb = (const float *)(X + (size_t)M * K);" if xs else ""
+    return f"""{tables}{_act_macros(f["act"], xs)}
 #define COLS {c["cols"]}
 #define SUB {c["sub"]}
 KURN_FN void kunit(const uint8_t *__restrict__ wq, const uint8_t *__restrict__ ws, int u, int p,
-                                             const uint8_t *const *xr, float *acc, {tab_arg}) {{
+                                             const uint8_t *__restrict__ xb, const int *xo, {xd_param}float *acc, {tab_arg}) {{
   (void)ws; (void)tab;
 {_indent(body, 2)}
 }}
@@ -627,270 +659,27 @@ kg_gemv(const uint8_t *__restrict__ W, const uint8_t *__restrict__ X, float *__r
   const int col0 = blockIdx.y * COLS;
   const uint8_t *wq = W + (size_t)wrow * {rowb};
   const uint8_t *ws = {ws};
-  const uint8_t *xr[COLS];
+  int xo[COLS];  // 32-bit column offsets (columns past M repeat the last one; their results are not stored)
   float acc[COLS];
   #pragma unroll
-  for (int j = 0; j < COLS; j++) {{ xr[j] = X + (size_t)min(col0 + j, M - 1) * {xrow}; acc[j] = 0.f; }}
+  for (int j = 0; j < COLS; j++) {{ xo[j] = {xinit}; acc[j] = 0.f; }}{xdecl}
   const int work = K / {f["unit"]} * SUB;
-  for (int w0 = lid; w0 < work; w0 += {tpr * c["unroll"]}) {{
+  int w0 = lid;
+  // main loop without bounds checks, so the {c["unroll"]} units' loads can all be issued before their math
+  for (; w0 + {(c["unroll"] - 1) * tpr} < work; w0 += {tpr * c["unroll"]}) {{
     #pragma unroll
     for (int k = 0; k < {c["unroll"]}; k++) {{
       const int w = w0 + k * {tpr};
-      if (w < work) kunit(wq, ws, w / SUB, w % SUB, xr, acc, tab);
+      kunit(wq, ws, w / SUB, w % SUB, X, xo, {xd_arg}acc, tab);
     }}
   }}
+  for (; w0 < work; w0 += {tpr}) kunit(wq, ws, w0 / SUB, w0 % SUB, X, xo, {xd_arg}acc, tab);
 {chr(10).join(tail)}
 }}
 """
 
 
 # --------------------------------------------------------------------------- GEMM (int8 mma.sync)
-
-
-def _gemm_kernel(c):
-    w = c["weights"]
-    split = c["layout"] == "split"
-    qb = 32 if w == "q8_0" else 16
-    bm, bn, bkb, wm, wn, pad = c["bm"], c["bn"], c["bkb"], c["wm"], c["wn"], c["pad"]
-    nt = wm * wn * 32
-    tm, tn = bm // wm, bn // wn
-    mi, ni = tm // 16, tn // 8
-    stages = {"sync": 1, "reg2": 1, "async2": 2, "async3": 3}[c["pipe"]]
-    wrow, xrow = bkb * qb + pad, bkb * 32 + pad
-    f = FORMATS[w]
-    nbytes = f["nbytes"]
-    tw, tws, tx, txs = bm * bkb * qb // 4, bm * bkb, bn * bkb * 8, bn * bkb
-    per = lambda n: (n + nt - 1) // nt  # noqa: E731
-    if w == "q8_0":
-        frag = [
-            "a[mi][0] = kld_u32(&sW[buf][(r0 + g) * WROW + kb * 32 + 4 * t]);",
-            "a[mi][1] = kld_u32(&sW[buf][(r0 + g + 8) * WROW + kb * 32 + 4 * t]);",
-            "a[mi][2] = kld_u32(&sW[buf][(r0 + g) * WROW + kb * 32 + 16 + 4 * t]);",
-            "a[mi][3] = kld_u32(&sW[buf][(r0 + g + 8) * WROW + kb * 32 + 16 + 4 * t]);",
-        ]
-    else:
-        dec = ("kiq4({v} & 0x0F0F0F0Fu)", "kiq4(({v} >> 4) & 0x0F0F0F0Fu)") if w == "iq4_nl" else \
-              ("__vsub4({v} & 0x0F0F0F0Fu, 0x08080808u)", "__vsub4(({v} >> 4) & 0x0F0F0F0Fu, 0x08080808u)")  # fmt: skip
-        frag = [
-            "{ const uint32_t v0 = kld_u32(&sW[buf][(r0 + g) * WROW + kb * 16 + 4 * t]);",
-            "  const uint32_t v1 = kld_u32(&sW[buf][(r0 + g + 8) * WROW + kb * 16 + 4 * t]);",
-            f"  a[mi][0] = {dec[0].format(v='v0')}; a[mi][2] = {dec[1].format(v='v0')};",
-            f"  a[mi][1] = {dec[0].format(v='v1')}; a[mi][3] = {dec[1].format(v='v1')}; }}",
-        ]
-    if split:
-        wsrc = "kld_u32(Wq + (size_t)grow * ROWQ + (size_t)gkb * QB + 4 * wi)"
-        wsc = "KURN_H2F(kld_u16(Ws + (size_t)grow * ROWS + 2 * (size_t)gkb))"
-    else:
-        wsrc = f"kld_u32_b2(W + (size_t)grow * ROWB + (size_t)gkb * {nbytes} + 2 + 4 * wi)"
-        wsc = f"KURN_H2F(kld_u16(W + (size_t)grow * ROWB + (size_t)gkb * {nbytes}))"
-    decode_w = """    const int r = e / (BKB * QB / 4), kb = (e / (QB / 4)) % BKB, wi = e % (QB / 4);
-    const int grow = min(n0 + r, N - 1), gkb = ks * BKB + kb;"""
-    decode_ws = """    const int r = e / BKB, kb = e % BKB;
-    const int grow = min(n0 + r, N - 1), gkb = ks * BKB + kb;"""
-    decode_x = """    const int cc = e / (BKB * 8), kb = (e / 8) % BKB, wi = e % 8;
-    const int gcol = min(m0 + cc, M - 1), gkb = ks * BKB + kb;"""
-    decode_xs = """    const int cc = e / BKB, kb = e % BKB;
-    const int gcol = min(m0 + cc, M - 1), gkb = ks * BKB + kb;"""
-    gload = f"""
-  // global -> registers for K step ks
-  auto gload = [&](int ks, uint32_t *rw, float *rws, uint32_t *rx, float *rxs) {{
-    #pragma unroll
-    for (int i = 0; i < {per(tw)}; i++) {{
-      const int e = threadIdx.x + i * NT;
-      if (e < TW) {{
-{decode_w}
-        rw[i] = gkb < nkb ? {wsrc} : 0u;
-      }}
-    }}
-    #pragma unroll
-    for (int i = 0; i < {per(tws)}; i++) {{
-      const int e = threadIdx.x + i * NT;
-      if (e < TWS) {{
-{decode_ws}
-        rws[i] = gkb < nkb ? {wsc} : 0.f;
-      }}
-    }}
-    #pragma unroll
-    for (int i = 0; i < {per(tx)}; i++) {{
-      const int e = threadIdx.x + i * NT;
-      if (e < TX) {{
-{decode_x}
-        rx[i] = gkb < nkb ? kld_u32(Xq + (size_t)gcol * K + (size_t)gkb * 32 + 4 * wi) : 0u;
-      }}
-    }}
-    #pragma unroll
-    for (int i = 0; i < {per(txs)}; i++) {{
-      const int e = threadIdx.x + i * NT;
-      if (e < TXS) {{
-{decode_xs}
-        rxs[i] = gkb < nkb ? Xd[(size_t)gcol * nkb + gkb] : 0.f;
-      }}
-    }}
-  }};
-  // registers -> shared buffer buf
-  auto sstore = [&](int buf, const uint32_t *rw, const float *rws, const uint32_t *rx, const float *rxs) {{
-    #pragma unroll
-    for (int i = 0; i < {per(tw)}; i++) {{
-      const int e = threadIdx.x + i * NT;
-      if (e < TW) {{ const int r = e / (BKB * QB / 4), kb = (e / (QB / 4)) % BKB, wi = e % (QB / 4);
-        kst_u32(&sW[buf][r * WROW + kb * QB + 4 * wi], rw[i]); }}
-    }}
-    #pragma unroll
-    for (int i = 0; i < {per(tws)}; i++) {{ const int e = threadIdx.x + i * NT; if (e < TWS) sWd[buf][e] = rws[i]; }}
-    #pragma unroll
-    for (int i = 0; i < {per(tx)}; i++) {{
-      const int e = threadIdx.x + i * NT;
-      if (e < TX) {{ const int cc = e / (BKB * 8), kb = (e / 8) % BKB, wi = e % 8;
-        kst_u32(&sX[buf][cc * XROW + kb * 32 + 4 * wi], rx[i]); }}
-    }}
-    #pragma unroll
-    for (int i = 0; i < {per(txs)}; i++) {{ const int e = threadIdx.x + i * NT; if (e < TXS) sXd[buf][e] = rxs[i]; }}
-  }};"""
-    issue = ""
-    if c["pipe"].startswith("async"):
-        twc, txc = bm * bkb * qb // 16, bn * bkb * 2
-        issue = f"""
-  // cp.async issue of K step ks into shared buffer buf (scales through registers)
-  auto issue = [&](int ks, int buf) {{
-    for (int e = threadIdx.x; e < {twc}; e += NT) {{
-      const int r = e / (BKB * QB / 16), kb = (e / (QB / 16)) % BKB, ci = e % (QB / 16);
-      const int grow = min(n0 + r, N - 1), gkb = ks * BKB + kb;
-      const bool ok = gkb < nkb;
-      kcp16(&sW[buf][r * WROW + kb * QB + 16 * ci], ok ? (const void *)(Wq + (size_t)grow * ROWQ + (size_t)gkb * QB + 16 * ci) : (const void *)Wq, ok ? 16 : 0);
-    }}
-    for (int e = threadIdx.x; e < {txc}; e += NT) {{
-      const int cc = e / (BKB * 2), kb = (e / 2) % BKB, ci = e % 2;
-      const int gcol = min(m0 + cc, M - 1), gkb = ks * BKB + kb;
-      const bool ok = gkb < nkb;
-      kcp16(&sX[buf][cc * XROW + kb * 32 + 16 * ci], ok ? (const void *)(Xq + (size_t)gcol * K + (size_t)gkb * 32 + 16 * ci) : (const void *)Xq, ok ? 16 : 0);
-    }}
-    for (int e = threadIdx.x; e < TWS; e += NT) {{
-{decode_ws}
-      sWd[buf][e] = gkb < nkb ? {wsc} : 0.f;
-    }}
-    for (int e = threadIdx.x; e < TXS; e += NT) {{
-{decode_xs}
-      sXd[buf][e] = gkb < nkb ? Xd[(size_t)gcol * nkb + gkb] : 0.f;
-    }}
-  }};"""
-    regs = f"uint32_t rw[{per(tw)}]; float rws[{per(tws)}]; uint32_t rx[{per(tx)}]; float rxs[{per(txs)}];"
-    if c["pipe"] == "sync":
-        loop = f"""  {regs}
-  for (int ks = 0; ks < nks; ks++) {{
-    gload(ks, rw, rws, rx, rxs);
-    sstore(0, rw, rws, rx, rxs);
-    __syncthreads();
-    compute(0);
-    __syncthreads();
-  }}"""
-    elif c["pipe"] == "reg2":
-        loop = f"""  {regs}
-  if (nks > 0) gload(0, rw, rws, rx, rxs);
-  for (int ks = 0; ks < nks; ks++) {{
-    sstore(0, rw, rws, rx, rxs);
-    __syncthreads();
-    if (ks + 1 < nks) gload(ks + 1, rw, rws, rx, rxs);
-    compute(0);
-    __syncthreads();
-  }}"""
-    else:
-        loop = f"""  #pragma unroll
-  for (int s = 0; s < {stages - 1}; s++) {{
-    if (s < nks) issue(s, s);
-    kcp_commit();
-  }}
-  for (int ks = 0; ks < nks; ks++) {{
-    KCP_WAIT({stages - 2});
-    __syncthreads();
-    const int nx = ks + {stages - 1};
-    if (nx < nks) issue(nx, nx % {stages});
-    kcp_commit();
-    compute(ks % {stages});
-  }}
-  KCP_WAIT(0);"""
-    rowq = f"((size_t)K * {qb} / 32)"
-    return f"""{_iq4_table() if w == "iq4_nl" else ""}{MMA}{CPASYNC if c["pipe"].startswith("async") else ""}
-#define BM {bm}
-#define BN {bn}
-#define BKB {bkb}
-#define QB {qb}
-#define WROW {wrow}
-#define XROW {xrow}
-#define NT {nt}
-#define TW {tw}
-#define TWS {tws}
-#define TX {tx}
-#define TXS {txs}
-
-// Y[m * N + n]: CTA tile BM weight rows x BN tokens; {wm}x{wn} warps of {tm}x{tn} ({mi}x{ni} m16n8k32 tiles);
-// one K step = BKB blocks of 32, so every mma result gets exactly one (weight, activation) scale pair.
-static __global__ void __launch_bounds__({_lb("NT", c)})
-kg_gemm(const uint8_t *__restrict__ W, const uint8_t *__restrict__ X, float *__restrict__ Y, int N, int K, int M) {{
-  __shared__ __align__(16) uint8_t sW[{stages}][BM * WROW];
-  __shared__ float sWd[{stages}][BM * BKB];
-  __shared__ __align__(16) uint8_t sX[{stages}][BN * XROW];
-  __shared__ float sXd[{stages}][BN * BKB];
-  const int nkb = K / 32, nks = (nkb + BKB - 1) / BKB;
-  const size_t ROWQ = {rowq}, ROWS = (size_t)nkb * 2, ROWB = (size_t)nkb * {nbytes};
-  (void)ROWQ; (void)ROWS; (void)ROWB;
-  const uint8_t *Wq = W;
-  const uint8_t *Ws = W + (size_t)N * ROWQ;
-  (void)Wq; (void)Ws;
-  const uint8_t *Xq = X;
-  const float *Xd = (const float *)(X + (size_t)M * K);
-  const int n0 = blockIdx.x * BM, m0 = blockIdx.y * BN;
-  const int warp = threadIdx.x >> 5, lane = threadIdx.x & 31, g = lane >> 2, t = lane & 3;
-  const int wr = warp % {wm}, wc = warp / {wm};
-  float acc[{mi}][{ni}][4];
-  #pragma unroll
-  for (int i = 0; i < {mi}; i++)
-    #pragma unroll
-    for (int j = 0; j < {ni}; j++)
-      #pragma unroll
-      for (int k = 0; k < 4; k++) acc[i][j][k] = 0.f;
-  auto compute = [&](int buf) {{
-    #pragma unroll
-    for (int kb = 0; kb < BKB; kb++) {{
-      unsigned a[{mi}][4];
-      float dw0[{mi}], dw1[{mi}];
-      #pragma unroll
-      for (int mi = 0; mi < {mi}; mi++) {{
-        const int r0 = wr * {tm} + mi * 16;
-        {(chr(10) + "        ").join(frag)}
-        dw0[mi] = sWd[buf][(r0 + g) * BKB + kb];
-        dw1[mi] = sWd[buf][(r0 + g + 8) * BKB + kb];
-      }}
-      #pragma unroll
-      for (int ni = 0; ni < {ni}; ni++) {{
-        const int c0 = wc * {tn} + ni * 8;
-        unsigned b[2];
-        b[0] = kld_u32(&sX[buf][(c0 + g) * XROW + kb * 32 + 4 * t]);
-        b[1] = kld_u32(&sX[buf][(c0 + g) * XROW + kb * 32 + 16 + 4 * t]);
-        const float dx0 = sXd[buf][(c0 + 2 * t) * BKB + kb], dx1 = sXd[buf][(c0 + 2 * t + 1) * BKB + kb];
-        #pragma unroll
-        for (int mi = 0; mi < {mi}; mi++) {{
-          int d[4];
-          kmma(d, a[mi], b);
-          acc[mi][ni][0] += (float)d[0] * dw0[mi] * dx0;
-          acc[mi][ni][1] += (float)d[1] * dw0[mi] * dx1;
-          acc[mi][ni][2] += (float)d[2] * dw1[mi] * dx0;
-          acc[mi][ni][3] += (float)d[3] * dw1[mi] * dx1;
-        }}
-      }}
-    }}
-  }};{gload if not c["pipe"].startswith("async") else ""}{issue}
-{loop}
-  #pragma unroll
-  for (int mi = 0; mi < {mi}; mi++)
-    #pragma unroll
-    for (int ni = 0; ni < {ni}; ni++)
-      #pragma unroll
-      for (int k = 0; k < 4; k++) {{
-        const int row = n0 + wr * {tm} + mi * 16 + g + 8 * (k >> 1), col = m0 + wc * {tn} + ni * 8 + 2 * t + (k & 1);
-        if (row < N && col < M) Y[(size_t)col * N + row] = acc[mi][ni][k];
-      }}
-}}
-"""
 
 
 # --------------------------------------------------------------------------- ABI
@@ -911,8 +700,13 @@ def _abi(c):
         grid = f"dim3((unsigned)((N + {c['bm']} - 1) / {c['bm']}), (unsigned)((M + {c['bn']} - 1) / {c['bn']}))"
         run = f"  KURN_LAUNCH(kg_gemm, {grid}, dim3({threads(c)}), s, (const uint8_t *)W, (const uint8_t *)Xq, Y, N, K, M);"
     else:
-        xbytes = f"(size_t)M * {xrow}"
-        quant = None
+        if c["xlayout"] == "split":  # aligned int8 plane [M][K] + float scale plane [M][K/32] (split q8_0 quantizer)
+            xbytes = "(size_t)M * K + (size_t)M * (K / 32) * 4"
+            quant = ("  KURN_LAUNCH(kg_quant_q8_0, dim3((unsigned)(((long)M * (K / 32) + 3) / 4)), dim3(128), s, X, (uint8_t *)Xq, "
+                     "(float *)((uint8_t *)Xq + (size_t)M * K), K, M, 1);")  # fmt: skip
+        else:
+            xbytes = f"(size_t)M * {xrow}"
+            quant = None
         grid = f"dim3((unsigned)((N + {c['rpb']} - 1) / {c['rpb']}), (unsigned)((M + {c['cols']} - 1) / {c['cols']}))"
         run = f"  KURN_LAUNCH(kg_gemv, {grid}, dim3({threads(c)}), s, (const uint8_t *)W, (const uint8_t *)Xq, Y, N, K, M);"
     xblocks = (
@@ -949,6 +743,7 @@ static __global__ void kg_repack(const uint8_t *__restrict__ W, uint8_t *__restr
     return f"""{repack}
 extern "C" {{
 const char *kg_config(void) {{ return "{cfg}"; }}
+int kg_act(void) {{ return 0; }}  // 0: kg_quant -> q8 activations; reference from kg_xblocks
 int kg_check_shape(int N, int K, int M) {{ return (N > 0 && M > 0 && K > 0 && K % {kmul} == 0) ? 0 : -1; }}
 size_t kg_prep_bytes(int N, int K) {{ (void)N; (void)K; return {prep_bytes}; }}
 size_t kg_xbytes(int K, int M) {{ return {xbytes}; }}
@@ -977,14 +772,18 @@ def generate(c):
     """Resolved cuda config -> CUDA C++ source implementing the kurn_gpu.h ABI."""
     cfg = " ".join(f"{k}={c[k]}" for k in codegen_keys(c["op"]))
     head = f"// generated by kurn: {c['weights']} {c['op']} for CUDA ({FORMATS[c['weights']]['doc']})\n// {cfg}\n"
+    if c["op"] == "gemm":
+        from . import mma
+
+        tables = _iq4_table() if c["weights"] == "iq4_nl" else ""
+        return (head + PRELUDE + CPASYNC + mma.HELPERS + tables + mma.kernel(c) + mma.repack_kernel(c) + mma.x16_kernel(c)
+                + mma.abi(c, cfg))  # fmt: skip
     act = FORMATS[c["weights"]]["act"]
-    kernel = _gemm_kernel(c) if c["op"] == "gemm" else _gemv_kernel(c)
-    quant = _quant_kernels(act)
-    return head + PRELUDE + quant + kernel + _abi(c)
+    return head + PRELUDE + _quant_kernels(act) + _gemv_kernel(c) + _abi(c)
 
 
 def describe(c):
     """One-line summary of the kernel's static resources (for reports)."""
     if c["op"] == "gemm":
-        return f"gemm {c['weights']} bm={c['bm']} bn={c['bn']} threads={threads(c)} smem={gemm_smem(c)}B pipe={c['pipe']}"
+        return f"gemm {c['weights']} bm={c['bm']} bn={c['bn']} bk={c['bk']} threads={threads(c)} smem={gemm_smem(c)}B stages={c['stages']}"
     return f"gemv {c['weights']} threads={threads(c)} tpr={c['tpr']} cols={c['cols']} layout={c['layout']}"

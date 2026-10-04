@@ -40,6 +40,7 @@ def corrected(name):
         stats[name] = {"err_base": e0, "err_lorc": e1, "extra_bpw": lr.extra_bpw(*W.shape, a.rank)}
         print(f"{name:28s} {mixed.type_name(base[name]):6s} r={a.rank} err {e0:.5f} -> {e1:.5f}", flush=True)
         return What.astype(np.float32)
+
     return f
 
 

@@ -4,8 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <immintrin.h>
-static inline float f16f(uint16_t h) { return _cvtsh_ss(h); }
-
 static inline __m512i load2(const block_q8_0 *b) {
     return _mm512_inserti64x4(_mm512_castsi256_si512(_mm256_loadu_si256((const __m256i *)b[0].qs)),
                               _mm256_loadu_si256((const __m256i *)b[1].qs), 1);

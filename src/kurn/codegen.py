@@ -348,9 +348,14 @@ static inline __m256i bsum_pairs(const block_q8_K *x) {
 
 def q4_K_gemv(target, s):
     if target == "avx512_vnni":  # auto -> the v2 choices
-        return q4_K_native_algo(dict(s, accum=s["accum"] if s["accum"] != "auto" else "float",
-                                     scales=s["scales"] if s["scales"] != "auto" else "kmask",
-                                     correction=s["correction"] if s["correction"] != "auto" else "act"))
+        return q4_K_native_algo(
+            dict(
+                s,
+                accum=s["accum"] if s["accum"] != "auto" else "float",
+                scales=s["scales"] if s["scales"] != "auto" else "kmask",
+                correction=s["correction"] if s["correction"] != "auto" else "act",
+            )
+        )
     R, P = s["rows"], s["prefetch"]
     if target == "scalar":
         return (
@@ -418,7 +423,9 @@ void kq4k_gemv(const void *W, const void *xv, float *y, int64_t K, int64_t r0, i
 """
         body = lambda i: f"            row_sb(w{i} + p, xs + p, &a{i}, &m{i});"
         decl = lambda i: f"        __m512 a{i} = _mm512_setzero_ps(); __m256 m{i} = _mm256_setzero_ps();"
-        red = lambda i: f"        y[r + {i}] = _mm512_reduce_add_ps(a{i}) - _mm512_reduce_add_ps(_mm512_castps256_ps512(m{i}));"
+        red = lambda i: (
+            f"        y[r + {i}] = _mm512_reduce_add_ps(a{i}) - _mm512_reduce_add_ps(_mm512_insertf32x8(_mm512_setzero_ps(), m{i}, 0));"
+        )
     elif target in ("avx2", "avx2_vnni"):
         dot = (
             "_mm256_dpbusd_avx_epi32(z, {a}, {b})" if target == "avx2_vnni" else "_mm256_madd_epi16(_mm256_maddubs_epi16({a}, {b}), ones16)"
@@ -652,6 +659,57 @@ EMBED_HELPERS = (
 )  # fmt: skip
 
 
+_HELPER_DEF = re.compile(r"^static inline\b[^(;{]*?\b(\w+)\s*\(", re.M)
+
+
+def _definition_end(src, start):
+    """Index just past the body of the function whose definition starts at `start`."""
+    depth, i, n = 0, src.index("{", start), len(src)
+    while i < n:
+        ch = src[i]
+        if src.startswith("//", i):
+            i = src.find("\n", i)
+            i = n if i < 0 else i
+            continue
+        if src.startswith("/*", i):
+            i = src.index("*/", i) + 2
+            continue
+        if ch in "'\"":
+            j = i + 1
+            while src[j] != ch:
+                j += 2 if src[j] == "\\" else 1
+            i = j + 1
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                if src.startswith("\n", end):
+                    end += 1
+                if src.startswith("\n", end):
+                    end += 1
+                return end
+        i += 1
+    raise ValueError("unbalanced braces in generated helper")
+
+
+def prune_helpers(src):
+    """Drop file-scope `static inline` helpers the kernel never calls. Templates share helper
+    preambles across variants; clang's -Wunused-function (unlike GCC) warns on unused static
+    inline functions in the main file, which -Werror turns into build failures."""
+    while True:
+        for m in _HELPER_DEF.finditer(src):
+            end = _definition_end(src, m.start())
+            rest = src[: m.start()] + src[end:]
+            if not re.search(rf"\b{m.group(1)}\b", rest):
+                src = rest
+                break
+        else:
+            return src
+
+
 def embed(src, prefix, entry_points=()):
     """Make generated C pasteable into another code base (e.g. ggml-cpu.c): drop the
     kurn.h include (the host provides the block structs), prefix every symbol, and
@@ -671,16 +729,23 @@ def q4_K_native_algo(s):
     """
     R, P = s["rows"], s["prefetch"]
     act, accum, scales, corr = s["act"], s["accum"], s["scales"], s["correction"]
-    dec = ("uint64_t sc64, mn64; q4k_decode(w->scales, &sc64, &mn64); uint8_t sc[8], mn[8]; memcpy(sc, &sc64, 8); memcpy(mn, &mn64, 8);"
-           if scales == "kmask" else
-           "uint8_t sc[8], mn[8]; const uint8_t *q6 = w->scales;\n"
-           "    for (int j = 0; j < 4; j++) { sc[j] = q6[j] & 63; mn[j] = q6[j + 4] & 63; }\n"
-           "    for (int j = 4; j < 8; j++) { sc[j] = (q6[j + 4] & 0xF) | ((q6[j - 4] >> 6) << 4); mn[j] = (q6[j + 4] >> 4) | ((q6[j] >> 6) << 4); }")
-    lines = [f"    {dec}", "    const __m512i m4 = _mm512_set1_epi8(0x0F), z = _mm512_setzero_si512();",
-             "    const float dd = xs->d * f16f(w->d);"]
+    dec = (
+        "uint64_t sc64, mn64; q4k_decode(w->scales, &sc64, &mn64); uint8_t sc[8], mn[8]; memcpy(sc, &sc64, 8); memcpy(mn, &mn64, 8);"
+        if scales == "kmask"
+        else "uint8_t sc[8], mn[8]; const uint8_t *q6 = w->scales;\n"
+        "    for (int j = 0; j < 4; j++) { sc[j] = q6[j] & 63; mn[j] = q6[j + 4] & 63; }\n"
+        "    for (int j = 4; j < 8; j++) { sc[j] = (q6[j + 4] & 0xF) | ((q6[j - 4] >> 6) << 4); mn[j] = (q6[j + 4] >> 4) | ((q6[j] >> 6) << 4); }"
+    )
+    lines = [
+        f"    {dec}",
+        "    const __m512i m4 = _mm512_set1_epi8(0x0F), z = _mm512_setzero_si512();",
+        "    const float dd = xs->d * f16f(w->d);",
+    ]
     if accum == "float":
         lines.append("    uint64_t scp; memcpy(&scp, sc, 8);")
-        lines.append("    const __m512 s8 = _mm512_castps256_ps512(_mm256_mul_ps(_mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(_mm_cvtsi64_si128((long long)scp))), _mm256_set1_ps(dd)));")
+        lines.append(
+            "    const __m512 s8 = _mm512_castps256_ps512(_mm256_mul_ps(_mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(_mm_cvtsi64_si128((long long)scp))), _mm256_set1_ps(dd)));"
+        )
     else:
         lines.append("    __m512i isum = z;")
     for j in (0, 2):
@@ -694,18 +759,30 @@ def q4_K_native_algo(s):
         lines.append(f"      const __m512i dhi = _mm512_dpbusd_epi32(z, _mm512_and_si512(_mm512_srli_epi16(q, 4), m4), {yhi});")
         if accum == "float":
             a0, a1, b0, b1 = 2 * j, 2 * j + 2, 2 * j + 1, 2 * j + 3
-            lines.append(f"      *acc = _mm512_fmadd_ps(_mm512_cvtepi32_ps(dlo), _mm512_permutexvar_ps(_mm512_setr_epi32({a0},{a0},{a0},{a0},{a0},{a0},{a0},{a0},{a1},{a1},{a1},{a1},{a1},{a1},{a1},{a1}), s8), *acc);")
-            lines.append(f"      *acc = _mm512_fmadd_ps(_mm512_cvtepi32_ps(dhi), _mm512_permutexvar_ps(_mm512_setr_epi32({b0},{b0},{b0},{b0},{b0},{b0},{b0},{b0},{b1},{b1},{b1},{b1},{b1},{b1},{b1},{b1}), s8), *acc); }}")
+            lines.append(
+                f"      *acc = _mm512_fmadd_ps(_mm512_cvtepi32_ps(dlo), _mm512_permutexvar_ps(_mm512_setr_epi32({a0},{a0},{a0},{a0},{a0},{a0},{a0},{a0},{a1},{a1},{a1},{a1},{a1},{a1},{a1},{a1}), s8), *acc);"
+            )
+            lines.append(
+                f"      *acc = _mm512_fmadd_ps(_mm512_cvtepi32_ps(dhi), _mm512_permutexvar_ps(_mm512_setr_epi32({b0},{b0},{b0},{b0},{b0},{b0},{b0},{b0},{b1},{b1},{b1},{b1},{b1},{b1},{b1},{b1}), s8), *acc); }}"
+            )
         else:
-            lines.append(f"      const __m512i slo = _mm512_inserti64x4(_mm512_set1_epi32(sc[{2 * j}]), _mm256_set1_epi32(sc[{2 * j + 2}]), 1);")
-            lines.append(f"      const __m512i shi = _mm512_inserti64x4(_mm512_set1_epi32(sc[{2 * j + 1}]), _mm256_set1_epi32(sc[{2 * j + 3}]), 1);")
-            lines.append("      isum = _mm512_add_epi32(isum, _mm512_add_epi32(_mm512_mullo_epi32(dlo, slo), _mm512_mullo_epi32(dhi, shi))); }")
+            lines.append(
+                f"      const __m512i slo = _mm512_inserti64x4(_mm512_set1_epi32(sc[{2 * j}]), _mm256_set1_epi32(sc[{2 * j + 2}]), 1);"
+            )
+            lines.append(
+                f"      const __m512i shi = _mm512_inserti64x4(_mm512_set1_epi32(sc[{2 * j + 1}]), _mm256_set1_epi32(sc[{2 * j + 3}]), 1);"
+            )
+            lines.append(
+                "      isum = _mm512_add_epi32(isum, _mm512_add_epi32(_mm512_mullo_epi32(dlo, slo), _mm512_mullo_epi32(dhi, shi))); }"
+            )
     if accum == "int":
         lines.append("    *acc = _mm512_fmadd_ps(_mm512_cvtepi32_ps(isum), _mm512_set1_ps(dd), *acc);")
     if corr == "act":
         bs = "xs->bsum" if act == "once" else "bsum_pairs(xs->x)"
         lines.append("    uint64_t mnp; memcpy(&mnp, mn, 8);")
-        lines.append(f"    *macc = _mm256_fmadd_ps(_mm256_cvtepi32_ps(_mm256_mullo_epi32(_mm256_cvtepu8_epi32(_mm_cvtsi64_si128((long long)mnp)), {bs})), _mm256_set1_ps(xs->d * f16f(w->dmin)), *macc);")
+        lines.append(
+            f"    *macc = _mm256_fmadd_ps(_mm256_cvtepi32_ps(_mm256_mullo_epi32(_mm256_cvtepu8_epi32(_mm_cvtsi64_si128((long long)mnp)), {bs})), _mm256_set1_ps(xs->d * f16f(w->dmin)), *macc);"
+        )
     else:
         lines.append("    int32_t ms = 0;")
         lines.append("    for (int t = 0; t < 8; t++) ms += mn[t] * (xs->x->bsums[2 * t] + xs->x->bsums[2 * t + 1]);")
@@ -739,7 +816,9 @@ void kq4k_gemv(const void *W, const void *xv, float *y, int64_t K, int64_t r0, i
 """
     body = lambda i: f"            row_sb(w{i} + p, xs + p, &a{i}, &m{i}, &s{i});"
     decl = lambda i: f"        __m512 a{i} = _mm512_setzero_ps(); __m256 m{i} = _mm256_setzero_ps(); float s{i} = 0;"
-    red = lambda i: f"        y[r + {i}] = _mm512_reduce_add_ps(a{i}) - _mm512_reduce_add_ps(_mm512_castps256_ps512(m{i})) - s{i};"
+    red = lambda i: (
+        f"        y[r + {i}] = _mm512_reduce_add_ps(a{i}) - _mm512_reduce_add_ps(_mm512_insertf32x8(_mm512_setzero_ps(), m{i}, 0)) - s{i};"
+    )
     pf = (lambda i: f"            _mm_prefetch((const char *)(w{i} + p + {P}), _MM_HINT_T0);") if P else None
     loop = _rows_loop(R, body, red, decl, pf).replace("INNER_PRE", "").replace("np;", "nb;")
     return prelude("avx512_vnni") + Q4K_DECODE + sb + loop + "\n}\n"

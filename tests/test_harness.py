@@ -103,3 +103,13 @@ def test_static_power_term_changes_ranking():
     fast_many = {"us": 100.0, "cpu_us": 800.0}  # 8 threads
     assert energy_uj(slow_few) < energy_uj(fast_many)
     assert energy_uj(slow_few, static_w=10) > energy_uj(fast_many, static_w=10)
+
+
+def test_roofline_probe():
+    from kurn.harness import bandwidth
+
+    bw = bandwidth(2, detail=True)  # default: best of 1, 2, 4 and 8 streams
+    assert set(bw) == {"dram", "dram_streams", "dram_median", "l2", "l2_streams", "l2_median"}
+    assert bw["dram_streams"] in (1, 2, 4, 8) and 0 < bw["dram_median"] <= bw["dram"] < bw["l2"]
+    fixed = bandwidth(2, streams=3, detail=True)
+    assert fixed["dram_streams"] == 3 and fixed["l2_streams"] == 3

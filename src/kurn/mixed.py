@@ -27,7 +27,7 @@ import os
 import re
 import subprocess
 
-import numpy as np
+from ._numpy import np
 
 # ---------------------------------------------------------------- GGUF I/O
 
@@ -233,7 +233,7 @@ def _kurtosis_cols(W):
     m = W.mean(axis=0)
     c = W - m
     v = (c * c).mean(axis=0) + 1e-30
-    return ((c**4).mean(axis=0) / (v * v))
+    return (c**4).mean(axis=0) / (v * v)
 
 
 def profile(ref, quants, imatrix=None, rows_out=None, log=print, threads=4):
@@ -446,6 +446,7 @@ def quantize_inproc(recipe_json, src, out, imatrix=None, threads=4, log=None):
             if log:
                 log(f"{n:32s} {q}")
             return ggml_quantize(dequant(ts[n]), q, imx.get(n), threads)
+
         return f
 
     return write_gguf(src, out, {n: job(n, q) for n, q in assign.items()}, qtypes=assign)
@@ -483,7 +484,7 @@ def allocate_rows(prof, rows_npz, bpw, types=None, group=16):
     budget = bpw * total
     bpws = [prof["types"][q] for q in types]
     hulls, pos, bits = [], [], 0.0
-    for (_, _, cost, p) in items:
+    for _, _, cost, p in items:
         h = _hull([(bpws[k] * p, float(cost[k]), k) for k in range(len(types))])
         hulls.append(h)
         pos.append(0)

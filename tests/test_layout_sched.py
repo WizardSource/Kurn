@@ -119,8 +119,7 @@ def test_covering_numerics(c):
 def test_covering_compiles_without_warnings(c):
     from kurn.kernels import generate
 
-    toolchain.compile_source(generate(c), c["target"], stem="warn", extra_flags=("-Wall", "-Wextra", "-Wshadow", "-Werror"),
-                             shared=False)
+    toolchain.compile_source(generate(c), c["target"], stem="warn", extra_flags=("-Wall", "-Wextra", "-Wshadow", "-Werror"), shared=False)
 
 
 @pytest.mark.parametrize("key", sorted(ext.KEYS))
@@ -143,8 +142,7 @@ def test_covering_set_covers_every_value():
                 legal = set()
                 for v in fn(op, f, t):
                     try:
-                        legal.add(spec.resolve({**dict(op=op, weights=f, target=t, layout="composed", rows=4, rgroup=4),
-                                                k: v})[k])
+                        legal.add(spec.resolve({**dict(op=op, weights=f, target=t, layout="composed", rows=4, rgroup=4), k: v})[k])
                     except spec.SpecError:
                         pass
                 assert legal <= vals, (op, f, t, k, legal - vals)
@@ -188,12 +186,26 @@ def test_illegal_composed_reasons():
         spec.resolve({**base, "kblock": 128})  # q4_K period is 256
 
 
-@pytest.mark.parametrize("op,f,t", [("gemv", "q4_0", "avx512_vnni"), ("verify", "q8_0", "avx512_vnni"),
-                                    ("verify", "q4_K", "avx2_vnni"), ("gemv", "q1_0", "avx2_vnni")])
+@pytest.mark.parametrize(
+    "op,f,t",
+    [("gemv", "q4_0", "avx512_vnni"), ("verify", "q8_0", "avx512_vnni"), ("verify", "q4_K", "avx2_vnni"), ("gemv", "q1_0", "avx2_vnni")],
+)
 def test_tiling_ragged_k_panels(op, f, t):
     _need(t)
-    c = spec.resolve(dict(op=op, weights=f, target=t, layout="composed", rows=1, kpanel=512, rpanel=4, prefetch=4,
-                          stages=3, **({"cols": 8} if op == "verify" else {})))
+    c = spec.resolve(
+        dict(
+            op=op,
+            weights=f,
+            target=t,
+            layout="composed",
+            rows=1,
+            kpanel=512,
+            rpanel=4,
+            prefetch=4,
+            stages=3,
+            **({"cols": 8} if op == "verify" else {}),
+        )
+    )
     extra = ["--N", "200", "--K", "1280" if f != "q4_K" else "1536"] + (["--M", "7"] if op == "verify" else [])
     row = harness.check(toolchain.build(c), c, extra=extra)
     assert row["check"] == "ok", row

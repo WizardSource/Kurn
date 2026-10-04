@@ -15,6 +15,14 @@ os.environ.setdefault("KURN_CACHE_DIR", tempfile.mkdtemp(prefix="kurn-test-cache
 sys.path.insert(0, str(ROOT / "src"))
 
 
+def require_tree(*rel_paths):
+    """Skip the calling test module unless these files of the source tree exist. Benchmark harnesses and the llama.cpp
+    integration are not part of the installed package, so tests that import them skip on a partial copy or a wheel."""
+    missing = [p for p in rel_paths if not (ROOT / p).exists()]
+    if missing:
+        pytest.skip(f"not in this copy of kurn: {', '.join(missing)}", allow_module_level=True)
+
+
 def f16_bits(rng):
     """Positive fp16 in [2^-6, 2^-1) with a random mantissa."""
     return ((9 + rng.randrange(5)) << 10) | rng.randrange(1024)

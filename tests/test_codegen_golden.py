@@ -12,9 +12,11 @@ import subprocess
 import pytest
 
 from kurn import hooks
+from kurn.codegen import prune_helpers
 from kurn.kernels import embed, generate
 from kurn.spec import legal_configs, load, resolve
-from kurn.toolchain import BuildError, cc_for, compile_source, data_path
+from kurn.targets import TARGETS
+from kurn.toolchain import BuildError, cc_for, compile_source, data_path, host_arch, target_arch
 
 from conftest import EXAMPLES, ROOT
 
@@ -108,6 +110,47 @@ def test_every_legal_config_compiles_without_warnings(c):
     if not _compilable(c["target"]):
         pytest.skip(f"no compiler for {c['target']}")
     compile_source(generate(c), c["target"], stem="warn", extra_flags=("-Wall", "-Wextra", "-Wshadow", "-Werror"), shared=False)
+
+
+CLANG = shutil.which("clang")
+CLANG_TRIPLE = {"x86_64": "x86_64-linux-gnu", "aarch64": "aarch64-linux-gnu"}
+
+
+def _clang_werror(src, target, tmp_path):
+    """clang -Werror on generated C. clang warns about more than GCC (e.g. unused static inline helpers),
+    and `kurn verify --strict` must pass with either compiler. -fsyntax-only needs no assembler or sysroot libs."""
+    if not CLANG:
+        pytest.skip("clang not installed")
+    arch = target_arch(target)
+    flags = ["-O3"] if TARGETS[target].arch == "any" and arch != "x86_64" else list(TARGETS[target].flags)
+    path = tmp_path / "k.c"
+    path.write_text(src)
+    args = [CLANG, f"--target={CLANG_TRIPLE[arch]}", *flags, "-Wall", "-Wextra", "-Wshadow", "-Werror", "-fsyntax-only",
+            "-I", os.path.dirname(data_path("kurn.h")), str(path)]  # fmt: skip
+    r = subprocess.run(args, capture_output=True, text=True)
+    if r.returncode and arch != host_arch() and "file not found" in r.stderr:
+        pytest.skip(f"clang has no {arch} headers here")
+    assert r.returncode == 0, r.stderr[:4000]
+
+
+@pytest.mark.parametrize("name", sorted(GOLDEN))
+def test_golden_clang_werror(name, tmp_path):
+    _clang_werror((GOLDEN_DIR / f"{name}.c").read_text(), resolve(GOLDEN[name])["target"], tmp_path)
+
+
+@pytest.mark.parametrize(
+    "c",
+    [c for c in legal_configs()],
+    ids=lambda c: "-".join(str(c[k]) for k in ("weights", "op", "target", "layout", "align", "rows", "cols", "act", "prefetch")),
+)
+def test_every_legal_config_clang_werror(c, tmp_path):
+    _clang_werror(generate(c), c["target"], tmp_path)
+
+
+def test_unused_helpers_are_pruned():
+    src = "static inline int a(int x) { return x; }\n\nstatic inline int b(int x) { return a(x) + '}'; }\n\n" \
+          "static inline int c(void) {  /* } */\n    return 1;\n}\n\nint main(void) { return c(); }\n"  # fmt: skip
+    assert prune_helpers(src) == "static inline int c(void) {  /* } */\n    return 1;\n}\n\nint main(void) { return c(); }\n"
 
 
 def test_embedded_code_exports_no_symbols(tmp_path):

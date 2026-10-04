@@ -3,12 +3,89 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 0.3.0.dev0
+## [Unreleased] - 0.3.0.dev3
 
-### Added: hybrid device routing (`kurn hybrid`)
-- Modes `cpu` / `gpu` / `auto` / `hybrid`: pick a device per matmul, or assign a whole step so CPU and GPU
-  can run together (`route()`, `plan()`, `KURN_DEVICE`, `KURN_HYBRID_MIN_K`).
-- `kurn.ext.gpu` registers `kurn gpu`, `target cuda`, and `kurn hybrid` through `hooks`.
+### Added: aligned activation layout for the dp4a GEMV (`xlayout split`), contributed by the user
+- `xlayout blocks|split` for the q8_0-activation formats (Q8_0, Q4_0, IQ4_NL, Q2_0, Q1_0). `split` reads the activations as an
+  aligned int8 plane [M][K] plus a float scale plane [M][K/32], with 16-byte vector loads instead of 16-bit loads from ggml's
+  34-byte blocks. The q8_K formats (Q4_K, TQ2_0, E8P) stay on `blocks`.
+- Ported from 0.3.0.dev0 onto dev2's restructured GEMV. The per-column activation pointers became dev2's 32-bit column offsets,
+  and the per-column scale pointers are derived from them (scale offset = plane offset / 32), so no registers were added.
+- `split` is the default for those formats: on the default kernels it cuts global loads 3-5x and hot-loop instructions
+  14-40% (SASS). `xlayout` is in the kit's GEMV tune space.
+
+### Fixed
+- Aggregate energy-delay products per repetition and reject incomplete or invalid measurements during tuning.
+- Preserve confirmed refinement winners, validate plan reuse, and publish compiler outputs atomically.
+- Bound search parameters and avoid redundant sampling work without merging runtime settings.
+
+## 0.3.0.dev2
+
+### Changed (first A100 run: correctness held, speed below the competition)
+- **`op gemm` is now a tensor-core engine for every batch size and all 8 formats.** It replaces the int8 GEMM, which reached at
+  most 5% of tensor-core peak and 0.11-0.41x of ggml-cuda.
+  - Arithmetic: f16 `mma.sync.m16n8k16` with f32 accumulation. Weights are repacked once into fragment order, and each lane's
+    16 bytes dequantize in registers to small integers that are exact in f16:
+    - Q4 via the 0x6400 magic number;
+    - IQ4_NL via a `prmt` lookup;
+    - Q8 via byte permutes;
+    - 2-bit and 1-bit via shifted masks and a power-of-two FMA;
+    - E8P via a shared-memory codebook with sign flips.
+  - Block scales are applied in f32 after the MMA.
+  - Data movement:
+    - weights and scales go through a multi-stage `cp.async` pipeline;
+    - activations sit in XOR-swizzled shared memory and are read with `ldmatrix.x4`;
+    - f32 activations are rounded to f16 inside the kernel (`xin=f32`, one launch per matmul, no quantization kernel) or
+      converted once and streamed (`xin=f16`).
+  - Tiles go up to 128x128 with 64x32 warp tiles.
+  - Split-K uses a deterministic serial fixup and is sized from the SM count by default.
+  - Exact against the f16-rounded activations; `kg_act()` tells harnesses which activation path a kernel uses.
+- **dp4a GEMV defaults:**
+  - the split layout with lane loads sized to 16 bytes and 4 units in flight (2 for Q8_0/Q4_K/TQ2_0);
+  - an unrolled main loop without per-unit bounds checks, so loads issue ahead of the math;
+  - 32-bit column offsets. The default Q4_K multi-column kernel no longer sits at 255 registers (138-168, no spills).
+- **Spilling configs are not legal.** A ptxas-calibrated register estimate and launch-bounds checks prune them; every covering
+  config compiles without spills or stack on sm_80/90/100. Kernels emit `__launch_bounds__(threads, >= 1)` (ptxas otherwise
+  targets 128 registers and spills).
+- **Benchmarks and kit:**
+  - the matrix races `default-*` and `tuned-*` KURN kernels per batch range;
+  - the kit tunes every format before the matrix;
+  - `report.md` shows default vs tuned side by side;
+  - `kurn gpu sass` reports the SASS instruction mix (tensor-core MMA, ldmatrix, cp.async, local memory, hot loop).
+- **Release:** `tools/make_release.sh` fails if `contrib/gpu-check` is missing.
+
+## 0.3.0.dev1
+
+Includes everything in 0.2.2 (CPU release: clang `--strict` helper pruning, optional numpy, toolchain probe, self-contained
+release), merged into the CUDA development line. The CUDA modules (`kurn.gpu`) do not need numpy.
+
+### Changed (measurement)
+- **`kurn roofline` is now a peak-read probe.** Before, `bench --bw` timed one pass of a loop that compiled to mixed
+  64/128/256-bit loads, with one stream per thread, and under-reported bandwidth: about 2x on a Xeon 8339HC, 25% on this VM.
+  - It now uses the widest vector loads (AVX-512, AVX2, NEON; else 64-bit) into 4 independent accumulators per thread, with
+    all threads pinned.
+  - Each pass is barrier-timed; the result is the best pass, with the median also shown. Without `--streams`, it measures 1, 2,
+    4 and 8 interleaved streams per thread and reports the best.
+  - This VM, 8 threads, same session: DRAM 140–144 GB/s (old default probe 103–108); L2 1.40–1.61 TB/s (old 0.75–1.09).
+- **`kurn tune` ranks on medians of interleaved rounds** (`--rounds`, default 3). It re-measures the leaders (`--keep`,
+  `--budget`) until their order is stable, reports each result's spread, and warns ("ranking: NOT resolved", suggesting
+  `--secs` / `--rounds`) when the spread is too large to rank. `--rounds 1 --keep 1` gives the old single-run behaviour.
+
+### Fixed (cross targets without a cross toolchain)
+- `kurn verify` no longer counts NEON configurations as failures when the AArch64 cross compiler is missing. Like the
+  assembler probe, it skips the target once, says why, and names the package to install
+  (`apt install gcc-aarch64-linux-gnu`, or set `KURN_CROSS_CC`).
+- If the cross compiler is present but qemu is missing, configurations are still compiled (so `--strict` warnings are caught)
+  and are reported as "compiled, not run" with the qemu hint (`apt install qemu-user`, or set `KURN_QEMU`). They are counted
+  separately from passes.
+- `run_mode` reasons now name the missing piece and how to install it.
+
+### Fixed (CUDA emulator portability, found by the 0.2.2 clang runs)
+- The CPU emulator now probes the host C++ compiler once (`kurn.gpu.toolchain.cxx_problem`). If it can't build a C++17
+  program, it reports why (typically clang++ on Ubuntu selecting a GCC installation without libstdc++ headers) and the
+  emulator checks are skipped rather than failing. `kurn gpu targets` shows the emulator status.
+- Emulator builds with clang++ no longer fail `-Werror` on `#pragma unroll` loops clang can't unroll at -O1
+  (`-Wno-pass-failed`, clang only).
 
 ### Added: CUDA backend (`target cuda`, `kurn.gpu`), stages 0-2 of the GPU plan; no GPU measurements yet
 - **Code generation:** CUDA C++ for the following, every file implementing `kurn_gpu.h`:
@@ -32,6 +109,42 @@ All notable changes to this project are documented here. The format follows
 - **Kit:** the hand-run kit `contrib/gpu-check/` (`run_gpu_check.sh`, `make_kit.sh`, optional Marlin script).
 - **Integration:** `kurn.hooks.TARGET_BACKENDS` routes `kurn check|gen|build|verify|tune` to a backend by the spec's target.
 - **CLI:** `kurn gpu ...` commands.
+
+## [0.2.2] - 2026-10-03
+
+Portability release, from a run of 0.2.1 on a second Linux machine. No kernel performance changes.
+
+### Fixed
+- `kurn verify --all --strict` with clang: the generators emitted every `static inline` helper (`f16f`, `bits8x4`, `ld64`,
+  `ld16`, ...) whether or not a kernel used it. Clang's `-Wunused-function` (GCC stays quiet) turned that into errors on
+  most AVX-VNNI and many AVX-512 configs. `generate()` now drops the helpers a kernel doesn't call.
+- Q4_K AVX-512 native-layout GEMV (the `act`/`accum`/`scales`/`correction` algorithm space and the v2 kernel) summed the
+  min-correction vector over the undefined upper half of `_mm512_castps256_ps512`. GCC happened to zero it. Clang didn't
+  at `rows=4`, which gave relative errors of 0.08-0.1. The kernel now zero-extends explicitly.
+- numpy was a hidden dependency: five modules (`codebook`, `entropy`, `latent`, `lowrank`, `mixed`) imported it at load time,
+  so 9 test files failed to collect without it. It is now the optional extra `kurn[compress]`, with `kurn[gguf]` for GGUF
+  input. The modules import numpy lazily, and their tests use `pytest.importorskip`.
+- A toolchain that can't build a target (binutils < 2.36 can't assemble AVX-VNNI) failed every config of that target. kurn
+  now probes each target once. It reports "toolchain can't assemble target X; set KURN_CC" and skips the target in
+  `kurn verify`, `kurn targets` and the tests. The harness falls back from `-march=native` to portable flags.
+- Two more clang-only build errors, found by running the full suite with `KURN_CC=clang`. First, the attention kernel's
+  shared helpers are now marked unused, because each engine uses only some of them (`kurn attn verify --strict`). Second,
+  the fused engine epilogue now passes `_mm512_roundscale_ps` a literal rounding mode, which clang requires.
+- Parallel builds of identical kernel sources could compile a half-written file. Sources are now written atomically.
+- Tests that import benchmark harnesses (`benchmarks/v0.2/e2e`) or the llama.cpp integration skip cleanly when those
+  directories are absent, instead of failing to load.
+
+### Added
+- `tools/offline-check/`: the one-command host check (verify, roofline, tune sweeps, AMX test), shipped in the package. It runs
+  on the enclosing tree and falls back to the source tree when offline.
+- `tools/make_release.sh`: builds the release zip from the committed tree. It checks that the archive holds every tracked
+  file, that the docs-path test passes, and that pytest collects with no errors inside the unpacked copy.
+- Tests: clang `-Werror` over every golden file and every legal config (`test_codegen_golden.py`), every path README.md and
+  CONTRIBUTING.md reference (`test_docs_paths.py`), and the toolchain probe (`test_toolchain_probe.py`).
+- CI: `kurn verify --all --strict` with clang, and a test job without numpy.
+
+### Changed
+- The code base is `ruff format`-clean, as CONTRIBUTING.md requires.
 
 ## [0.2.1] - 2026-10-03
 

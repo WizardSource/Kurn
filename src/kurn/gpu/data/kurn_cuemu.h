@@ -42,6 +42,7 @@ struct dim3 {
 };
 struct uint2 { unsigned x, y; };
 struct uint4 { unsigned x, y, z, w; };
+inline uint4 make_uint4(unsigned x, unsigned y, unsigned z, unsigned w) { return uint4{x, y, z, w}; }
 typedef void *cudaStream_t;
 typedef int cudaError_t;
 #define cudaSuccess 0
@@ -49,7 +50,7 @@ typedef int cudaError_t;
 namespace kemu {
 
 enum State { RUN, BAR, WARP, DONE };
-enum Op { OP_SHFL_XOR, OP_SHFL_IDX, OP_SYNCWARP, OP_MMA_S8 };
+enum Op { OP_SHFL_XOR, OP_SHFL_IDX, OP_SYNCWARP, OP_MMA_S8, OP_MMA_F16, OP_LDSM };
 
 struct CpAsync {
   void *dst;
@@ -110,6 +111,8 @@ inline void entry() {
   swapcontext(&c.cur->ctx, &c.sched);
 }
 
+float h2f_bits(uint16_t h);
+
 inline void resolve_warp(std::vector<Thread> &t, int w0) {
   Thread *L = &t[w0];
   Op op = L[0].op;
@@ -149,6 +152,53 @@ inline void resolve_warp(std::vector<Thread> &t, int w0) {
         int32_t acc = C[r][col];
         for (int k = 0; k < 32; k++) acc += (int32_t)A[r][k] * (int32_t)B[k][col];
         L[l].out[i] = (uint32_t)acc;
+      }
+    }
+  }
+  else if (op == OP_MMA_F16) {
+    // mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 fragment layouts (PTX ISA):
+    //   A (16x16): reg r holds 2 halves (lo, hi) at row g + 8*(r&1), col 2t + (lo/hi) + 8*(r>>1)
+    //   B (16x8):  reg r holds 2 halves at row(k) 2t + (lo/hi) + 8*r, col g
+    //   C/D (16x8): c_i at row g + 8*(i>=2), col 2t + (i&1)
+    float A[16][16], B[16][8], C[16][8];
+    for (int l = 0; l < 32; l++) {
+      int g = l >> 2, tq = l & 3;
+      for (int r = 0; r < 4; r++)
+        for (int h = 0; h < 2; h++) A[g + 8 * (r & 1)][2 * tq + h + 8 * (r >> 1)] = h2f_bits((uint16_t)(L[l].in[r] >> (16 * h)));
+      for (int r = 0; r < 2; r++)
+        for (int h = 0; h < 2; h++) B[2 * tq + h + 8 * r][g] = h2f_bits((uint16_t)(L[l].in[4 + r] >> (16 * h)));
+      for (int i = 0; i < 4; i++) {
+        float f;
+        memcpy(&f, &L[l].in[6 + i], 4);
+        C[g + 8 * (i >= 2)][2 * tq + (i & 1)] = f;
+      }
+    }
+    for (int l = 0; l < 32; l++) {
+      int g = l >> 2, tq = l & 3;
+      for (int i = 0; i < 4; i++) {
+        int r = g + 8 * (i >= 2), col = 2 * tq + (i & 1);
+        float acc = C[r][col];
+        for (int k = 0; k < 16; k++) acc += A[r][k] * B[k][col];  // f16 x f16 products are exact in f32
+        memcpy(&L[l].out[i], &acc, 4);
+      }
+    }
+  } else if (op == OP_LDSM) {
+    // ldmatrix.sync.aligned.m8n8.x{1,2,4}[.trans].shared.b16: lanes 8j..8j+7 give the row addresses of matrix j;
+    // lane l receives, for matrix j, the halves (row l/4, cols 2(l%4), 2(l%4)+1) (or transposed with .trans)
+    int n = (int)L[0].in[2], trans = (int)L[0].in[3];
+    for (int l = 1; l < 32; l++)
+      if ((int)L[l].in[2] != n || (int)L[l].in[3] != trans) fail("ldmatrix: lanes disagree on .num/.trans");
+    for (int j = 0; j < n; j++) {
+      const uint16_t *row[8];
+      for (int r = 0; r < 8; r++) {
+        uint64_t a = (uint64_t)L[8 * j + r].in[0] | ((uint64_t)L[8 * j + r].in[1] << 32);
+        if (a % 16) fail("ldmatrix: row address not 16-byte aligned");
+        row[r] = (const uint16_t *)(uintptr_t)a;
+      }
+      for (int l = 0; l < 32; l++) {
+        int rr = l >> 2, cc = 2 * (l & 3);
+        uint16_t lo = trans ? row[cc][rr] : row[rr][cc], hi = trans ? row[cc + 1][rr] : row[rr][cc + 1];
+        L[l].out[j] = (uint32_t)lo | ((uint32_t)hi << 16);
       }
     }
   }
@@ -344,6 +394,42 @@ inline uint16_t kemu_f2h(float f) {
   return (uint16_t)h;
 }
 
+inline float kemu::h2f_bits(uint16_t h) { return kemu_h2f(h); }
+
+// f16 x2 arithmetic, rounded to nearest even per lane (exact for the small integers KURN's dequantizers produce)
+inline uint32_t kemu_h2op(uint32_t a, uint32_t b, uint32_t c, int op) {
+  uint32_t r = 0;
+  for (int h = 0; h < 2; h++) {
+    float x = kemu_h2f((uint16_t)(a >> 16 * h)), y = kemu_h2f((uint16_t)(b >> 16 * h)), z = kemu_h2f((uint16_t)(c >> 16 * h));
+    double v = op == 0 ? (double)x * y + z : op == 1 ? (double)x - y : op == 2 ? (double)x + y : (double)x * y;
+    r |= (uint32_t)kemu_f2h((float)v) << (16 * h);
+  }
+  return r;
+}
+inline uint32_t kemu_hfma2(uint32_t a, uint32_t b, uint32_t c) { return kemu_h2op(a, b, c, 0); }
+inline uint32_t kemu_hsub2(uint32_t a, uint32_t b) { return kemu_h2op(a, b, 0, 1); }
+inline uint32_t kemu_hadd2(uint32_t a, uint32_t b) { return kemu_h2op(a, b, 0, 2); }
+inline uint32_t kemu_cvt_f16x2(float hi, float lo) { return (uint32_t)kemu_f2h(lo) | ((uint32_t)kemu_f2h(hi) << 16); }
+
+inline void kemu_mma_f16_16816(float d[4], const unsigned a[4], const unsigned b[2], const float c[4]) {
+  uint32_t in[10] = {a[0], a[1], a[2], a[3], b[0], b[1], 0, 0, 0, 0};
+  memcpy(&in[6], c, 16);
+  kemu::warp_op(kemu::OP_MMA_F16, in, 10);
+  memcpy(d, kemu::ctx().cur->out, 16);
+}
+inline void kemu_ldmatrix(unsigned *r, const void *addr, int n, int trans) {
+  uint64_t a = (uint64_t)(uintptr_t)addr;
+  uint32_t in[4] = {(uint32_t)a, (uint32_t)(a >> 32), (uint32_t)n, (uint32_t)trans};
+  kemu::warp_op(kemu::OP_LDSM, in, 4);
+  for (int i = 0; i < n; i++) r[i] = kemu::ctx().cur->out[i];
+}
+
+// atomics and fences: fibers only switch at barriers and warp collectives, so plain operations are atomic here
+inline int atomicAdd(int *p, int v) { int o = *p; *p = o + v; return o; }
+inline int atomicExch(int *p, int v) { int o = *p; *p = v; return o; }
+inline void __threadfence() {}
+inline int kemu_sm_count() { const char *s = getenv("KEMU_SMS"); return s ? atoi(s) : 8; }
+
 // int8 tensor-core MMA as a warp collective
 inline void kemu_mma_s8_16832(int d[4], const unsigned a[4], const unsigned b[2], const int c[4]) {
   uint32_t in[10] = {a[0], a[1], a[2], a[3], b[0], b[1], (uint32_t)c[0], (uint32_t)c[1], (uint32_t)c[2], (uint32_t)c[3]};
@@ -384,3 +470,4 @@ inline void kemu_check_align(const void *p, int n, const char *what) {
 }
 
 #define KURN_LAUNCH(kernel, grid, block, stream, ...) kemu::launch((grid), (block), [=]() { kernel(__VA_ARGS__); })
+#define KURN_LAUNCH_SMEM(kernel, grid, block, smem, stream, ...) kemu::launch((grid), (block), [=]() { kernel(__VA_ARGS__); })

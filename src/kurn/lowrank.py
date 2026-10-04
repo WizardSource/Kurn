@@ -13,7 +13,7 @@ all rows. Quality side: measured as the imatrix-weighted relative error (same me
 `kurn mix`) and, for whole models, perplexity of the F16 writeback.
 """
 
-import numpy as np
+from ._numpy import np
 
 
 def weighted_svd(E, h=None):

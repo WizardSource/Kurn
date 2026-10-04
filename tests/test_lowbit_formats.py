@@ -96,10 +96,10 @@ def test_reference_matches_ggml_dequantize(fmt):
     x = BLOCKS["q8_K"](rng, K // 256)
     deq = {"tq1_0": ggml_dequantize_tq1_0, "q2_K": ggml_dequantize_q2_K}[fmt]
     nb = FORMATS[fmt].nbytes
-    xv = [v for i in range(K // 256) for v in q8_K_values(x[i * 292:(i + 1) * 292])]
+    xv = [v for i in range(K // 256) for v in q8_K_values(x[i * 292 : (i + 1) * 292])]
     ref = reference_gemv(fmt, W, x, K, N)
     for r in range(N):
-        wv = [v for i in range(K // 256) for v in deq(W[(r * K // 256 + i) * nb:(r * K // 256 + i + 1) * nb])]
+        wv = [v for i in range(K // 256) for v in deq(W[(r * K // 256 + i) * nb : (r * K // 256 + i + 1) * nb])]
         exp = sum(a * b for a, b in zip(wv, xv))
         assert abs(ref[r] - exp) <= 1e-4 * max(1.0, abs(exp))
 
@@ -132,19 +132,25 @@ def test_lut_variants_parse_and_fit():
 def test_lut_storage():
     """Index storage per weight: dense (1 or 2 bits) for g=4 1-bit, g=2 direct and g=4 serial 2-bit,
     1.625 bits for tern (26 words per 256)."""
-    bpw = {(f, v): 16 * lowbit.LutPlan({"weights": f, "lut": v}).wpu / lowbit.LutPlan({"weights": f, "lut": v}).unit
-           for f, vs in lowbit.LUT_VARIANTS.items() for v in vs}
+    bpw = {
+        (f, v): 16 * lowbit.LutPlan({"weights": f, "lut": v}).wpu / lowbit.LutPlan({"weights": f, "lut": v}).unit
+        for f, vs in lowbit.LUT_VARIANTS.items()
+        for v in vs
+    }
     assert bpw[("q1_0", "direct4")] == 1.0
     assert bpw[("tq2_0", "direct2")] == 2.0 and bpw[("tq2_0", "serial4")] == 2.0
     assert bpw[("tq1_0", "tern3")] == 1.625
 
 
-@pytest.mark.parametrize("bad", [
-    {"layout": "i16", "lut": "direct4"},
-    {"layout": "lut", "lut": "serial4"},  # not a 1-bit variant
-    {"layout": "lut", "addsub": "mask"},
-    {"layout": "addsub", "rows": 4},
-])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"layout": "i16", "lut": "direct4"},
+        {"layout": "lut", "lut": "serial4"},  # not a 1-bit variant
+        {"layout": "lut", "addsub": "mask"},
+        {"layout": "addsub", "rows": 4},
+    ],
+)
 def test_lowbit_keys_rejected(bad):
     with pytest.raises(SpecError):
         resolve({"op": "gemv", "weights": "q1_0", "target": "avx512_vnni", **bad})

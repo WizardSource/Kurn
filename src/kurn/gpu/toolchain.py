@@ -14,6 +14,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from importlib import resources
 
@@ -24,6 +25,10 @@ from .spec import threads
 
 class GpuBuildError(Exception):
     pass
+
+
+class GpuToolchainError(GpuBuildError):
+    """The host C++ compiler can't build the emulator at all (reported once; callers skip, not fail)."""
 
 
 def data_path(name):
@@ -69,6 +74,41 @@ def cxx():
     raise GpuBuildError("no host C++ compiler for the emulator (set KURN_CXX)")
 
 
+_PROBE_CXX = """#include <ucontext.h>
+#include <cmath>
+#include <cstdio>
+#include <functional>
+#include <vector>
+int main() { std::vector<double> v{2.0}; std::function<double()> f = [&] { return std::sqrt(v[0]); }; std::printf("%g", f()); }
+"""
+
+
+@functools.cache
+def cxx_problem():
+    """None if the host C++ compiler builds a C++17 program with the headers the emulator uses, else why not.
+    (Ubuntu's clang++ often selects a GCC installation whose libstdc++ headers are not installed.)"""
+    try:
+        cc = cxx()
+    except GpuBuildError as e:
+        return str(e)
+    with tempfile.TemporaryDirectory() as d:
+        src = os.path.join(d, "probe.cpp")
+        with open(src, "w") as fh:
+            fh.write(_PROBE_CXX)
+        r = subprocess.run([*cc, "-std=c++17", src, "-o", os.path.join(d, "probe")], capture_output=True, text=True)
+    if r.returncode == 0:
+        return None
+    first = next((ln.strip() for ln in r.stderr.splitlines() if "error" in ln), r.stderr.strip()[:200])
+    return (f"host C++ compiler `{shlex.join(cc)}` can't build a C++17 program ({first}); install its C++ standard "
+            "library headers (for clang++ on Ubuntu: libstdc++-<gcc version>-dev) or set KURN_CXX")  # fmt: skip
+
+
+@functools.cache
+def cxx_is_clang():
+    r = subprocess.run([*cxx(), "--version"], capture_output=True, text=True)
+    return "clang" in r.stdout
+
+
 def _run(args, what):
     r = subprocess.run(args, capture_output=True, text=True)
     if r.returncode:
@@ -84,9 +124,14 @@ def _out_dir(sub):
 
 def emu_build(c, src=None):
     """Compile a config's CUDA source with the CPU emulator into an `emu_run` executable."""
+    problem = cxx_problem()
+    if problem:
+        raise GpuToolchainError(problem)
     src = src or generate(c)
     flags = ["-std=c++17", "-O1", "-g0", "-Wall", "-Wextra", "-Wno-unknown-pragmas", "-Wno-unused-parameter",
              "-Wno-unused-function", "-Wno-unused-variable", "-Werror", "-DKURN_EMU"]  # fmt: skip
+    if cxx_is_clang():  # clang honours `#pragma unroll` and reports loops it can't unroll at -O1; nvcc does not care
+        flags.append("-Wno-pass-failed")
     h = _sha(src, _data_hash("kurn_cuemu.h", "kurn_gpu.h", "emu_main.cpp"), shlex.join(cxx()), shlex.join(flags))
     d = _out_dir("emu")
     exe = os.path.join(d, f"{c['weights']}_{c['op']}_{h}")
@@ -221,7 +266,7 @@ def resource_rows(c, report):
             if k != main:
                 continue
             blocks, occ = occupancy(r["regs"], r["smem"], threads(c), arch)
-            rows.append({"arch": arch, "regs": r["regs"], "smem": r["smem"], "spill": r["spill_st"] + r["spill_ld"],
+            rows.append({"arch": arch, "regs": r["regs"], "smem": r["smem"], "spill": r["spill_st"] + r["spill_ld"] + r["stack"],
                          "stack": r["stack"], "blocks_per_sm": blocks, "occupancy": round(occ, 3)})  # fmt: skip
     return rows
 

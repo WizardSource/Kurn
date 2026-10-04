@@ -6,6 +6,7 @@ CONFIGS.json: {"name": {spec dict}, ...}. Prints one line per config and writes 
 A spec dict may carry "_so": a prebuilt library (e.g. built by kurn v0.1) or a ggml impl name
 (ggml, ggml-graph-amx, ... with --harness bench_ggml); its other keys only select the kernel.
 """
+
 import argparse
 import csv
 import json
@@ -53,9 +54,18 @@ def main(argv=None):
         gb = statistics.median(r["GBps"] for r in rs)
         drift = max(abs(float(r["drift_s"])) for r in rs)
         ok = all(r["check"] == "ok" for r in rs)
-        rec = {"name": name, "regime": a.regime, "threads": a.threads, "us": round(us, 2), "cpu_wall": round(cpu / us, 2),
-               "GBps": round(gb, 1), "energy_uJ": round(cpu * 5.47, 1), "drift_s": drift, "check": "ok" if ok else "FAIL",
-               "reps": ";".join(f"{r['us']:.1f}" for r in rs)}
+        rec = {
+            "name": name,
+            "regime": a.regime,
+            "threads": a.threads,
+            "us": round(us, 2),
+            "cpu_wall": round(cpu / us, 2),
+            "GBps": round(gb, 1),
+            "energy_uJ": round(cpu * 5.47, 1),
+            "drift_s": drift,
+            "check": "ok" if ok else "FAIL",
+            "reps": ";".join(f"{r['us']:.1f}" for r in rs),
+        }
         out.append(rec)
         print(f"{name:40s} {us:9.2f} us  {gb:7.1f} GB/s  cpu/wall {cpu / us:.2f}  drift {drift:.3f}  {rec['check']}  [{rec['reps']}]")
         sys.stdout.flush()

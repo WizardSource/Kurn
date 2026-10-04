@@ -207,6 +207,7 @@ def render(cells, agg, meta, results_dir=None, dry=False):
         L.append(f"| {f} | {m} | {_fmt_tok(c['kurn'])} | {same} | {c['v_same']}{rs} | {ov} | {c['v_overall']}{ro} | {c['dispatch']} |")
         counts[c["v_overall"].split(" (")[0]] = counts.get(c["v_overall"].split(" (")[0], 0) + 1
     L.append("\nTotals vs the best competitor of any format: " + ", ".join(f"{k}: {v}" for k, v in sorted(counts.items())) + "\n")
+    L.append(default_vs_tuned(cells))
     # detail
     L.append("## Detail per format\n")
     L.append("Columns: tokens/s (mean ± sd over rounds), % of measured HBM bandwidth, % of the measured int8 mma.sync peak, "
@@ -227,6 +228,22 @@ def render(cells, agg, meta, results_dir=None, dry=False):
                 L.append(f"| {m} | {s['impl']}{ref} | {_fmt_tok(s)} | {_pct(hbm)} | {_pct(tc)} | {jt} | {ex} | {mo} | {s['status']} |")
         L.append("")
     return "\n".join(L) + "\n"
+
+
+def default_vs_tuned(cells):
+    """Markdown table: best `kurn:default-*` vs best `kurn:tuned-*` per (format, batch)."""
+    out = ["## Default vs tuned KURN kernels\n",
+           "Best default kernel and best tuned kernel per cell (tokens/s, mean ± sd); ratio = tuned / default.\n",
+           "| format | batch | default (kernel: tok/s) | tuned (kernel: tok/s) | tuned / default |", "|---|---|---|---|---|"]  # fmt: skip
+    for (f, m), c in sorted(cells.items()):
+        timed = [s for s in c["all"] if s["family"] == "kurn" and "T_us" in s]
+        d = min((s for s in timed if ":default-" in s["impl"]), key=lambda s: s["T_us"], default=None)
+        t = min((s for s in timed if ":tuned-" in s["impl"]), key=lambda s: s["T_us"], default=None)
+        ratio = f"{d['T_us'] / t['T_us']:.2f}x" if d and t else "—"
+        ds = f"{d['impl'][5:]}: {_fmt_tok(d)}" if d else "unmeasured"
+        ts = f"{t['impl'][5:]}: {_fmt_tok(t)}" if t else "unmeasured"
+        out.append(f"| {f} | {m} | {ds} | {ts} | {ratio} |")
+    return "\n".join(out) + "\n"
 
 
 def unmeasured_cells(formats, batches=BATCHES):

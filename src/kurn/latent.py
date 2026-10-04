@@ -15,7 +15,7 @@ the first 512 dims of the same row (`mla=1`: kattn_args.v aliases k). The kernel
 import ctypes
 import threading
 
-import numpy as np
+from ._numpy import np
 
 
 class KattnArgs(ctypes.Structure):

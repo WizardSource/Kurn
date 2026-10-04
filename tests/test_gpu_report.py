@@ -103,8 +103,20 @@ def test_kernel_for_falls_back(results):
 
 def test_parse_config_roundtrip():
     for c in (resolve({"op": "gemv", "weights": "q4_K", "layout": "split", "mins": "dp4a"}),
-              resolve({"op": "gemm", "weights": "q4_0", "layout": "split", "pipe": "async3"})):  # fmt: skip
+              resolve({"op": "gemm", "weights": "q4_0", "bm": 128, "bn": 64, "wm": 4, "wn": 2, "xin": "f16", "stages": 3})):  # fmt: skip
         assert parse_config(config_string(c)) == c
+
+
+def test_default_vs_tuned_table(tmp_path):
+    rows = rows_for("q4_0", 1, "kurn:default-gemv", 13.0, 0.01, config=CFG["q4_0"])
+    rows += rows_for("q4_0", 1, "kurn:tuned-mma8", 10.0, 0.01, config=CFG["q4_0"], seed=3)
+    rows += rows_for("q4_0", 1, "ggml", 12.0, 0.01, seed=4)
+    (tmp_path / "matrix.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    md, cells = report.write(str(tmp_path), ["q4_0"])
+    assert "## Default vs tuned KURN kernels" in md
+    line = next(ln for ln in md.splitlines() if ln.startswith("| q4_0 | 1 | default-gemv"))
+    assert "tuned-mma8" in line and "1.30x" in line
+    assert cells[("q4_0", 1)]["kurn"]["impl"] == "kurn:tuned-mma8" and cells[("q4_0", 1)]["v_same"] == "win"
 
 
 def test_dry_report_is_all_unmeasured(tmp_path):

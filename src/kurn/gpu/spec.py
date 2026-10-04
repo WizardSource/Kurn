@@ -8,6 +8,7 @@ A GPU spec uses the same `key value` / `tune` file syntax as CPU specs:
     target   cuda
     arch     sm_80           # compile target; sm_80 code also runs on sm_86/89/90/100/120
     layout   split           # native: ggml blocks as stored | split: 16-byte-aligned quant plane + scale plane
+    xlayout  blocks          # activations: ggml q8_0 blocks | split: aligned int8 plane + scale plane (q8_0-activation formats)
     tpr      32              # threads per output row
     rpb      4               # rows per CUDA block
     sub      2               # lanes per unit (load width = unit bytes / sub)
@@ -32,11 +33,11 @@ FORMATS = {
     "q8_0": dict(unit=32, ub=32, block=32, nbytes=34, act="q8_0", sb=2, gemm=True, doc="8-bit, fp16 scale per 32"),
     "q4_0": dict(unit=32, ub=16, block=32, nbytes=18, act="q8_0", sb=2, gemm=True, doc="4-bit, value = d*(q-8)"),
     "iq4_nl": dict(unit=32, ub=16, block=32, nbytes=18, act="q8_0", sb=2, gemm=True, doc="4-bit non-linear codebook"),
-    "q4_K": dict(unit=64, ub=32, block=256, nbytes=144, act="q8_K", sb=16, gemm=False, doc="4-bit K-quant (6-bit sub-scales and mins)"),
-    "q2_0": dict(unit=64, ub=16, block=64, nbytes=18, act="q8_0", sb=2, gemm=False, doc="2-bit / ternary Bonsai, value = d*(q-1)"),
-    "tq2_0": dict(unit=128, ub=32, block=256, nbytes=66, act="q8_K", sb=2, gemm=False, doc="ternary (BitNet b1.58 TQ2_0)"),
-    "q1_0": dict(unit=128, ub=16, block=128, nbytes=18, act="q8_0", sb=2, gemm=False, doc="1-bit Bonsai, value = d*(+-1)"),
-    "e8p": dict(unit=32, ub=8, block=256, nbytes=66, act="q8_K", sb=2, gemm=False, doc="E8 lattice codebook, 2.06 bpw"),
+    "q4_K": dict(unit=64, ub=32, block=256, nbytes=144, act="q8_K", sb=16, gemm=True, doc="4-bit K-quant (6-bit sub-scales and mins)"),
+    "q2_0": dict(unit=64, ub=16, block=64, nbytes=18, act="q8_0", sb=2, gemm=True, doc="2-bit / ternary Bonsai, value = d*(q-1)"),
+    "tq2_0": dict(unit=128, ub=32, block=256, nbytes=66, act="q8_K", sb=2, gemm=True, doc="ternary (BitNet b1.58 TQ2_0)"),
+    "q1_0": dict(unit=128, ub=16, block=128, nbytes=18, act="q8_0", sb=2, gemm=True, doc="1-bit Bonsai, value = d*(+-1)"),
+    "e8p": dict(unit=32, ub=8, block=256, nbytes=66, act="q8_K", sb=2, gemm=True, doc="E8 lattice codebook, 2.06 bpw"),
 }
 ACT = {"q8_0": dict(block=32, nbytes=34), "q8_K": dict(block=256, nbytes=292)}
 ARCHS = ("sm_80", "sm_86", "sm_89", "sm_90", "sm_100", "sm_120")
@@ -59,23 +60,46 @@ GEMV_KEYS = {
     "minb": lambda c: (0, 1, 2, 4),
     "mins": lambda c: ("bsums", "dp4a") if c["weights"] == "q4_K" else ("none",),
     "unpack": lambda c: ("bits", "lut") if c["weights"] == "q1_0" else ("none",),
+    "xlayout": lambda c: ("blocks", "split") if _fmt(c)["act"] == "q8_0" else ("blocks",),
 }
+
+
+def _bk(c):
+    from .mma import ENGINE
+
+    return tuple(b for b in (64, 128, 256) if b % ENGINE[c["weights"]]["kt"] == 0)
+
+
 GEMM_KEYS = {
-    "layout": lambda c: ("native", "split"),
-    "bm": lambda c: (32, 64, 128),
-    "bn": lambda c: (8, 16, 32, 64, 128),
-    "wm": lambda c: (1, 2, 4),
-    "wn": lambda c: (1, 2, 4),
-    "bkb": lambda c: (1, 2, 4),
-    "pipe": lambda c: ("sync", "reg2", "async2", "async3"),
-    "pad": lambda c: (0, 16),
-    "minb": lambda c: (0, 1, 2, 4),
+    "bm": lambda c: (16, 32, 64, 128, 256),
+    "bn": lambda c: (8, 16, 32, 64, 128, 256),
+    "wm": lambda c: (1, 2, 4, 8),
+    "wn": lambda c: (1, 2, 4, 8),
+    "bk": _bk,
+    "stages": lambda c: (2, 3, 4, 5),
+    "splitk": lambda c: (0, 1, 2, 4, 8, 16),
+    "xin": lambda c: ("f32", "f16"),
+    "minb": lambda c: (1, 2),
 }
 DEFAULTS = {
     "gemv": {"layout": "native", "tpr": 32, "rpb": 4, "sub": 2, "unroll": 2, "cols": 1, "minb": 0, "mins": "bsums",
-             "unpack": "bits"},
-    "gemm": {"layout": "native", "bm": 64, "bn": 32, "wm": 2, "wn": 2, "bkb": 2, "pipe": "reg2", "pad": 16, "minb": 0},
+             "unpack": "bits", "xlayout": "blocks"},
+    "gemm": {"bm": 64, "bn": 8, "wm": 4, "wn": 1, "bk": 256, "stages": 4, "splitk": 0, "xin": "f32", "minb": 1},
 }  # fmt: skip
+# GEMV defaults per format: the split layout (16-byte aligned quant plane) with `sub` chosen so every lane issues 16-byte
+# weight loads, and `unroll` units in flight per lane (2 where registers are tight). From the A100 run: tuning Q4_0 this
+# way gave 1.30x over the old native/sub=2/unroll=2 default. xlayout split (aligned activations, contributed by the user)
+# is the default where it exists: on the default kernels it cuts global loads 3-5x and hot-loop instructions 14-40% (SASS).
+GEMV_FORMAT_DEFAULTS = {
+    "q8_0": {"layout": "split", "sub": 2, "unroll": 4, "xlayout": "split"},
+    "q4_0": {"layout": "split", "sub": 1, "unroll": 4, "xlayout": "split"},
+    "iq4_nl": {"layout": "split", "sub": 1, "unroll": 4, "xlayout": "split"},
+    "q4_K": {"layout": "split", "sub": 2, "unroll": 2},
+    "q2_0": {"layout": "split", "sub": 1, "unroll": 4, "xlayout": "split"},
+    "tq2_0": {"layout": "split", "sub": 2, "unroll": 2},
+    "q1_0": {"layout": "split", "sub": 1, "unroll": 4, "xlayout": "split"},
+    "e8p": {"layout": "split", "sub": 1, "unroll": 4},
+}
 PROBLEM = {"n": 4096, "k": 4096, "m": 1}
 COMMON = ("kernel", "op", "weights", "target", "arch")
 
@@ -89,10 +113,39 @@ def codegen_keys(op):
 
 
 def gemm_smem(c):
-    q = 32 if c["weights"] == "q8_0" else 16
-    stages = {"sync": 1, "reg2": 1, "async2": 2, "async3": 3}[c["pipe"]]
-    wrow, xrow = c["bkb"] * q + c["pad"], c["bkb"] * 32 + c["pad"]
-    return stages * (c["bm"] * wrow + c["bm"] * c["bkb"] * 4 + c["bn"] * xrow + c["bn"] * c["bkb"] * 4)
+    from .mma import smem_bytes
+
+    return smem_bytes(c)
+
+
+def gemm_smem_limit(c):
+    from .mma import SMEM_MAX
+
+    return SMEM_MAX[c["arch"]]
+
+
+REG_LIMIT = 224  # est_regs beyond which ptxas spills (10% margin to the launch-bounds cap); the tuner also drops spills
+
+
+def _cols_unroll_max(c):
+    return 4 if c["weights"] == "tq2_0" else 8 if c["weights"] in ("q4_K", "e8p", "q8_0") else 16
+
+
+def _reg_budget(c):
+    margin = 0.75 if c["minb"] > 1 else 0.9
+    return min(REG_LIMIT - (20 if c["weights"] == "q4_K" else 0), int(margin * _reg_cap(c)))
+
+
+def _est_regs(c):
+    from .mma import est_regs
+
+    return est_regs(c)
+
+
+def _reg_cap(c):
+    from .mma import reg_cap
+
+    return reg_cap(c)
 
 
 def threads(c):
@@ -102,15 +155,25 @@ def threads(c):
 INVALID = [
     (lambda c: c["op"] == "gemv" and not 32 <= c["tpr"] * c["rpb"] <= 1024, "tpr * rpb (block size) must be 32..1024"),
     (lambda c: c["op"] == "gemv" and c["mins"] == "bsums" and c["sub"] > 2, "mins=bsums needs sub <= 2 (16-value slices)"),
-    (lambda c: c["op"] == "gemm" and (c["bm"] // c["wm"]) % 16, "bm / wm must be a multiple of 16 (m16n8k32 tiles)"),
-    (lambda c: c["op"] == "gemm" and (c["bn"] // c["wn"]) % 8, "bn / wn must be a multiple of 8 (m16n8k32 tiles)"),
-    (lambda c: c["op"] == "gemm" and c["bm"] < c["wm"] * 16, "bm must be >= 16 * wm"),
-    (lambda c: c["op"] == "gemm" and c["bn"] < c["wn"] * 8, "bn must be >= 8 * wn"),
+    (lambda c: c["op"] == "gemv" and c["tpr"] * c["rpb"] * max(1, c["minb"])
+     > (256 if c["cols"] >= 8 or c["cols"] * c["unroll"] >= 16 or (c["cols"] >= 4 and c["weights"] == "tq2_0")
+        else 512 if c["cols"] > 1 or (c["unroll"] > 2 and c["weights"] in ("q4_K", "e8p", "tq2_0", "q8_0")) else 1024),
+     "minb x block size leaves too few registers per thread (would spill)"),
+    (lambda c: c["op"] == "gemv" and c["weights"] == "q4_K" and c["cols"] >= 4 and c["sub"] < 2,
+     "q4_K with 4+ columns needs sub >= 2 (register pressure)"),
+    (lambda c: c["op"] == "gemv" and c["cols"] * c["unroll"] > _cols_unroll_max(c),
+     "cols * unroll too large (register spills; use op gemm for batches above 8)"),
+    (lambda c: c["op"] == "gemm" and (c["bm"] % (16 * c["wm"]) or c["bn"] % (8 * c["wn"])),
+     "warp tile (bm/wm x bn/wn) must be a multiple of 16 x 8 (m16n8k16 tiles)"),
+    (lambda c: c["op"] == "gemm" and not 32 <= c["wm"] * c["wn"] * 32 <= 512, "wm * wn warps must give 32..512 threads"),
+    (lambda c: c["op"] == "gemm" and c["bm"] // c["wm"] > 64, "warp tile at most 64 rows (bm / wm <= 64)"),
     (lambda c: c["op"] == "gemm" and (c["bm"] // c["wm"] // 16) * (c["bn"] // c["wn"] // 8) > 32,
      "warp tile has more than 32 mma tiles (128 accumulators per thread)"),
-    (lambda c: c["op"] == "gemm" and c["pipe"].startswith("async") and c["layout"] != "split",
-     "pipe=async* needs layout split (16-byte cp.async from aligned planes)"),
-    (lambda c: c["op"] == "gemm" and gemm_smem(c) > SMEM_LIMIT, f"shared memory exceeds {SMEM_LIMIT} bytes"),
+    (lambda c: c["op"] == "gemm" and c["xin"] == "f32" and c["bn"] * (c["bk"] // 32) > c["wm"] * c["wn"] * 32,
+     "xin=f32 stages one (column, 32-value window) per thread: needs bn * bk/32 <= threads (use xin=f16 for large tiles)"),
+    (lambda c: c["op"] == "gemm" and gemm_smem(c) > gemm_smem_limit(c), "shared memory exceeds the arch's per-block limit"),
+    (lambda c: c["op"] == "gemm" and _est_regs(c) > _reg_budget(c),
+     "tile needs too many registers for its launch bounds (would spill)"),
 ]  # fmt: skip
 
 
@@ -146,21 +209,14 @@ def resolve(spec, overrides=None):
     c.setdefault("arch", "sm_80")
     if c["arch"] not in ARCHS:
         raise SpecError(f"arch {c['arch']!r}: expected one of {list(ARCHS)}")
+    fdef = GEMV_FORMAT_DEFAULTS.get(c["weights"], {}) if c["op"] == "gemv" else {}
     for k, fn in keys.items():
         allowed = fn(c)
         if k not in c:
-            d = DEFAULTS[c["op"]][k]
+            d = fdef.get(k, DEFAULTS[c["op"]][k])
             c[k] = d if d in allowed else allowed[0]
         if c[k] not in allowed:
             raise SpecError(f"{k}={c[k]!r} not allowed for {c['op']}/{c['weights']}/cuda: expected one of {list(allowed)}")
-    if (
-        c["op"] == "gemm"
-        and c["layout"] == "native"
-        and c["pipe"].startswith("async")
-        and "pipe" not in spec
-        and "pipe" not in (overrides or {})
-    ):
-        c["pipe"] = "reg2"
     for bad, msg in INVALID:
         if bad(c):
             raise SpecError(msg)

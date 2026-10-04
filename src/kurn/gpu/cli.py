@@ -6,6 +6,7 @@ kurn gpu gen    SPEC [k=v ...] [-o out.cu]        emit CUDA C++
 kurn gpu build  SPEC [k=v ...] [--archs ...]      nvcc -> shared library (kurn_gpu.h ABI); prints path and resources
 kurn gpu ptxas  [SPEC | --all] [--archs ...]      registers / shared memory / spills / static occupancy per arch (no GPU)
 kurn gpu verify [SPEC | --all] [--space] [--gpu]  numerics vs the exact reference: CPU emulator (default) or the local GPU
+kurn gpu sass   [SPEC | --all] [--arch sm_XX]     SASS instruction mix (mma, ldmatrix, cp.async, local memory, hot loop)
 kurn gpu harness [--llama DIR] [--arch sm_XX]     build the GPU harness (optionally linked with llama.cpp's ggml-cuda)
 kurn gpu info | roofline                          device facts, measured HBM bandwidth and tensor-core peak
 kurn gpu tune   SPEC [k=v,v ...] [--brief N]      energy-ranked tuning on the local GPU (NVML joules)
@@ -40,10 +41,13 @@ def _arch(a):
 
 def cmd_targets(a):
     from .harness import detect_arch, gpu_present
-    from .toolchain import nvcc, nvcc_version
+    from .toolchain import cxx, nvcc, nvcc_version
 
     print(f"nvcc: {nvcc() or 'not found'}{' (CUDA ' + nvcc_version() + ')' if nvcc() else ''}")
+    from .toolchain import cxx_problem
+
     print(f"GPU:  {detect_arch() if gpu_present() else 'none (kernels can be built and emulator-verified, not timed)'}")
+    print(f"emulator: {'ok (' + ' '.join(cxx()) + ')' if not cxx_problem() else 'unavailable: ' + cxx_problem()}")
     print(f"archs: {', '.join(gspec.ARCHS)}")
     print(f"{'op':5} {'weights':7} {'act':5} {'unit':>4}  doc")
     for f, d in gspec.FORMATS.items():
@@ -86,6 +90,11 @@ def cmd_build(a):
 
 
 def _configs(a):
+    if getattr(a, "defaults", False):  # every format's default GEMV and default engine tiles (what the matrix races)
+        from .matrix import default_kernels
+
+        arch = getattr(a, "arch", None) or "sm_80"
+        return [c for f in gspec.FORMATS for c, _, _ in default_kernels(f, arch).values()]
     if a.all:
         out = []
         for f, d in gspec.FORMATS.items():
@@ -138,7 +147,7 @@ def cmd_verify(a):
                 fails += 1
                 print(f"FAIL   {c['op']} {c['weights']} {gspec.label(c)}: {str(lib).splitlines()[0]}")
                 continue
-            n, k, m = (4096 + 37, 4096, 1) if c["op"] == "gemv" else (4096 + 37, 4096, 77)
+            n, k, m = (4096 + 37, 4096, 1) if c["op"] == "gemv" else (4096 + 48, 4096, 77)  # the engine needs N % 16 == 0
             if c["op"] == "gemv" and c["cols"] > 1:
                 m = 2 * c["cols"] + 1
             try:
@@ -154,10 +163,33 @@ def cmd_verify(a):
         print(f"{len(configs)} configurations, {fails} failures")
         return 1 if fails else 0
     from .emu import verify
+    from .toolchain import cxx_problem
 
+    if cxx_problem():
+        print(f"skip   CPU emulator: {cxx_problem()}")
+        print(f"{len(configs)} configurations, 0 failures, {len(configs)} skipped (CPU emulator unavailable)")
+        return 0
     fails = verify(configs, jobs=a.jobs)
     print(f"{len(configs)} configurations, {fails} failures (CPU emulator)")
     return 1 if fails else 0
+
+
+def cmd_sass(a):
+    from .sass import inspect, summary
+
+    bad = 0
+    for c in _configs(a):
+        try:
+            rep = inspect(c, a.arch)
+        except Exception as e:  # noqa: BLE001
+            bad += 1
+            print(f"FAIL  {c['op']} {c['weights']} {gspec.label(c)}: {str(e).splitlines()[0]}")
+            continue
+        main = rep.get("kg_gemm" if c["op"] == "gemm" else "kg_gemv", {})
+        local = main.get("counts", {}).get("local", 0)
+        bad += bool(local)
+        print(f"{'LOCAL' if local else 'ok   '} {c['op']} {c['weights']:6} {gspec.label(c)}\n      {summary(c, rep)}")
+    return 1 if bad else 0
 
 
 def cmd_harness(a):
@@ -273,11 +305,12 @@ def main(argv=None):
     p.add_argument("--archs")
     p.add_argument("--out-dir")
     p.set_defaults(fn=cmd_build)
-    for name, fn in (("ptxas", cmd_ptxas), ("verify", cmd_verify)):
+    for name, fn in (("ptxas", cmd_ptxas), ("verify", cmd_verify), ("sass", cmd_sass)):
         p = sub.add_parser(name)
         p.add_argument("spec", nargs="?")
         p.add_argument("overrides", nargs="*")
         p.add_argument("--all", action="store_true", help="covering set of every format and op")
+        p.add_argument("--defaults", action="store_true", help="the default kernels the benchmark matrix races")
         p.add_argument("--space", action="store_true", help="every legal config in the spec's tune space")
         p.add_argument("--extra", type=int, default=24, help="random configs per (op, format) on top of the covering set")
         p.add_argument("--jobs", type=int)
@@ -285,6 +318,8 @@ def main(argv=None):
         if name == "ptxas":
             p.add_argument("--archs", default="sm_80,sm_90,sm_100")
             p.add_argument("--strict", action="store_true", help="count register spills as failures")
+        elif name == "sass":
+            p.add_argument("--arch", default="sm_80")
         else:
             p.add_argument("--gpu", action="store_true", help="run on the local GPU instead of the CPU emulator")
             p.add_argument("--arch")
@@ -332,10 +367,10 @@ def main(argv=None):
     p.add_argument("--table")
     p.set_defaults(fn=cmd_dispatch)
     a = ap.parse_args(argv)
-    if a.cmd == "verify" and not a.all and not a.spec:
+    if a.cmd == "verify" and not a.all and not a.spec and not a.defaults:
         ap.error("verify needs a SPEC (or --all)")
-    if a.cmd == "ptxas" and not a.all and not a.spec:
-        ap.error("ptxas needs a SPEC (or --all)")
+    if a.cmd in ("ptxas", "sass") and not a.all and not a.spec and not a.defaults:
+        ap.error(f"{a.cmd} needs a SPEC (or --all)")
     from .harness import HarnessError
     from .toolchain import GpuBuildError
 

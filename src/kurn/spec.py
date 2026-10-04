@@ -58,6 +58,7 @@ def _algo(key):
         if _native_q4k_algo(op, f, t):
             out += tuple(v for v in NATIVE_Q4K_ALGO.get(key, ()) if v not in out)
         return out
+
     return allowed
 
 
@@ -65,8 +66,12 @@ def _algo_ok(c):
     """Algorithm keys must be legal for the chosen layout (the SCHEDULE sets are unions over layouts)."""
     if c["layout"] == "l32":
         legal = generic.legal_keys(c["weights"], c["target"])
-        return c["unpack"] == "auto" and c["correction"] in ("auto", "act") and c["scales"] in ("auto", "unpacked") \
+        return (
+            c["unpack"] == "auto"
+            and c["correction"] in ("auto", "act")
+            and c["scales"] in ("auto", "unpacked")
             and c["accum"] in ("auto",) + legal["accum"]
+        )
     if c["layout"] in ("i16", "i8"):
         legal = generic.legal_keys(c["weights"], c["target"])
         return all(c[k] in ("auto",) + legal[k] for k in legal)
@@ -155,8 +160,7 @@ DEFAULTS = {
 }
 
 # Keys that change the generated C (everything else is a runtime knob).
-CODEGEN_KEYS = ("op", "weights", "target", "layout", "align", "rows", "cols", "act", "prefetch",
-                "unpack", "correction", "scales", "accum")
+CODEGEN_KEYS = ("op", "weights", "target", "layout", "align", "rows", "cols", "act", "prefetch", "unpack", "correction", "scales", "accum")
 
 INVALID_COMBOS = [
     (
@@ -164,18 +168,28 @@ INVALID_COMBOS = [
         "register tile rows*cols exceeds 24 accumulators for avx512_vnni",
     ),
     (lambda c: c["layout"] == "vnni16" and c["act"] != "once", "act applies to layout=native only (use act=once)"),
-    (lambda c: c["layout"] not in ("vnni16", "composed") and c["align"] != "packed",
-     "align applies to layout=vnni16 only (and layout=composed)"),
+    (
+        lambda c: c["layout"] not in ("vnni16", "composed") and c["align"] != "packed",
+        "align applies to layout=vnni16 only (and layout=composed)",
+    ),
     (lambda c: c["layout"] in ("i16", "i8") and c["act"] != "once", "act applies to layout=native only (use act=once)"),
     (lambda c: c["layout"] == "vnni16" and c["act"] != "once", "act applies to layout=native only (use act=once)"),
-    (lambda c: not _algo_ok(c),
-     "this unpack/correction/scales/accum value is not legal for the chosen layout (see `kurn check` for the per-layout sets)"),
+    (
+        lambda c: not _algo_ok(c),
+        "this unpack/correction/scales/accum value is not legal for the chosen layout (see `kurn check` for the per-layout sets)",
+    ),
     (lambda c: c["layout"] in ("i16", "i8") and c["rows"] * c["cols"] > 8, "rows * cols must be <= 8 for i16/i8"),
-    (lambda c: c["layout"] in ("i16", "i8") and c["rows"] not in (1, 2, 4)
-     and not (c["rows"] == 8 and _i16_q8_rows8(c["op"], c["weights"], c["target"])),
-     "rows must be 1, 2 or 4 for i16/i8 (8 for the Q8_0 GEMV on avx512_vnni)"),
+    (
+        lambda c: (
+            c["layout"] in ("i16", "i8")
+            and c["rows"] not in (1, 2, 4)
+            and not (c["rows"] == 8 and _i16_q8_rows8(c["op"], c["weights"], c["target"]))
+        ),
+        "rows must be 1, 2 or 4 for i16/i8 (8 for the Q8_0 GEMV on avx512_vnni)",
+    ),
     (lambda c: c["layout"] == "l32" and c["rows"] not in (1, 2), "rows must be 1 or 2 for l32 (32-row groups)"),
 ]
+
 
 def _with_extras(key, fn):
     def allowed(op, f, t):

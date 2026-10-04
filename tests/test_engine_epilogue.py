@@ -10,13 +10,14 @@ import shutil
 import tempfile
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 import kurn.model
 from kurn import spec, toolchain
 from kurn.epilogue import engine_kernels
 from kurn.kernels import generate
+
+np = pytest.importorskip("numpy")
 
 MODEL_DIR = Path(kurn.model.__file__).resolve().parent  # installed package or src/, whichever is imported
 F = ctypes.c_void_p
@@ -108,8 +109,9 @@ class Kern:
         return a
 
 
-@pytest.fixture(scope="module", params=[(8, "packed", 0), (4, 64, 8), (2, "packed", 8), (1, 64, 0)],
-                ids=lambda p: f"rows{p[0]}_align{p[1]}_pf{p[2]}")
+@pytest.fixture(
+    scope="module", params=[(8, "packed", 0), (4, 64, 8), (2, "packed", 8), (1, 64, 0)], ids=lambda p: f"rows{p[0]}_align{p[1]}_pf{p[2]}"
+)
 def lib(request):
     rows, align, pf = request.param
     return _lib(_cfg(rows=rows, align=align, prefetch=pf))

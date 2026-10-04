@@ -18,8 +18,9 @@ from kurn.formats import FORMATS, reference_gemm
 from kurn.targets import TARGETS
 from kurn.toolchain import cpu_flags
 
-from conftest import BLOCKS, ROOT
+from conftest import BLOCKS, ROOT, require_tree
 
+require_tree("integration/llama.cpp/gen_ggml_sources.py")
 INTEG = ROOT / "integration" / "llama.cpp"
 sys.path.insert(0, str(INTEG))
 import gen_ggml_sources as gen  # noqa: E402

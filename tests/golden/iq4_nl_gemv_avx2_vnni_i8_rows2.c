@@ -59,13 +59,6 @@ static inline void storev(float *y, int64_t row0, int64_t r0, int64_t r1, __m256
     _mm256_storeu_ps(t, v);
     for (int i = 0; i < 8; i++) if (row0 + i >= r0 && row0 + i < r1) y[row0 + i] = t[i];
 }
-static inline __m256i bits8x4(uint32_t w) {  /* 32 bits -> 32 bytes of 0/1 */
-    const __m256i sh = _mm256_setr_epi8(0,0,0,0,0,0,0,0, 1,1,1,1,1,1,1,1, 2,2,2,2,2,2,2,2, 3,3,3,3,3,3,3,3);
-    const __m256i bm = _mm256_set1_epi64x((long long)0x8040201008040201ull);
-    __m256i v = _mm256_shuffle_epi8(_mm256_set1_epi32((int)w), sh);
-    return _mm256_and_si256(_mm256_cmpeq_epi8(_mm256_and_si256(v, bm), bm), _mm256_set1_epi8(1));
-}
-
 void kiq4nl_gemv_packed(const void *pv, const void *X, float *Y, int64_t K, int64_t r0, int64_t r1) {
     const packed_t *pk = (const packed_t *)pv;
     const int64_t M = 1, N = 0;

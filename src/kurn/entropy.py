@@ -13,7 +13,7 @@ here; decoder and benchmark harness in benchmarks/v0.2/compress/entropy_bench.c.
 
 import heapq
 
-import numpy as np
+from ._numpy import np
 
 # ---------------------------------------------------------------- codes from GGUF tensors
 
