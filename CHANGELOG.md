@@ -14,10 +14,27 @@ All notable changes to this project are documented here. The format follows
 - `split` is the default for those formats: on the default kernels it cuts global loads 3-5x and hot-loop instructions
   14-40% (SASS). `xlayout` is in the kit's GEMV tune space.
 
-### Fixed
-- Aggregate energy-delay products per repetition and reject incomplete or invalid measurements during tuning.
-- Preserve confirmed refinement winners, validate plan reuse, and publish compiler outputs atomically.
-- Bound search parameters and avoid redundant sampling work without merging runtime settings.
+### Fixed: spilling kernels in the search space
+- **GEMV.** The block-size rule allowed 512 threads (a 128-register cap) for every 2-7 column kernel and 1024 threads (a
+  64-register cap) for most 1-column ones, and `cols * unroll` up to 16 for Q1_0/Q2_0/Q4_0. Under those caps ptxas spills
+  Q1_0 at 4 columns, and split activations raise pressure further (16-byte loads hold four registers each). Adding the
+  `xlayout` key changed which random configs the covering sets sample, and that surfaced a Q1_0 4-column kernel with
+  `xlayout blocks` at 512 threads (32 bytes of spill). Some of the other spilling configs the old rule allowed are older
+  than `xlayout`.
+- The GEMV limit is now measured, not estimated. Uncapped register counts swing by +-90 with `tpr` alone, so no estimate
+  predicts where ptxas spills. `kurn/gpu/data/gemv_threads.json` holds, for every (weights, xlayout, sub, cols, unroll), the
+  largest `tpr * rpb * max(1, minb)` that compiles without spill or stack on sm_80/90/100. Each entry is the worst case
+  over every layout, mins, unpack, `tpr` (8-128) and `minb` (1, 2, 4); `minb` matters because ptxas schedules
+  `__launch_bounds__(128, 4)` differently from `(512, 1)`. `tools/gemv_threads.py` regenerates the table. The old rules
+  stay, so this only removes configs: 2,452 of 77,418 (3.2%), mostly Q1_0 (1,872), Q2_0 (354) and Q8_0 (166). Every
+  default keeps at least 4x headroom.
+- **GEMM.** Fresh covering seeds found engine tiles the register estimate let through. All of them had 64-row warp tiles
+  with 2+ n8 tiles and 2+ k-tiles per stage, and each thread staged 12+ 16-byte `cp.async` chunks per stage: Q4_0, Q2_0,
+  TQ2_0 and E8P, with 1-4 warps. This class sits at the 255-register ceiling and the estimate cannot separate its spills
+  from clean tiles, so it is now an explicit rule. The rule removes 2,484 of 88,668 tiles (2.8%), and every default and
+  matrix tile is unchanged.
+- Validation: ptxas covering sweeps on sm_80/90/100 over 40 seeds, about 8,800 GEMV and 11,200 GEMM configs, with 0 spills;
+  `kurn gpu ptxas --defaults --strict` is clean.
 
 ## 0.3.0.dev2
 

@@ -83,6 +83,19 @@ def est_regs(c):
     return 4 * mi * ni + 14 * mi + 8 * ni + 56 + extra + 4 * mi * max(0, kts - 2)
 
 
+def stage_chunks(c):
+    """16-byte cp.async copies each thread issues per pipeline stage."""
+    stage = (smem_bytes(c) - (4096 if c["weights"] == "e8p" else 0)) // c["stages"]
+    return stage / (16 * c["wm"] * c["wn"] * 32)
+
+
+def deep_staged_tile(c):
+    """64-row warp tiles with 2+ n8 tiles and 2+ k-tiles per stage sit at the 255-register ceiling, and ptxas spills
+    them once each thread also stages 12+ chunks per stage (every spill in 30 seeds of covering sets, sm_80/90/100)."""
+    mi, ni = c["bm"] // c["wm"] // 16, c["bn"] // c["wn"] // 8
+    return mi >= 4 and ni >= 2 and c["bk"] // ENGINE[c["weights"]]["kt"] >= 2 and stage_chunks(c) >= 12
+
+
 def reg_cap(c):
     """Registers per thread the launch bounds allow (minb blocks of the CTA's threads per SM)."""
     nt = c["wm"] * c["wn"] * 32

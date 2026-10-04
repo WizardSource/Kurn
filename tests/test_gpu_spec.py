@@ -39,10 +39,33 @@ def test_defaults_resolve_for_every_format():
     ({"op": "gemv", "weights": "q4_0", "unpack": "lut"}, "unpack"),
     ({"op": "gemv", "weights": "q5_0"}, "weights"),
     ({"op": "gemv", "weights": "q4_K", "xlayout": "split"}, "xlayout"),
+    # spilled under ptxas (sm_80, 32 bytes) when the search space allowed 512 threads for every 2-7 column GEMV
+    ({"op": "gemv", "weights": "q1_0", "layout": "native", "tpr": 64, "rpb": 8, "sub": 2, "unroll": 1, "cols": 4,
+      "unpack": "bits", "xlayout": "blocks"}, "too few registers"),
+    ({"op": "gemv", "weights": "q2_0", "tpr": 16, "rpb": 8, "unroll": 2, "cols": 4, "minb": 4}, "too few registers"),
+    ({"op": "gemv", "weights": "q1_0", "sub": 1, "unroll": 2, "cols": 8}, "cols \\* unroll"),
+    # 64x32 warp tiles with two k-tiles per stage and 12+ staged chunks per thread: spilled under ptxas on sm_80/sm_90
+    ({"op": "gemm", "weights": "q4_0", "bm": 64, "bn": 32, "wm": 1, "wn": 1, "bk": 128, "xin": "f16"}, "registers"),
+    ({"op": "gemm", "weights": "q2_0", "bm": 256, "bn": 32, "wm": 4, "wn": 1, "bk": 256, "stages": 4, "xin": "f16"},
+     "registers"),
 ])  # fmt: skip
 def test_invalid_specs(bad, msg):
     with pytest.raises(SpecError, match=msg):
         gs.resolve(bad)
+
+
+def test_gemv_threads_table_covers_the_search_space():
+    """Every (weights, xlayout, sub, cols, unroll) has a measured block-size limit, and the defaults sit well inside it."""
+    for f in gs.FORMATS:
+        probe = {"op": "gemv", "weights": f}
+        for xl in gs.GEMV_KEYS["xlayout"](probe):
+            for sub in gs.GEMV_KEYS["sub"](probe):
+                for cols in gs.GEMV_KEYS["cols"](probe):
+                    row = gs._gemv_threads_table()[gs.gemv_threads_key(f, xl, sub, cols)]
+                    assert set(row) == {str(u) for u in gs.GEMV_KEYS["unroll"](probe)}
+                    assert all(v in (0, 256, 512, 1024) for v in row.values())
+        d = gs.resolve(probe)
+        assert gs.gemv_threads_max(d) >= 4 * gs.threads(d)
 
 
 def test_legal_and_covering_configs():

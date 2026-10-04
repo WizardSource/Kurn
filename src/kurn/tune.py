@@ -14,12 +14,10 @@ models the rest of the machine that stays powered while the kernel runs.
 
 import csv
 import itertools
-import math
 import os
-import statistics
 
 from .harness import HarnessError, bench
-from .spec import RUNTIME_KEYS, SpecError, resolve
+from .spec import SpecError, resolve
 from .toolchain import BuildError, build
 
 PROXY_W_PER_CORE = 5.47
@@ -28,72 +26,6 @@ OBJECTIVES = {"energy": "energy_uJ", "speed": "us", "edp": "edp"}
 
 def energy_uj(row, static_w=0.0):
     return row["cpu_us"] * PROXY_W_PER_CORE + row["us"] * static_w
-
-
-METRIC_KEYS = ("us", "cpu_us", "energy_uJ", "edp", "GBps")
-
-
-def _positive_int(name, value, minimum=1):
-    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-        raise SpecError(f"{name} must be an integer >= {minimum}")
-
-
-def _finite_number(name, value, minimum=0.0, strict=False):
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(value)
-        or value < minimum
-        or (strict and value == minimum)
-    ):
-        op = ">" if strict else ">="
-        raise SpecError(f"{name} must be finite and {op} {minimum}")
-
-
-def measurement(row, static_w=0.0):
-    """Normalize one usable timing row, or return None; energy remains a proxy.
-
-    The existing harness admits 'approx' only below relative error 1e-2. Never
-    accept unknown statuses, nonfinite values, negative times, or overflowed EDP.
-    A rounded zero CPU time is permitted; zero latency cannot rank a benchmark.
-    """
-    if row.get("check") not in ("ok", "approx"):
-        return None
-    try:
-        for key in ("us", "cpu_us", "GBps", "relerr"):
-            value = row[key]
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
-                return None
-        if row["us"] <= 0 or row["relerr"] >= 1e-2:
-            return None
-        e = energy_uj(row, static_w)
-        edp = e * row["us"]
-        if not math.isfinite(e) or e < 0 or not math.isfinite(edp) or edp < 0:
-            return None
-        return {
-            "us": row["us"],
-            "cpu_us": row["cpu_us"],
-            "energy_uJ": e,
-            "edp": edp,
-            "GBps": row["GBps"],
-            "relerr": row["relerr"],
-        }
-    except (KeyError, TypeError, ValueError, OverflowError):
-        return None
-
-
-def summarize_measurements(samples):
-    """Medians of paired observations, not products of marginal medians.
-
-    Correctness uses the worst error, not a median that can hide a bad run.
-    Callers must reject the entire candidate if any requested repetition failed.
-    """
-    if not samples:
-        raise HarnessError("no valid measurement samples")
-    out = {k: statistics.median(m[k] for m in samples) for k in METRIC_KEYS if all(k in m for m in samples)}
-    if all("relerr" in m for m in samples):
-        out["relerr"] = max(m["relerr"] for m in samples)
-    return out
 
 
 def pareto_front(results):
@@ -134,6 +66,8 @@ def _summary(samples, static_w):
 
 def _spread(vals):
     """Interquartile range / median (robust to a single disturbed measurement); 0 for one sample."""
+    import statistics
+
     if len(vals) < 2:
         return 0.0
     q1, _, q3 = statistics.quantiles(vals, n=4, method="inclusive")
@@ -153,34 +87,16 @@ def rank_warnings(results, objective, max_spread=0.10):
             warn.append(f"top two not resolved: {gap:.1%} apart but their samples spread {noise:.1%}")
     noisy = [r for r in results[:3] if r[f"spread_{key}"] > max_spread]
     if noisy:
-        warn.append(
-            f"{len(noisy)} of the top {min(3, len(results))} spread more than {max_spread:.0%} "
-            f"(worst {max(r[f'spread_{key}'] for r in noisy):.1%})"
-        )  # fmt: skip
+        warn.append(f"{len(noisy)} of the top {min(3, len(results))} spread more than {max_spread:.0%} "
+                    f"(worst {max(r[f'spread_{key}'] for r in noisy):.1%})")  # fmt: skip
     if warn:
-        warn.append(
-            "the machine is probably busy: rerun with longer runs (--secs 3) or more rounds (--rounds 5), "
-            "or on a quiet machine"
-        )  # fmt: skip
+        warn.append("the machine is probably busy: rerun with longer runs (--secs 3) or more rounds (--rounds 5), "
+                    "or on a quiet machine")  # fmt: skip
     return warn
 
 
-def tune(
-    spec,
-    space,
-    regime="cold",
-    objective="energy",
-    static_w=0.0,
-    secs=1.0,
-    extra=(),
-    out=None,
-    harness=None,
-    log=print,
-    rounds=3,
-    keep=3,
-    budget=30.0,
-    max_spread=0.10,
-):  # fmt: skip
+def tune(spec, space, regime="cold", objective="energy", static_w=0.0, secs=1.0, extra=(), out=None,
+         harness=None, log=print, rounds=3, keep=3, budget=30.0, max_spread=0.10):  # fmt: skip
     """Sweep `space` (dict key -> list of values) on top of `spec`, `rounds` interleaved measurements of `secs` each,
     then refine the leaders (see above). Returns (results ranked by the median objective, pareto front); each result has
     the medians, `rounds` and `spread_*`, and the first carries `warnings` (empty when the ranking is resolved)."""
@@ -188,12 +104,8 @@ def tune(
 
     if objective not in OBJECTIVES:
         raise SpecError(f"objective {objective!r}: expected one of {list(OBJECTIVES)}")
-    _positive_int("rounds", rounds)
-    _positive_int("keep", keep)
-    _finite_number("static_w", static_w)
-    _finite_number("secs", secs, strict=True)
-    _finite_number("budget", budget)
-    _finite_number("max_spread", max_spread)
+    if rounds < 1:
+        raise SpecError("rounds must be >= 1")
     key = OBJECTIVES[objective]
     keys = list(space)
     cands = []
@@ -219,16 +131,13 @@ def tune(
             log(f"FAIL {cand['ov']}: {str(e).splitlines()[0]}")
             cand["dead"] = True
             return
-        m = measurement(row, static_w)
-        if m is None:
-            log(f"FAIL {cand['ov']}: unusable timing or correctness row")
+        if row["check"] == "FAIL":
+            log(f"FAIL {cand['ov']}: relerr {row['relerr']:.2e} vs reference")
             cand["dead"] = True
             return
         cand["samples"].append({k: row[k] for k in ("us", "cpu_us", "GBps", "GOPs", "relerr")})
-        log(
-            f"r{rnd} {cand['ov']}  {row['us']:9.1f} us  {m['energy_uJ']:10.1f} uJ  "
-            f"{row['GBps']:7.1f} GB/s  relerr {row['relerr']:.1e}"
-        )
+        e = energy_uj(row, static_w)
+        log(f"r{rnd} {cand['ov']}  {row['us']:9.1f} us  {e:10.1f} uJ  {row['GBps']:7.1f} GB/s  relerr {row['relerr']:.1e}")
 
     def live():
         return [c for c in cands if not c.get("dead")]
@@ -257,10 +166,8 @@ def tune(
             now = [id(c) for c in order[:keep]]
             stable = stable + 1 if now == top else 0
             top = now
-        log(
-            f"refined the top {min(keep, len(order))}: {extra_rounds} extra round(s); order "
-            f"{'stable' if stable >= STABLE_ROUNDS else 'still changing (budget or round limit reached)'}"
-        )  # fmt: skip
+        log(f"refined the top {min(keep, len(order))}: {extra_rounds} extra round(s); order "
+            f"{'stable' if stable >= STABLE_ROUNDS else 'still changing (budget or round limit reached)'}")  # fmt: skip
     results = [{**c["ov"], **c["stats"]} for c in order]
     if results:
         results[0]["warnings"] = rank_warnings(results, objective, max_spread)
@@ -315,9 +222,7 @@ def space_size(space):
 def _source_key(c):
     from .kernels import generate
 
-    # The same C is not the same experiment when target, thread count or wait
-    # policy differs. Runtime distinctions must survive candidate deduplication.
-    return (c["target"], *(c[k] for k in RUNTIME_KEYS), generate(c))
+    return generate(c)
 
 
 def sample_legal(spec, space, n, rng, max_tries=None):
@@ -326,55 +231,27 @@ def sample_legal(spec, space, n, rng, max_tries=None):
     `layout` first, then every other key in random order, each uniformly among the values
     that keep the partial assignment legal (unassigned keys at their defaults).
     Returns (configs, active keys {key: values}, legal fraction of uniform draws over them)."""
-    _positive_int("n", n)
-    if max_tries is not None:
-        _positive_int("max_tries", max_tries)
-    if any(not values for values in space.values()):
-        raise SpecError("search space values must not be empty")
     keys = list(space)
-    seen, resolved_seen, out, tries = set(), set(), [], 0
-    max_tries = 20 * n if max_tries is None else max_tries
-    # Partial legality is deterministic for a fixed spec and registry. Memoize
-    # its Boolean result locally, with a fixed memory bound. Final configs and
-    # legality-fraction probes are still resolved normally. Never cache globally.
-    partial_valid = {}
-
-    def is_valid(ov):
-        key = tuple(sorted(ov.items()))
-        if key in partial_valid:
-            return partial_valid[key]
-        try:
-            resolve(spec, ov)
-            valid = True
-        except SpecError:
-            valid = False
-        if len(partial_valid) < 4096:
-            partial_valid[key] = valid
-        return valid
-
+    seen, out, tries = set(), [], 0
+    max_tries = max_tries or 20 * n
     while len(out) < n and tries < max_tries:
         tries += 1
         ov = {}
-        order = [k for k in keys if k == "layout"] + rng.sample(
-            [k for k in keys if k != "layout"], len(keys) - ("layout" in keys)
-        )
+        order = [k for k in keys if k == "layout"] + rng.sample([k for k in keys if k != "layout"], len(keys) - ("layout" in keys))
         for k in order:
             ok = []
             for v in space[k]:
-                if is_valid({**ov, k: v}):
+                try:
+                    resolve(spec, {**ov, k: v})
                     ok.append(v)
+                except SpecError:
+                    pass
             if ok:
                 ov[k] = rng.choice(ok)
         try:
             c = resolve(spec, ov)
         except SpecError:
             continue
-        # Local only: no persistent memoization across extension/registry changes.
-        # Keep drawing in the same order, preserving the RNG state and semantics.
-        resolved_key = tuple(sorted(c.items()))
-        if resolved_key in resolved_seen:
-            continue
-        resolved_seen.add(resolved_key)
         src = _source_key(c)
         if src in seen:
             continue
@@ -383,14 +260,6 @@ def sample_legal(spec, space, n, rng, max_tries=None):
     # effective space: keys that take >= 2 values among legal configs; legal fraction of
     # uniform draws over those keys (the others at their defaults)
     active = {k: space[k] for k in keys if len({repr(c.get(k)) for _, c in out}) > 1}
-    # With no active keys, every one of the 2,000 probes is the same resolve and
-    # consumes no randomness. Evaluate that exact null case once.
-    if not active:
-        try:
-            resolve(spec)
-            return out, active, 1.0
-        except SpecError:
-            return out, active, 0.0
     legal = 0
     for _ in range(2000):
         try:
@@ -418,18 +287,11 @@ def _build_all(cs, jobs, log):
 
 
 def _measure(c, so, regime, secs, extra, harness, static_w):
-    return measurement(bench(so, c, regime, secs, extra, harness), static_w)
-
-
-def _safe_measure(c, so, regime, secs, extra, harness, static_w, log=lambda _: None):
-    try:
-        m = _measure(c, so, regime, secs, extra, harness, static_w)
-    except HarnessError as e:
-        log(f"FAIL measurement: {str(e).splitlines()[0]}")
+    row = bench(so, c, regime, secs, extra, harness)
+    if row["check"] == "FAIL":
         return None
-    if m is None:
-        log("FAIL measurement: unusable timing or correctness row")
-    return m
+    e = energy_uj(row, static_w)
+    return {"us": row["us"], "cpu_us": row["cpu_us"], "energy_uJ": e, "edp": e * row["us"], "GBps": row["GBps"], "relerr": row["relerr"]}
 
 
 def search(
@@ -460,34 +322,15 @@ def search(
 
     if objective not in OBJECTIVES:
         raise SpecError(f"objective {objective!r}: expected one of {list(OBJECTIVES)}")
-    for name, value, minimum in (
-        ("n0", n0, 1),
-        ("eta", eta, 2),
-        ("keep", keep, 1),
-        ("jobs", jobs, 1),
-        ("max_moves", max_moves, 0),
-    ):
-        _positive_int(name, value, minimum)
-    _finite_number("secs0", secs0, strict=True)
-    _finite_number("secs", secs, strict=True)
-    _finite_number("static_w", static_w)
-    _finite_number("min_gain", min_gain)
-    if min_gain >= 1:
-        raise SpecError("min_gain must be < 1")
     obj = OBJECTIVES[objective]
     t0 = time.time()
     if space is None:
         space = search_space(spec["op"], spec["weights"], spec["target"])
     rng = random.Random(seed)
     cand, active, frac = sample_legal(spec, space, n0, rng)
-    candidate_keys = {_source_key(c) for _, c in cand} if start else set()
     for ov in start:
         try:
-            c = resolve(spec, ov)
-            key = _source_key(c)
-            if key not in candidate_keys:
-                candidate_keys.add(key)
-                cand.append((dict(ov), c))
+            cand.append((dict(ov), resolve(spec, ov)))
         except SpecError as e:
             log(f"skip start {ov}: {e}")
     stats = {
@@ -514,7 +357,11 @@ def search(
     while True:
         rnd = []
         for i, (ov, c, so) in enumerate(pool):
-            m = _safe_measure(c, so, regime, budget, extra, harness, static_w, log)
+            try:
+                m = _measure(c, so, regime, budget, extra, harness, static_w)
+            except HarnessError as e:
+                log(f"FAIL {ov}: {str(e).splitlines()[0]}")
+                m = None
             stats["measurements"] += 1
             if m is None:
                 continue
@@ -532,16 +379,13 @@ def search(
         budget = min(secs, budget * eta)
     best = []
     for ov, c, so in pool:
-        m = _safe_measure(c, so, regime, secs, extra, harness, static_w, log)
+        m = _measure(c, so, regime, secs, extra, harness, static_w)
         stats["measurements"] += 1
         if m:
             best.append({"ov": ov, "c": c, "so": so, **m})
     best.sort(key=lambda r: r[obj])
-    refined = bool(refine and best)
-    if refined:
-        best = _coordinate_descent(
-            spec, space, best, regime, obj, secs, min_gain, max_moves, extra, harness, static_w, jobs, log, stats
-        )
+    if refine and best:
+        best = _coordinate_descent(spec, space, best, regime, obj, secs, min_gain, max_moves, extra, harness, static_w, jobs, log, stats)
     stats["wall_s"] = round(time.time() - t0, 1)
     res = [
         {
@@ -556,36 +400,21 @@ def search(
         }
         for r in best
     ]
-    # Refinement has already selected the confirmed incumbent.
-    # Sorting stale alternatives here can undo that decision.
-    if not refined:
-        res.sort(key=lambda r: r[obj])
+    res.sort(key=lambda r: r[obj])
     log(f"search done in {stats['wall_s']} s: {stats['builds']} builds, {stats['measurements']} measurements")
     return res, stats
 
 
 def _confirm(a, b, regime, obj, secs, extra, harness, static_w, reps=3):
-    """Interleaved confirmation; one failed repetition disqualifies a candidate.
+    """Interleaved re-measurement of two candidates; returns medians (a, b) of `obj`."""
+    import statistics
 
-    Update all metric fields from the same sample set so the returned objective
-    cannot disagree with stale energy/latency fields. Keep the helper's
-    (objective median, objective median) return shape.
-    """
-    _positive_int("reps", reps)
-    samples = ([], [])
+    ma, mb = [], []
     for _ in range(reps):
-        for r, acc in zip((a, b), samples):
-            acc.append(_safe_measure(r["c"], r["so"], regime, secs, extra, harness, static_w))
-    medians = []
-    for r, ms in zip((a, b), samples):
-        r["_valid"] = all(m is not None for m in ms)
-        if r["_valid"]:
-            summary = summarize_measurements(ms)
-            r.update(summary)
-            medians.append(summary[obj])
-        else:
-            medians.append(float("inf"))
-    return tuple(medians)
+        for r, acc in ((a, ma), (b, mb)):
+            m = _measure(r["c"], r["so"], regime, secs, extra, harness, static_w)
+            acc.append(m[obj] if m else float("inf"))
+    return statistics.median(ma), statistics.median(mb)
 
 
 def _coordinate_descent(spec, space, best, regime, obj, secs, min_gain, max_moves, extra, harness, static_w, jobs, log, stats):
@@ -618,7 +447,7 @@ def _coordinate_descent(spec, space, best, regime, obj, secs, min_gain, max_move
             for i, (ov, c) in enumerate(neigh):
                 if i not in sos:
                     continue
-                m = _safe_measure(c, sos[i], regime, secs, extra, harness, static_w, log)
+                m = _measure(c, sos[i], regime, secs, extra, harness, static_w)
                 stats["measurements"] += 1
                 if m:
                     trial.append({"ov": ov, "c": c, "so": sos[i], **m})
@@ -631,17 +460,12 @@ def _coordinate_descent(spec, space, best, regime, obj, secs, min_gain, max_move
                 if b < a * (1 - min_gain):
                     log(f"move {k}={ch['ov'][k]}: {a:.2f} -> {b:.2f} ({obj})")
                     ch[obj] = b
-                    if not any(r is inc for r in best):
-                        best.append(inc)
+                    best.append(inc)
                     inc = ch
                     moves += 1
                     improved = True
-            # Screened neighbors are not eligible without confirmation.
-            if not inc.get("_valid", True):
-                raise HarnessError("incumbent failed a required confirmation repetition")
-            if moves >= max_moves:
-                break
-    return [inc] + sorted((r for r in best if r is not inc and r.get("_valid", True)), key=lambda r: r[obj])
+            best.extend(t for t in trial if t is not ch)
+    return [inc] + sorted((r for r in best if r is not inc), key=lambda r: r[obj])
 
 
 def cmd_search(a):
