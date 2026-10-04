@@ -36,7 +36,11 @@ All notable changes to this project are documented here. The format follows
 - Validation: ptxas covering sweeps on sm_80/90/100 over 40 seeds, about 8,800 GEMV and 11,200 GEMM configs, with 0 spills;
   `kurn gpu ptxas --defaults --strict` is clean.
 
+### Changed
+- Compile identical source/target requests once per parallel search batch while benchmarking every runtime configuration separately.
+
 ### Fixed: optimizer selection, plan reuse, and sampling
+- Cache repeated legality-probe validations locally without changing draw weights or the random stream.
 - Aggregate energy-delay products per repetition and reject incomplete or invalid measurements during tuning.
 - Preserve confirmed refinement winners, validate plan reuse, and publish compiler outputs atomically.
 - Bound search parameters and avoid redundant sampling work without merging runtime settings.
