@@ -22,6 +22,8 @@ from .harness import HarnessError, bench
 from .spec import RUNTIME_KEYS, SpecError, resolve
 from .toolchain import BuildError, build
 
+_BASE_BUILD = build
+
 PROXY_W_PER_CORE = 5.47
 OBJECTIVES = {"energy": "energy_uJ", "speed": "us", "edp": "edp"}
 
@@ -336,7 +338,7 @@ def sample_legal(spec, space, n, rng, max_tries=None):
     max_tries = 20 * n if max_tries is None else max_tries
     # Partial legality is deterministic for a fixed spec and registry. Memoize
     # its Boolean result locally, with a fixed memory bound. Final configs and
-    # legality-fraction probes are still resolved normally. Never cache globally.
+    # legality-fraction probes retain their original draws. Never cache globally.
     partial_valid = {}
 
     def is_valid(ov):
@@ -391,6 +393,10 @@ def sample_legal(spec, space, n, rng, max_tries=None):
             return out, active, 1.0
         except SpecError:
             return out, active, 0.0
+    # Reuse is worthwhile in small spaces. Keep the original loop for large
+    # spaces, where the 2,000 draws may be almost entirely distinct.
+    if space_size(active) < 2000:
+        return out, active, _probe_legal_fraction(spec, active, rng)
     legal = 0
     for _ in range(2000):
         try:
@@ -401,20 +407,80 @@ def sample_legal(spec, space, n, rng, max_tries=None):
     return out, active, legal / 2000
 
 
+def _probe_legal_fraction(spec, active, rng):
+    """Keep every draw, but validate each distinct assignment only once.
+
+    Like the sampler's partial-legality cache, this requires stable spec/registry
+    validation within one call. The cache is local and bounded by 2,000 probes.
+    Cache False as well as True; repeated invalid draws still count in the
+    denominator. Drawing before each lookup preserves the random stream.
+    """
+    keys, values = tuple(active), tuple(active.values())
+    valid = {}
+    legal = 0
+    for _ in range(2000):
+        draw = tuple(rng.choice(v) for v in values)
+        if draw not in valid:
+            try:
+                resolve(spec, dict(zip(keys, draw)))
+            except SpecError:
+                valid[draw] = False
+            else:
+                valid[draw] = True
+        legal += valid[draw]
+    return legal / 2000
+
+
 def _build_all(cs, jobs, log):
-    """Build in parallel; returns {index: so path} for the configs that compiled."""
+    """Build in parallel, sharing identical built-in compile requests per batch.
+
+    Source sharing is not candidate sharing: thread/wait variants keep their
+    indices and are still measured separately. Compiler settings and generators
+    must be stable during this call. Custom builders retain the original path.
+    """
     from concurrent.futures import ThreadPoolExecutor
 
-    def one(ic):
-        i, c = ic
+    if build is not _BASE_BUILD:
+        def custom_one(ic):
+            i, c = ic
+            try:
+                return i, build(c)
+            except BuildError as e:
+                log(f"FAIL build {i}: {str(e).splitlines()[0]}")
+                return i, None
+
+        with ThreadPoolExecutor(max(1, jobs)) as ex:
+            return {i: so for i, so in ex.map(custom_one, enumerate(cs)) if so}
+
+    from . import toolchain
+
+    groups = {}
+    for i, c in enumerate(cs):
         try:
-            return i, build(c)
+            src = toolchain.generate(c)
         except BuildError as e:
             log(f"FAIL build {i}: {str(e).splitlines()[0]}")
-            return i, None
+            continue
+        stem = f"{c['weights']}_{c['op']}_{c['target']}"
+        key = (c["target"], stem, src)
+        groups.setdefault(key, []).append(i)
 
+    def one(item):
+        (target, stem, src), indices = item
+        try:
+            return indices, toolchain.compile_source(src, target, stem=stem)
+        except BuildError as e:
+            for i in indices:
+                log(f"FAIL build {i}: {str(e).splitlines()[0]}")
+            return indices, None
+
+    paths = {}
     with ThreadPoolExecutor(max(1, jobs)) as ex:
-        return {i: so for i, so in ex.map(one, enumerate(cs)) if so}
+        for indices, so in ex.map(one, groups.items()):
+            if so:
+                paths.update((i, so) for i in indices)
+    # Group insertion order need not be candidate order (e.g. 0, 2, then 1).
+    return {i: paths[i] for i in sorted(paths)}
 
 
 def _measure(c, so, regime, secs, extra, harness, static_w):
