@@ -20,8 +20,11 @@ Problem keys (`n`, `k`, `m`) give the shape a spec is verified or benchmarked on
 change the generated code.
 """
 
+import functools
 import itertools
+import json
 import random
+from importlib import resources
 
 from ..spec import SpecError
 from ..spec import parse as _parse
@@ -148,21 +151,53 @@ def _reg_cap(c):
     return reg_cap(c)
 
 
+def _deep_staged_tile(c):
+    from .mma import deep_staged_tile
+
+    return deep_staged_tile(c)
+
+
 def threads(c):
     return c["tpr"] * c["rpb"] if c["op"] == "gemv" else c["wm"] * c["wn"] * 32
 
 
-INVALID = [
-    (lambda c: c["op"] == "gemv" and not 32 <= c["tpr"] * c["rpb"] <= 1024, "tpr * rpb (block size) must be 32..1024"),
-    (lambda c: c["op"] == "gemv" and c["mins"] == "bsums" and c["sub"] > 2, "mins=bsums needs sub <= 2 (16-value slices)"),
+def gemv_threads_key(weights, xlayout, sub, cols):
+    return f"{weights} {xlayout} sub={sub} cols={cols}"
+
+
+@functools.cache
+def _gemv_threads_table():
+    return json.loads((resources.files("kurn.gpu") / "data" / "gemv_threads.json").read_text())["limits"]
+
+
+def gemv_threads_max(c):
+    """Largest tpr * rpb * max(1, minb) at which this GEMV compiles without spills (ptxas-measured over every tpr,
+    layout, mins and unpack on sm_80/90/100 by tools/gemv_threads.py); 0 if it spills at any block size."""
+    row = _gemv_threads_table().get(gemv_threads_key(c["weights"], c["xlayout"], c["sub"], c["cols"]), {})
+    return row.get(str(c["unroll"]), 0)
+
+
+GEMV_SPILL_RULES = [
     (lambda c: c["op"] == "gemv" and c["tpr"] * c["rpb"] * max(1, c["minb"])
      > (256 if c["cols"] >= 8 or c["cols"] * c["unroll"] >= 16 or (c["cols"] >= 4 and c["weights"] == "tq2_0")
         else 512 if c["cols"] > 1 or (c["unroll"] > 2 and c["weights"] in ("q4_K", "e8p", "tq2_0", "q8_0")) else 1024),
      "minb x block size leaves too few registers per thread (would spill)"),
-    (lambda c: c["op"] == "gemv" and c["weights"] == "q4_K" and c["cols"] >= 4 and c["sub"] < 2,
-     "q4_K with 4+ columns needs sub >= 2 (register pressure)"),
     (lambda c: c["op"] == "gemv" and c["cols"] * c["unroll"] > _cols_unroll_max(c),
      "cols * unroll too large (register spills; use op gemm for batches above 8)"),
+    (lambda c: c["op"] == "gemv" and gemv_threads_max(c) == 0,
+     "cols * unroll too large for this format, xlayout and sub (ptxas spills at any block size; use op gemm for batches"
+     " above 8)"),
+    (lambda c: c["op"] == "gemv" and c["tpr"] * c["rpb"] * max(1, c["minb"]) > gemv_threads_max(c),
+     "minb x block size leaves too few registers per thread for this format, xlayout, sub, cols and unroll (ptxas"
+     " spills; limits in kurn/gpu/data/gemv_threads.json)"),
+]  # fmt: skip
+
+INVALID = [
+    (lambda c: c["op"] == "gemv" and not 32 <= c["tpr"] * c["rpb"] <= 1024, "tpr * rpb (block size) must be 32..1024"),
+    (lambda c: c["op"] == "gemv" and c["mins"] == "bsums" and c["sub"] > 2, "mins=bsums needs sub <= 2 (16-value slices)"),
+    (lambda c: c["op"] == "gemv" and c["weights"] == "q4_K" and c["cols"] >= 4 and c["sub"] < 2,
+     "q4_K with 4+ columns needs sub >= 2 (register pressure)"),
+    *GEMV_SPILL_RULES,
     (lambda c: c["op"] == "gemm" and (c["bm"] % (16 * c["wm"]) or c["bn"] % (8 * c["wn"])),
      "warp tile (bm/wm x bn/wn) must be a multiple of 16 x 8 (m16n8k16 tiles)"),
     (lambda c: c["op"] == "gemm" and not 32 <= c["wm"] * c["wn"] * 32 <= 512, "wm * wn warps must give 32..512 threads"),
@@ -174,6 +209,9 @@ INVALID = [
     (lambda c: c["op"] == "gemm" and gemm_smem(c) > gemm_smem_limit(c), "shared memory exceeds the arch's per-block limit"),
     (lambda c: c["op"] == "gemm" and _est_regs(c) > _reg_budget(c),
      "tile needs too many registers for its launch bounds (would spill)"),
+    (lambda c: c["op"] == "gemm" and _deep_staged_tile(c),
+     "64-row warp tile with 2+ n8 tiles and 2+ k-tiles per stage stages 12+ cp.async chunks per thread: too many registers"
+     " (ptxas spills; use more warps or a smaller bk)"),
 ]  # fmt: skip
 
 
