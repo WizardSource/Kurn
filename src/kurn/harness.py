@@ -2,7 +2,10 @@
 harness with the same command line and CSV output, e.g. the ggml-linked one in
 `contrib/ggml-harness`)."""
 
+import csv
+import math
 import os
+import shutil
 import subprocess
 
 from .kernels import kernel
@@ -20,25 +23,48 @@ class HarnessError(Exception):
 def bench(so, c, regime="hot", secs=1.0, extra=(), harness=None, timeout=900):
     """Run one kernel. Returns a dict of the harness CSV row plus `us` and `cpu_us`
     (per call). Raises HarnessError if the harness produced no result."""
-    tmp = os.path.join(scratch_dir(), "row.csv")
-    cmd = harness_command(c["target"], harness) + [
-        "--impl", so, "--kernel", kernel(c).bench, "--regime", regime,
-        "--threads", str(c["threads"]), "--wait", c["wait"], "--secs", str(secs), "--csv", tmp, *extra,
-    ]  # fmt: skip
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    if not os.path.exists(tmp):
-        raise HarnessError(f"harness failed (exit {r.returncode}): {(r.stderr or r.stdout).strip()[:2000]}")
-    with open(tmp) as fh:
-        fields = fh.read().strip().split(",")
-    os.remove(tmp)
-    os.rmdir(os.path.dirname(tmp))
-    row = dict(zip(CSV_COLUMNS, fields))
-    calls = float(row["calls"])
-    row["us"] = float(row["us_per_call"])
-    row["cpu_us"] = float(row["cpu_s"]) / calls * 1e6
-    row["relerr"] = float(row["relerr"])
-    row["GBps"], row["GOPs"] = float(row["GBps"]), float(row["GOPs"])
-    return row
+    scratch = scratch_dir()
+    tmp = os.path.join(scratch, "row.csv")
+    try:
+        cmd = harness_command(c["target"], harness) + [
+            "--impl", so, "--kernel", kernel(c).bench, "--regime", regime,
+            "--threads", str(c["threads"]), "--wait", c["wait"], "--secs", str(secs), "--csv", tmp, *extra,
+        ]
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except (subprocess.TimeoutExpired, OSError) as e:
+            raise HarnessError(f"harness execution failed: {e}") from e
+        if not os.path.exists(tmp):
+            raise HarnessError(f"harness failed (exit {r.returncode}): {(r.stderr or r.stdout).strip()[:2000]}")
+        try:
+            with open(tmp, newline="") as fh:
+                rows = list(csv.reader(fh))
+            if len(rows) != 1 or len(rows[0]) != len(CSV_COLUMNS):
+                raise ValueError("expected one complete CSV row")
+            row = dict(zip(CSV_COLUMNS, rows[0]))
+            calls = float(row["calls"])
+            if not math.isfinite(calls) or calls <= 0:
+                raise ValueError("calls must be finite and positive")
+            row["us"] = float(row["us_per_call"])
+            row["cpu_us"] = float(row["cpu_s"]) / calls * 1e6
+            row["relerr"] = float(row["relerr"])
+            row["GBps"], row["GOPs"] = float(row["GBps"]), float(row["GOPs"])
+            if row["check"] not in ("ok", "approx", "FAIL"):
+                raise ValueError("unknown correctness status")
+            for key in ("us", "cpu_us", "GBps", "GOPs"):
+                if not math.isfinite(row[key]) or row[key] < 0:
+                    raise ValueError(f"invalid {key}")
+            if row["check"] != "FAIL" and (not math.isfinite(row["relerr"]) or row["relerr"] < 0):
+                raise ValueError("invalid relative error")
+        except (OSError, ValueError, KeyError, csv.Error) as e:
+            raise HarnessError(f"malformed harness result: {e}") from e
+        # The bundled harness intentionally exits 1 for a numerical FAIL. Return
+        # that row for inspection; other nonzero exits are execution failures.
+        if r.returncode and not (r.returncode == 1 and row["check"] == "FAIL"):
+            raise HarnessError(f"harness failed (exit {r.returncode}): {(r.stderr or r.stdout).strip()[:2000]}")
+        return row
+    finally:
+        shutil.rmtree(scratch)
 
 
 def check_extra(c):
