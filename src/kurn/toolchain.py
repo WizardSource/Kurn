@@ -220,11 +220,20 @@ def _sha(*parts):
 
 
 def _compile(args, out):
-    tmp = f"{out}.tmp{os.getpid()}"
-    r = subprocess.run([*args, "-o", tmp], capture_output=True, text=True)
-    if r.returncode:
-        raise BuildError(f"C compile failed:\n$ {shlex.join(args)}\n{r.stderr[:4000]}")
-    os.replace(tmp, out)
+    # PID-only names collide between ThreadPoolExecutor workers compiling aliases
+    # of the same source. Reserve a unique sibling and publish atomically.
+    fd, tmp = tempfile.mkstemp(prefix=os.path.basename(out) + ".tmp-", dir=os.path.dirname(os.path.abspath(out)))
+    os.close(fd)
+    try:
+        r = subprocess.run([*args, "-o", tmp], capture_output=True, text=True)
+        if r.returncode:
+            raise BuildError(f"C compile failed:\n$ {shlex.join(args)}\n{r.stderr[:4000]}")
+        os.replace(tmp, out)
+    except OSError as e:
+        raise BuildError(f"compiler execution/publication failed: {e}") from e
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
 
 
 def compile_source(src, target, out_dir=None, stem="kernel", extra_flags=(), shared=True):
@@ -241,10 +250,16 @@ def compile_source(src, target, out_dir=None, stem="kernel", extra_flags=(), sha
     out = base + (".so" if shared else ".o")
     if os.path.exists(out):
         return out
-    tmp = f"{base}.c.tmp{os.getpid()}"  # parallel builds of identical sources must never see a half-written file
-    with open(tmp, "w") as fh:
-        fh.write(src)
-    os.replace(tmp, base + ".c")
+    # A concurrent reader must see a complete C translation unit, never another
+    # worker's truncated/in-progress write to the shared content-addressed path.
+    fd, tmp = tempfile.mkstemp(prefix=os.path.basename(base) + ".src-", suffix=".c", dir=d)
+    try:
+        with os.fdopen(fd, "w") as fh:
+            fh.write(src)
+        os.replace(tmp, base + ".c")
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
     args = [*cc, *flags, "-I", os.path.dirname(data_path("kurn.h"))]
     args += ["-shared", "-fPIC", base + ".c"] if shared else ["-c", base + ".c"]
     _compile(args, out)
