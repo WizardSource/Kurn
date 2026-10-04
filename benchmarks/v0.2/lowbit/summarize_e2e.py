@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Median / min-max of results/e2e_bench.csv per (model, config, n_gen), plus the ratio to ggml plain.
-  summarize_e2e.py [--md]"""
+summarize_e2e.py [--md]"""
 
 import csv
 import os

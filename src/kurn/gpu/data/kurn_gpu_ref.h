@@ -54,6 +54,15 @@ static inline double kref_h2d(uint16_t h) {
   double v = e == 0 ? ldexp((double)m, -24) : e == 31 ? INFINITY : ldexp((double)(m | 0x400), e - 25);
   return (h >> 15) ? -v : v;
 }
+// f32 -> nearest f16 (ties to even) -> f32: the activation rounding of the tensor-core engine (kg_act() 1 and 2)
+static inline float kref_round_f16(float f) {
+  if (!(fabsf(f) < 65520.f)) return f;  // inf / nan / overflow: not produced by the test data
+  int e;
+  frexpf(f, &e);  // f = m * 2^e, 0.5 <= |m| < 1
+  int sh = e - 11;  // f16 keeps 11 significant bits
+  if (e < -13) sh = -24;  // subnormal f16 spacing 2^-24
+  return ldexpf(nearbyintf(ldexpf(f, -sh)), sh);
+}
 static inline uint16_t kref_u16(const uint8_t *p) { return (uint16_t)(p[0] | (p[1] << 8)); }
 static inline float kref_f32(const uint8_t *p) {
   float f;

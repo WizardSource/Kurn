@@ -188,6 +188,7 @@ class Layout:
     def depth(self):
         def d(t):
             return 1 + max((d(x) for x in t), default=0) if is_tuple(t) else 0
+
         return d(self.shape)
 
     # -- function
@@ -281,8 +282,7 @@ def coalesce(layout, profile=None):
 
 def filter_zeros(layout):
     """Replace stride-0 modes by size 1, then coalesce."""
-    return coalesce(Layout(tuple(1 if d == 0 else s for s, d in layout.leaves()),
-                           tuple(0 if d == 0 else d for s, d in layout.leaves())))
+    return coalesce(Layout(tuple(1 if d == 0 else s for s, d in layout.leaves()), tuple(0 if d == 0 else d for s, d in layout.leaves())))
 
 
 def composition(a, b):
@@ -372,8 +372,7 @@ def logical_divide(a, tiler):
     if is_int(tiler):
         tiler = Layout(tiler)
     if is_tuple(tiler):
-        return make_layout(*(logical_divide(a[i], tiler[i]) for i in range(len(tiler))),
-                           *(a[i] for i in range(len(tiler), len(a))))
+        return make_layout(*(logical_divide(a[i], tiler[i]) for i in range(len(tiler))), *(a[i] for i in range(len(tiler), len(a))))
     return composition(a, make_layout(tiler, complement(tiler, a.size())))
 
 
@@ -578,8 +577,7 @@ class RecordLayout:
         return self.code_base + kg * self.kg_bytes + lg * self.lg_code_bytes + off2
 
     def describe(self):
-        return f"code {self.code}  fields " + ", ".join(f"{f.name}{f.layout}" for f in self.fields) + \
-            f"  rec {self.rec_bytes} B"
+        return f"code {self.code}  fields " + ", ".join(f"{f.name}{f.layout}" for f in self.fields) + f"  rec {self.rec_bytes} B"
 
 
 def _meta_fields(recipe_meta, lanes_total, periods):
@@ -608,8 +606,23 @@ def _meta_fields(recipe_meta, lanes_total, periods):
     return out, off
 
 
-def record_layout(bits, meta, *, lanes=16, plane="kstep", kblock=32, period=32, rgroup=1, place="head",
-                  corr_fields=(), align=0, rg_pad=0, swizzle=0, depth=VNNI_DEPTH, doc=""):
+def record_layout(
+    bits,
+    meta,
+    *,
+    lanes=16,
+    plane="kstep",
+    kblock=32,
+    period=32,
+    rgroup=1,
+    place="head",
+    corr_fields=(),
+    align=0,
+    rg_pad=0,
+    swizzle=0,
+    depth=VNNI_DEPTH,
+    doc="",
+):
     """Compose a packed record layout from primitives.
 
     bits      code width (8, 4, 2, 1)
@@ -709,10 +722,37 @@ def record_layout(bits, meta, *, lanes=16, plane="kstep", kblock=32, period=32, 
             raise ValueError(f"swizzle {swizzle} needs >= {1 << swizzle} vectors per chunk (have {nvec})")
         vbytes = vb // 8 if plane == "atom" else vb
         sw = Swizzle(swizzle, vbytes.bit_length() - 1, 16)
-    params = dict(bits=bits, lanes=lanes, plane=plane, kblock=kblock, period=period, rgroup=rgroup, place=place,
-                  align=align, rg_pad=rg_pad, swizzle=swizzle, meta=tuple(meta), corr=tuple(corr_fields))
-    return RecordLayout(params, bits, lanes, rows, kblock, code, tuple(fields), code_base, kg_bytes, lg_code, rec,
-                        rg_pad, sw, vb // 8 if plane == "atom" else vb, doc)
+    params = dict(
+        bits=bits,
+        lanes=lanes,
+        plane=plane,
+        kblock=kblock,
+        period=period,
+        rgroup=rgroup,
+        place=place,
+        align=align,
+        rg_pad=rg_pad,
+        swizzle=swizzle,
+        meta=tuple(meta),
+        corr=tuple(corr_fields),
+    )
+    return RecordLayout(
+        params,
+        bits,
+        lanes,
+        rows,
+        kblock,
+        code,
+        tuple(fields),
+        code_base,
+        kg_bytes,
+        lg_code,
+        rec,
+        rg_pad,
+        sw,
+        vb // 8 if plane == "atom" else vb,
+        doc,
+    )
 
 
 class _Offset(Layout):
@@ -782,10 +822,21 @@ def lut_record_layout(bits, period, rows=32, doc="l32: T-MAC LUT indices"):
     flat = Layout(tuple(s for s, _ in leaves), tuple(d for _, d in leaves))
     code = _offset(regroup(flat, [[2], [0, 1, 3, 4]]), hdr * epb)
     fields = (Field("d", "f16", 1, Layout((rows, 1, 1), (2, 2 * rows, hdr))),)
-    params = dict(bits=bits, lanes=rows, plane="lut", kblock=period, period=period, rgroup=1, place="head", align=0,
-                  rg_pad=0, swizzle=0, meta=(("d", "f16", 1),), corr=())
-    return RecordLayout(params, bits, rows, rows, period, code, fields, hdr, idx_bytes, idx_bytes, hdr + kgs * idx_bytes,
-                        0, None, 64, doc)
+    params = dict(
+        bits=bits,
+        lanes=rows,
+        plane="lut",
+        kblock=period,
+        period=period,
+        rgroup=1,
+        place="head",
+        align=0,
+        rg_pad=0,
+        swizzle=0,
+        meta=(("d", "f16", 1),),
+        corr=(),
+    )
+    return RecordLayout(params, bits, rows, rows, period, code, fields, hdr, idx_bytes, idx_bytes, hdr + kgs * idx_bytes, 0, None, 64, doc)
 
 
 def preset(name, recipe, target="avx512_vnni", **kw):
@@ -794,12 +845,29 @@ def preset(name, recipe, target="avx512_vnni", **kw):
     corr = (("wsum", "i16"),) if kw.get("correction") == "weight" else ()
     meta = recipe_meta(recipe, kw.get("scales", "unpacked"))
     if name == "vnni16":
-        return record_layout(8, meta, lanes=16, kblock=32, period=32, place="tail", align=64 if kw.get("align") == 64 else 0,
-                             doc="vnni16: 16 rows into lanes, codes then d[16]")
+        return record_layout(
+            8,
+            meta,
+            lanes=16,
+            kblock=32,
+            period=32,
+            place="tail",
+            align=64 if kw.get("align") == 64 else 0,
+            doc="vnni16: 16 rows into lanes, codes then d[16]",
+        )
     if name in ("i16", "i8"):
         plane = "atom" if recipe.bits == 1 else ("kstep" if recipe.bits < 8 else "none")
-        return record_layout(recipe.bits, meta, lanes=lanes, plane=plane, kblock=recipe.period, period=recipe.period,
-                             place="head", corr_fields=corr, doc=f"{name}: {lanes} rows into lanes, metadata first")
+        return record_layout(
+            recipe.bits,
+            meta,
+            lanes=lanes,
+            plane=plane,
+            kblock=recipe.period,
+            period=recipe.period,
+            place="head",
+            corr_fields=corr,
+            doc=f"{name}: {lanes} rows into lanes, metadata first",
+        )
     if name == "l32":
         return lut_record_layout(recipe.bits, recipe.period)
     raise KeyError(name)

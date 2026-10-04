@@ -110,9 +110,7 @@ SETS["compare"] = (
 )
 # NVFP4 scale storage: fp16 per 16 values (5.0 bpw in the record) vs raw UE4M3 (4.5 bpw, decoded in-kernel).
 SETS["nvfp4_scales"] = [
-    (f"nvfp4 perm {s} r{n}", C("nvfp4", layout="i16", unpack="perm", scales=s, rows=n))
-    for s in ("unpacked", "packed")
-    for n in (1, 2)
+    (f"nvfp4 perm {s} r{n}", C("nvfp4", layout="i16", unpack="perm", scales=s, rows=n)) for s in ("unpacked", "packed") for n in (1, 2)
 ]
 REGIMES = (("hot", 1), ("cold", 8))
 
@@ -167,8 +165,17 @@ def run(name, c, regime, T, secs, extra=()):
     r = bench(so, c, regime, secs, list(extra), harness=harness)
     if r["check"] != "ok":
         raise SystemExit(f"FAILED correctness: {name} {regime} -> relerr {r['relerr']}")
-    return {"name": name, "regime": regime, "threads": T, "us": r["us"], "cpu_us": r["cpu_us"],
-            "GBps": r["GBps"], "relerr": r["relerr"], "drift_s": float(r["drift_s"]), "busy_cores": load}
+    return {
+        "name": name,
+        "regime": regime,
+        "threads": T,
+        "us": r["us"],
+        "cpu_us": r["cpu_us"],
+        "GBps": r["GBps"],
+        "relerr": r["relerr"],
+        "drift_s": float(r["drift_s"]),
+        "busy_cores": load,
+    }
 
 
 def main():
@@ -212,8 +219,11 @@ def main():
                         w.writeheader()
                     w.writerow(row)
                     fh.flush()
-                    print(f"rep{rep} {name:28s} {regime:4s} T={T} {row['us']:9.2f} us {row['GBps']:7.1f} GB/s "
-                          f"busy {row['busy_cores']:.2f} drift {row['drift_s']:+.3f}", flush=True)
+                    print(
+                        f"rep{rep} {name:28s} {regime:4s} T={T} {row['us']:9.2f} us {row['GBps']:7.1f} GB/s "
+                        f"busy {row['busy_cores']:.2f} drift {row['drift_s']:+.3f}",
+                        flush=True,
+                    )
     print(f"\nmedian of {a.reps} ({time.strftime('%Y-%m-%d %H:%M')}), wrote {out}")
     print(f"{'config':28s} {'regime':8s} {'us':>9s} {'GB/s':>7s} {'%roof':>6s} {'uJ/call':>8s} {'spread':>7s}")
     for name, _ in SETS[a.set]:

@@ -46,8 +46,9 @@ def test_sampler_respects_fixed_keys():
 def test_search_runs_and_ranks():
     sp = {"op": "gemv", "weights": "q4_0", "target": "avx512_vnni", "threads": 1}
     s = {"layout": ["i16", "composed"], "rows": [1, 2], "rgroup": [1, 2]}
-    res, st = tune.search(sp, s, "hot", "energy", n0=6, keep=2, secs0=0.01, secs=0.02, max_moves=1,
-                          extra=["--K", "512", "--N", "64"], log=lambda m: None)
+    res, st = tune.search(
+        sp, s, "hot", "energy", n0=6, keep=2, secs0=0.01, secs=0.02, max_moves=1, extra=["--K", "512", "--N", "64"], log=lambda m: None
+    )
     assert res and all(r["relerr"] < 1e-4 for r in res)
     assert [r["energy_uJ"] for r in res[1:]] == sorted(r["energy_uJ"] for r in res[1:])
     assert st["builds"] >= 4 and st["measurements"] >= 4 and st["space_raw"] == 8
@@ -65,8 +66,14 @@ def test_plan_roundtrip_and_lookup(tmp_path):
     p = plan.Plan(str(tmp_path / "p.json"))
     c = spec.resolve({"op": "gemv", "weights": "q4_0", "target": "avx512_vnni", "layout": "composed", "rows": 2})
     k = plan.entry_key("gemv", "q4_0", 2048, 1024, "cold", 8)
-    p.entries[k] = {"config": {x: c[x] for x in spec.CODEGEN_KEYS}, "us": 1.0, "GBps": 1.0, "default_us": 2.0,
-                    "winner": "search0", "tune_s": 1.0}
+    p.entries[k] = {
+        "config": {x: c[x] for x in spec.CODEGEN_KEYS},
+        "us": 1.0,
+        "GBps": 1.0,
+        "default_us": 2.0,
+        "winner": "search0",
+        "tune_s": 1.0,
+    }
     p.save()
     got = plan.lookup("gemv", "q4_0", 2048, 1024, "cold", 8, path=str(tmp_path / "p.json"))
     assert got["layout"] == "composed" and got["rows"] == 2 and got["threads"] == 8
@@ -103,13 +110,11 @@ def test_plan_build_show_lookup_cli(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("KURN_CACHE_DIR", str(tmp_path / "cache"))
     m = tmp_path / "tiny.gguf"
     _tiny_gguf(m)
-    p, st = plan.build_plan(str(m), threads=2, regime="hot", n0=3, top=1, secs=0.02, reps=1, refine=False,
-                               log=lambda s: None)
+    p, st = plan.build_plan(str(m), threads=2, regime="hot", n0=3, top=1, secs=0.02, reps=1, refine=False, log=lambda s: None)
     assert st["tuned"] == 1 and len(p.entries) == 1
-    (k, e), = p.entries.items()
+    ((k, e),) = p.entries.items()
     assert k == "gemv/q4_0/K2048xN64/hot2" and e["config"]["weights"] == "q4_0"
-    p2, st2 = plan.build_plan(str(m), threads=2, regime="hot", n0=3, top=1, secs=0.02, reps=1, refine=False,
-                               log=lambda s: None)
+    p2, st2 = plan.build_plan(str(m), threads=2, regime="hot", n0=3, top=1, secs=0.02, reps=1, refine=False, log=lambda s: None)
     assert st2["tuned"] == 0  # reused
     cfgs = plan.for_model(str(m), "hot", 2)
     assert list(cfgs) == ["blk.0.attn_q.weight"]

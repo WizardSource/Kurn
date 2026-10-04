@@ -1,10 +1,13 @@
 """Brief on-box tuning for the hand-run kit: per format, pick the KURN kernels the benchmark matrix
 will race against the competitors.
 
-    gemv    batch 1, fastest config             (matrix batches 1)
-    energy  batch 1, lowest NVML joules/call    (matrix batches 1; the energy-tuned niche)
-    cols    multi-column GEMV, batch 8          (matrix batches 2-16, or 2-256 without a GEMM)
-    gemm    int8 tensor-core GEMM, batch 64     (matrix batches 16-256; Q8_0, Q4_0, IQ4_NL)
+    tuned-gemv     dp4a GEMV, batch 1, fastest config          (matrix batch 1)
+    tuned-energy   dp4a GEMV, batch 1, lowest NVML joules/call (matrix batch 1; the energy-tuned niche)
+    tuned-mma8     tensor-core engine, bn=8, tuned at batch 1  (matrix batches 1-8)
+    tuned-mma16    tensor-core engine, bn=16, batch 16          (9-16)
+    tuned-mma64    tensor-core engine, bn=64, batch 64          (17-64)
+    tuned-mma256   tensor-core engine, bn=64/128, batch 256     (65-256)
+The matrix also runs every `default-*` kernel, so the report shows tuned and default side by side.
 
 Output: {fmt: {name: [kg_config string, mmin, mmax]}} for `kurn gpu matrix --kernels`.
 """
@@ -22,27 +25,44 @@ def config_string(c):
     return " ".join(f"{k}={c[k]}" for k in codegen_keys(c["op"]))
 
 
+# Engine tune spaces per batch range (the matrix name, the batch it is tuned at, the space)
+ENGINE_SPACES = {
+    "mma8": (1, {"bn": [8], "bm": [32, 64, 128], "wm": [1, 2, 4], "wn": [1], "bk": [128, 256], "stages": [3, 4, 5],
+                 "splitk": [0], "xin": ["f32"]}),
+    "mma16": (16, {"bn": [16], "bm": [32, 64, 128], "wm": [1, 2, 4], "wn": [1, 2], "bk": [128, 256], "stages": [3, 4],
+                   "xin": ["f32", "f16"]}),
+    "mma64": (64, {"bn": [64], "bm": [64, 128], "wm": [2, 4], "wn": [1, 2], "bk": [64, 128, 256], "stages": [2, 3, 4],
+                   "xin": ["f16"]}),
+    "mma256": (256, {"bn": [64, 128], "bm": [128, 256], "wm": [2, 4], "wn": [2, 4], "bk": [64, 128, 256], "stages": [2, 3],
+                     "xin": ["f16"]}),
+}  # fmt: skip
+RANGES = {"mma8": (1, 8), "mma16": (9, 16), "mma64": (17, 64), "mma256": (65, 256)}
+
+
 def tune_format(fmt, harness, arch, quick=False, log=print):
+    """Brief tuning of every kernel the matrix races for this format; names start with `tuned-`."""
     out = {}
     n, k = TUNE_SHAPE
-    sample = 10 if quick else 28
+    sample = 8 if quick else 20
     base = {"op": "gemv", "weights": fmt, "target": "cuda", "arch": arch}
     res, _ = tune(base, dict(BRIEF["gemv"]), harness, (n, k, 1), "speed", 0.2, 3, sample=sample, log=log, arch=arch)
     if res:
-        out["gemv"] = [config_string(res[0]["config"]), 1, 1]
-        e = min((r for r in res[: max(4, len(res))] if r["J"] == r["J"]), key=lambda r: r["J"], default=None)
+        out["tuned-gemv"] = [config_string(res[0]["config"]), 1, 1]
+        e = min((r for r in res if r["J"] == r["J"]), key=lambda r: r["J"], default=None)
         if e is not None and e is not res[0]:
-            out["energy"] = [config_string(e["config"]), 1, 1]
-    cols_space = {**BRIEF["gemv"], "cols": [4, 8], "unroll": [1, 2]}
-    res, _ = tune(base, cols_space, harness, (n, k, 8), "speed", 0.2, 3, sample=sample // 2, log=log, arch=arch)
-    gemm = FORMATS[fmt]["gemm"]
-    if res:
-        out["cols"] = [config_string(res[0]["config"]), 2, 16 if gemm else 256]
-    if gemm:
-        gb = {"op": "gemm", "weights": fmt, "target": "cuda", "arch": arch}
-        res, _ = tune(gb, dict(BRIEF["gemm"]), harness, (n, k, 64), "speed", 0.2, 3, sample=sample, log=log, arch=arch)
+            out["tuned-energy"] = [config_string(e["config"]), 1, 1]
+    gb = {"op": "gemm", "weights": fmt, "target": "cuda", "arch": arch}
+    for name, (m, space) in ENGINE_SPACES.items():
+        if quick and name in ("mma16", "mma64"):
+            continue
+        res, _ = tune(gb, dict(space), harness, (n, k, m), "speed", 0.2, 3, sample=sample, log=log, arch=arch)
         if res:
-            out["gemm"] = [config_string(res[0]["config"]), 16, 256]
+            lo, hi = RANGES[name]
+            if quick and name == "mma8":
+                hi = 16
+            if quick and name == "mma256":
+                lo = 17
+            out[f"tuned-{name}"] = [config_string(res[0]["config"]), lo, hi]
     return out
 
 

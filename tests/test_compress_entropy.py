@@ -1,9 +1,10 @@
 """kurn.entropy: entropy, length-limited Huffman, bit-stream roundtrip, code extraction."""
 
-import numpy as np
 import pytest
 
 from kurn import entropy as en
+
+np = pytest.importorskip("numpy")
 
 
 def test_entropy_bounds():

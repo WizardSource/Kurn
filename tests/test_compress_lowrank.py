@@ -1,9 +1,10 @@
 """kurn.lowrank: weighted residual SVD, int8 factors, bit accounting."""
 
-import numpy as np
 import pytest
 
 from kurn import lowrank as lr
+
+np = pytest.importorskip("numpy")
 
 
 def test_full_rank_recovers_residual():

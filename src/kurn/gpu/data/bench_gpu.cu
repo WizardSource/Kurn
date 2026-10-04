@@ -410,6 +410,8 @@ struct Impl {
 struct KurnImpl : Impl {
   void *lib = nullptr;
   kg_config_fn config_fn;
+  kg_act_fn act_fn = nullptr;
+  int act = 0;  // 0: q8 activations (kg_quant); 1: kg_run reads f32 X; 2: kg_quant converts X to f16
   kg_check_shape_fn check_shape;
   kg_prep_bytes_fn prep_bytes;
   kg_prepare_fn prepare;
@@ -433,6 +435,7 @@ struct KurnImpl : Impl {
     }
 #define SYM(v, n) v = (decltype(v))dlsym(lib, n)
     SYM(config_fn, "kg_config");
+    SYM(act_fn, "kg_act");
     SYM(check_shape, "kg_check_shape");
     SYM(prep_bytes, "kg_prep_bytes");
     SYM(prepare, "kg_prepare");
@@ -447,6 +450,7 @@ struct KurnImpl : Impl {
       return;
     }
     config = config_fn();
+    act = act_fn ? act_fn() : 0;
   }
   bool setup(Problem &p, Acts &a) override {
     if (status != "ok" && status.rfind("ok", 0) != 0) return false;
@@ -470,31 +474,39 @@ struct KurnImpl : Impl {
       dP.push_back(d);
     }
     CK(cudaDeviceSynchronize());
-    CK(cudaMalloc(&dXq, xbytes(p.K, a.M)));
-    CK(cudaMalloc(&dXb, xblock_bytes(p.K, a.M)));
+    CK(cudaMalloc(&dXq, std::max<size_t>(16, xbytes(p.K, a.M))));
+    CK(cudaMalloc(&dXb, std::max<size_t>(16, xblock_bytes(p.K, a.M))));
     CK(cudaMalloc(&dY, (size_t)a.M * p.N * 4));
-    if (!include_quant) CK((cudaError_t)quant(a.dX, dXq, p.K, a.M, 0));
+    if (!include_quant && act != 1) CK((cudaError_t)quant(a.dX, dXq, p.K, a.M, 0));
     return true;
   }
+  const void *xin() const { return act == 1 ? (const void *)A->dX : (const void *)dXq; }
   void call(int i, cudaStream_t s) override {
-    if (include_quant) quant(A->dX, dXq, P->K, A->M, s);
-    run(dP.empty() ? (const void *)P->dW[i] : (const void *)dP[i], dXq, dY, P->N, P->K, A->M, s);
+    if (include_quant && act != 1) quant(A->dX, dXq, P->K, A->M, s);
+    run(dP.empty() ? (const void *)P->dW[i] : (const void *)dP[i], xin(), dY, P->N, P->K, A->M, s);
   }
   void check(Problem &p, Acts &a) override {
     CK(cudaMemset(dY, 0xFF, (size_t)a.M * p.N * 4));
-    if (quant(a.dX, dXq, p.K, a.M, 0) || run(dP.empty() ? (const void *)p.dW[0] : (const void *)dP[0], dXq, dY, p.N, p.K, a.M, 0)) {
+    if ((act != 1 && quant(a.dX, dXq, p.K, a.M, 0)) ||
+        run(dP.empty() ? (const void *)p.dW[0] : (const void *)dP[0], xin(), dY, p.N, p.K, a.M, 0)) {
       status = "launch failed";
       return;
     }
     CK(cudaDeviceSynchronize());
     std::vector<float> Y((size_t)a.M * p.N);
     CK(cudaMemcpy(Y.data(), dY, Y.size() * 4, cudaMemcpyDeviceToHost));
-    std::vector<uint8_t> xb(xblock_bytes(p.K, a.M));
-    CK((cudaError_t)xblocks(a.dX, dXb, p.K, a.M, 0));
-    CK(cudaDeviceSynchronize());
-    CK(cudaMemcpy(xb.data(), dXb, xb.size(), cudaMemcpyDeviceToHost));
     std::vector<double> ref;
-    kref_gemm(p.fmt.c_str(), p.W.data(), xb.data(), nullptr, p.N, p.K, a.M, p.rows, a.cols, ref);
+    if (act == 0) {  // exact reference on the kernel's own q8 activation blocks
+      std::vector<uint8_t> xb(xblock_bytes(p.K, a.M));
+      CK((cudaError_t)xblocks(a.dX, dXb, p.K, a.M, 0));
+      CK(cudaDeviceSynchronize());
+      CK(cudaMemcpy(xb.data(), dXb, xb.size(), cudaMemcpyDeviceToHost));
+      kref_gemm(p.fmt.c_str(), p.W.data(), xb.data(), nullptr, p.N, p.K, a.M, p.rows, a.cols, ref);
+    } else {  // tensor-core engine: exact weights x f16-rounded activations
+      std::vector<float> xh(a.X.size());
+      for (size_t i = 0; i < xh.size(); i++) xh[i] = kref_round_f16(a.X[i]);
+      kref_gemm(p.fmt.c_str(), p.W.data(), nullptr, xh.data(), p.N, p.K, a.M, p.rows, a.cols, ref);
+    }
     relerr_exact = relerr_vs(ref, Y, p, a);
     relerr_model = relerr_vs(a.ref_model, Y, p, a);
     if (!(relerr_exact <= 1e-5)) status = "WRONG (exactness check failed)";

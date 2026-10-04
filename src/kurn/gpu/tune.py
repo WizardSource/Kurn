@@ -23,9 +23,8 @@ OBJECTIVES = ("energy", "speed", "edp")
 # Brief spaces per op: the keys that matter most for a first look on a new GPU.
 BRIEF = {
     "gemv": {"layout": ["native", "split"], "tpr": [8, 16, 32, 64], "rpb": [1, 2, 4, 8], "sub": [1, 2, 4], "unroll": [1, 2, 4],
-             "minb": [0, 4]},
-    "gemm": {"layout": ["native", "split"], "bm": [64, 128], "bn": [32, 64, 128], "wm": [2, 4], "wn": [1, 2, 4], "bkb": [1, 2],
-             "pipe": ["reg2", "async2", "async3"], "pad": [16]},
+             "minb": [0, 4], "xlayout": ["blocks", "split"]},
+    "gemm": {"bn": [8], "bm": [32, 64, 128], "wm": [1, 2, 4], "wn": [1], "bk": [128, 256], "stages": [3, 4, 5], "xin": ["f32"]},
 }  # fmt: skip
 
 
@@ -84,9 +83,9 @@ def tune(spec, space, harness, shape=(4096, 14336, 1), objective="energy", secs=
             log(f"FAIL build {label(c)}: {str(lib).splitlines()[0]}")
             continue
         lib, rep = lib
-        spill = sum(r["spill_st"] + r["spill_ld"] for r in rep.values())
+        spill = sum(r["spill_st"] + r["spill_ld"] + r["stack"] for k, r in rep.items() if k.endswith(("kg_gemv", "kg_gemm")))
         if spill:  # register spills to local memory: skip before spending GPU time on it
-            log(f"skip {label(c)}: {spill} bytes of register spills (ptxas)")
+            log(f"skip {label(c)}: {spill} bytes of register spills / local memory (ptxas)")
             continue
         try:
             check, samples = run_kernel(harness, lib, c["weights"], n, k, m, reps=1 if sample else reps, secs=secs)

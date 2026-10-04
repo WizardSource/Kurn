@@ -8,7 +8,7 @@ times 32 layers, so tokens/s = batch / (32 x the sum of the four matmul times).
 import os
 import subprocess
 
-from .spec import FORMATS, resolve
+from .spec import resolve
 from .toolchain import nvcc_build
 
 MODEL = {"name": "Llama-3-8B (matmuls only)", "layers": 32,
@@ -17,15 +17,40 @@ BATCHES = (1, 4, 16, 64, 256)
 COMPETITORS = ("ggml", "cublas-fp16", "cublas-int8")
 
 
+# Tensor-core engine tiles per batch range: (name, batch range, preferred overrides, fallbacks if illegal for the format)
+ENGINE_TILES = (
+    ("mma8", (1, 8), [{"bn": 8, "bm": 64, "wm": 4, "wn": 1, "xin": "f32", "stages": 4}]),
+    ("mma16", (9, 16), [{"bn": 16, "bm": 64, "wm": 4, "wn": 1, "xin": "f32", "stages": 4},
+                        {"bn": 16, "bm": 64, "wm": 4, "wn": 1, "xin": "f16", "stages": 3}]),
+    ("mma64", (17, 64), [{"bn": 64, "bm": 128, "wm": 4, "wn": 2, "xin": "f16", "bk": 128, "stages": 3},
+                         {"bn": 64, "bm": 64, "wm": 2, "wn": 2, "xin": "f16", "bk": 128, "stages": 3},
+                         {"bn": 64, "bm": 64, "wm": 2, "wn": 2, "xin": "f16", "stages": 2}]),
+    ("mma256", (65, 256), [{"bn": 128, "bm": 128, "wm": 2, "wn": 4, "xin": "f16", "bk": 128, "stages": 3},
+                           {"bn": 128, "bm": 128, "wm": 2, "wn": 4, "xin": "f16", "bk": 64, "stages": 3},
+                           {"bn": 128, "bm": 128, "wm": 2, "wn": 4, "xin": "f16", "stages": 2},
+                           {"bn": 64, "bm": 128, "wm": 4, "wn": 2, "xin": "f16", "bk": 128, "stages": 3},
+                           {"bn": 64, "bm": 64, "wm": 2, "wn": 2, "xin": "f16", "stages": 2}]),
+)  # fmt: skip
+
+
+def engine_tile(fmt, arch, options):
+    from ..spec import SpecError
+
+    for ov in options:
+        try:
+            return resolve({"op": "gemm", "weights": fmt, "arch": arch, **ov})
+        except SpecError:
+            continue
+    return None
+
+
 def default_kernels(fmt, arch):
-    """KURN kernels for a format before (or without) tuning: {name: (config, mmin, mmax)}."""
-    gemm = FORMATS[fmt]["gemm"]
-    out = {
-        "gemv": (resolve({"op": "gemv", "weights": fmt, "arch": arch}), 1, 1),
-        "cols": (resolve({"op": "gemv", "weights": fmt, "arch": arch, "cols": 8, "rpb": 2}), 2, 16 if gemm else 256),
-    }
-    if gemm:
-        out["gemm"] = (resolve({"op": "gemm", "weights": fmt, "arch": arch}), 16, 256)
+    """KURN's default kernels for a format: {name: (config, mmin, mmax)}; names start with `default-`."""
+    out = {"default-gemv": (resolve({"op": "gemv", "weights": fmt, "arch": arch}), 1, 1)}
+    for name, (lo, hi), options in ENGINE_TILES:
+        c = engine_tile(fmt, arch, options)
+        if c is not None:
+            out[f"default-{name}"] = (c, lo, hi)
     return out
 
 

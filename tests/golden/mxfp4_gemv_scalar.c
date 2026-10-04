@@ -13,11 +13,6 @@ static inline float bitsf(uint32_t u) { float f; memcpy(&f, &u, 4); return f; }
 static inline float e8m0h(uint8_t x) {  /* ggml_e8m0_to_fp32_half */
     return bitsf(x < 2 ? 0x00200000u << x : (uint32_t)(x - 1) << 23);
 }
-static inline float ue4m3h(uint8_t x) {  /* ggml_ue4m3_to_fp32: UE4M3 scale x 0.5 (the codes are E2M1 x 2) */
-    if (x == 0 || x == 0x7F) return 0.0f;
-    const int e = (x >> 3) & 15, m = x & 7;
-    return e ? bitsf((uint32_t)(e - 8 + 127) << 23) * (1.0f + (float)m / 8.0f) : (float)m * (1.0f / 1024.0f);
-}
 typedef struct { uint8_t e; uint8_t qs[16]; } nblock;
 typedef struct { uint16_t d; int8_t qs[32]; } xblock;
 static const int8_t KV[16] = {0, 1, 2, 3, 4, 6, 8, 12, 0, -1, -2, -3, -4, -6, -8, -12};

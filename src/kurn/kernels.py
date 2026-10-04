@@ -98,10 +98,24 @@ for _w, _entry, _bench, _doc in (
     ("q1_0", "kq10_gemv", "q10gemv", "Q1_0 (1-bit Bonsai) x Q8_0"),
 ):
     KERNELS[("gemv", _w)] = Kernel("gemv", _w, _GENERIC_TARGETS, _dispatch(None), _entry, _bench, _doc)
-for _w, _short in (("q8_0", "q8"), ("q4_K", "q4k"), ("q4_0", "q40"), ("iq4_nl", "iq4nl"), ("q2_0", "q20"),
-                   ("tq2_0", "tq20"), ("q1_0", "q10")):
-    KERNELS[("verify", _w)] = Kernel("verify", _w, _VERIFY_TARGETS, _dispatch(None), f"k{_short}_vfy", f"{_short}vfy",
-                                     f"{_w} weights x 2-8 activation columns (multi-token verify)")
+for _w, _short in (
+    ("q8_0", "q8"),
+    ("q4_K", "q4k"),
+    ("q4_0", "q40"),
+    ("iq4_nl", "iq4nl"),
+    ("q2_0", "q20"),
+    ("tq2_0", "tq20"),
+    ("q1_0", "q10"),
+):
+    KERNELS[("verify", _w)] = Kernel(
+        "verify",
+        _w,
+        _VERIFY_TARGETS,
+        _dispatch(None),
+        f"k{_short}_vfy",
+        f"{_short}vfy",
+        f"{_w} weights x 2-8 activation columns (multi-token verify)",
+    )
 
 from . import ext  # noqa: E402,F401  (workstream extensions register into the dicts above)
 
@@ -115,7 +129,7 @@ def kernel(c):
 def generate(c):
     """Resolved config (see spec.resolve) -> C source implementing the kurn.h ABI."""
     k = kernel(c)
-    return k.lower(c["target"], dict(c, entry=k.entry))
+    return codegen.prune_helpers(k.lower(c["target"], dict(c, entry=k.entry)))
 
 
 def embed(src, prefix):

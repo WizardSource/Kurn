@@ -13,6 +13,7 @@ typedef void *cudaStream_t;
 extern "C" {
 #endif
 const char *kg_config(void);
+int kg_act(void);  // 0: kg_quant -> q8 activations (reference: kg_xblocks); 1: kg_run reads f32 X; 2: kg_quant -> f16 X
 int kg_check_shape(int N, int K, int M);
 size_t kg_prep_bytes(int N, int K);  // 0: kg_run reads the native weights directly
 int kg_prepare(const void *W, void *Wp, int N, int K, cudaStream_t s);
@@ -26,6 +27,7 @@ int kg_run(const void *W, const void *Xq, float *Y, int N, int K, int M, cudaStr
 #endif
 
 typedef const char *(*kg_config_fn)(void);
+typedef int (*kg_act_fn)(void);
 typedef int (*kg_check_shape_fn)(int, int, int);
 typedef size_t (*kg_prep_bytes_fn)(int, int);
 typedef int (*kg_prepare_fn)(const void *, void *, int, int, cudaStream_t);

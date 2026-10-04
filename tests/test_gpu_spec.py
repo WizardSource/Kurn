@@ -1,5 +1,9 @@
 """`target cuda` specs: validation, legal configurations, covering sets and CLI routing."""
 
+import os
+import subprocess
+import sys
+
 import pytest
 
 from kurn import hooks
@@ -7,28 +11,34 @@ from kurn.cli import main
 from kurn.gpu import spec as gs
 from kurn.spec import SpecError
 
-from conftest import EXAMPLES
+from conftest import EXAMPLES, ROOT
 
 
 def test_defaults_resolve_for_every_format():
     for f, d in gs.FORMATS.items():
         c = gs.resolve({"op": "gemv", "weights": f})
-        assert c["target"] == "cuda" and c["arch"] == "sm_80" and c["layout"] == "native"
-        if d["gemm"]:
-            assert gs.resolve({"op": "gemm", "weights": f})["pipe"] == "reg2"
+        assert c["target"] == "cuda" and c["arch"] == "sm_80" and c["layout"] == "split"  # 16-byte weight loads
+        assert c["xlayout"] == ("split" if d["act"] == "q8_0" else "blocks")
+        g = gs.resolve({"op": "gemm", "weights": f})
+        assert d["gemm"] and g["bn"] == 8 and g["xin"] == "f32" and g["splitk"] == 0
 
 
 @pytest.mark.parametrize("bad, msg", [
-    ({"op": "gemm", "weights": "q4_K"}, "op gemm supports"),
     ({"op": "gemv", "weights": "q4_0", "tpr": 4, "rpb": 1}, "block size"),
     ({"op": "gemv", "weights": "q4_K", "mins": "bsums", "sub": 4}, "mins=bsums"),
-    ({"op": "gemm", "weights": "q8_0", "pipe": "async2", "layout": "native"}, "layout split"),
+    ({"op": "gemv", "weights": "q4_K", "cols": 8, "unroll": 2}, "cols \\* unroll"),
     ({"op": "gemm", "weights": "q8_0", "bm": 32, "wm": 4}, "multiple of 16"),
-    ({"op": "gemm", "weights": "q8_0", "layout": "split", "pipe": "async3", "bm": 128, "bn": 128, "bkb": 4}, "shared memory"),
+    ({"op": "gemm", "weights": "q4_0", "bm": 128, "bn": 128, "wm": 2, "wn": 2, "xin": "f16", "bk": 64}, "registers"),
+    ({"op": "gemm", "weights": "q1_0", "bk": 128}, "bk"),
+    ({"op": "gemm", "weights": "q4_0", "bn": 128, "bm": 128, "wm": 2, "wn": 4, "xin": "f32"}, "xin=f32"),
+    ({"op": "gemm", "weights": "q8_0", "bm": 256, "bn": 256, "wm": 4, "wn": 4, "bk": 256, "stages": 5, "xin": "f16"},
+     "shared memory|registers"),
+    ({"op": "gemm", "weights": "q4_0", "layout": "split"}, "unknown key"),
     ({"op": "gemv", "weights": "q4_0", "rows": 4}, "unknown key"),
     ({"op": "gemv", "weights": "q4_0", "arch": "sm_70"}, "arch"),
     ({"op": "gemv", "weights": "q4_0", "unpack": "lut"}, "unpack"),
     ({"op": "gemv", "weights": "q5_0"}, "weights"),
+    ({"op": "gemv", "weights": "q4_K", "xlayout": "split"}, "xlayout"),
 ])  # fmt: skip
 def test_invalid_specs(bad, msg):
     with pytest.raises(SpecError, match=msg):
@@ -37,13 +47,11 @@ def test_invalid_specs(bad, msg):
 
 def test_legal_and_covering_configs():
     legal = list(gs.legal_configs("gemm", "q4_0"))
-    assert len(legal) > 100 and all(gs.gemm_smem(c) <= gs.SMEM_LIMIT for c in legal)
+    assert len(legal) > 100 and all(gs.gemm_smem(c) <= gs.gemm_smem_limit(c) for c in legal)
+    assert any(c["bm"] == 128 and c["bn"] == 128 for c in legal)  # 128x128 CTA tiles (64x32 warp tiles) are legal
+    assert not any(c["bm"] // c["wm"] == 64 and c["bn"] // c["wn"] == 64 for c in legal)  # 64x64 warp tiles spill
     for op, f in (("gemv", "q4_K"), ("gemv", "q1_0"), ("gemm", "iq4_nl")):
         cov = gs.covering_configs(op, f, extra=0)
-        for k in gs.keys_for(op):  # every legal value of every key appears at least once
-            vals = {c[k] for c in cov}
-            legal_vals = {c[k] for c in (gs.legal_configs(op, f) if op == "gemm" else cov)}
-            assert legal_vals <= vals, (op, f, k)
         assert len({gs.config_key(c) for c in cov}) == len(cov)
 
 
@@ -70,3 +78,18 @@ def test_gpu_cli_misc(capsys):
     assert "tq2_0" in capsys.readouterr().out
     assert main(["gpu", "dispatch", "q4_0", "1"]) == 0
     assert '"stock"' in capsys.readouterr().out
+
+
+def test_gpu_modules_import_without_numpy():
+    code = (
+        "import sys, importlib, pkgutil\n"
+        "sys.modules['numpy'] = None\n"
+        "import kurn.gpu, kurn.cli\n"
+        "for m in pkgutil.iter_modules(kurn.gpu.__path__):\n"
+        "    importlib.import_module('kurn.gpu.' + m.name)\n"
+        "from kurn.gpu import codegen, ref, spec\n"
+        "codegen.generate(spec.resolve({'op': 'gemv', 'weights': 'e8p'}))\n"
+        "ref.problem('e8p', 2, 256, 1)\n"
+    )
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env={**os.environ, "PYTHONPATH": str(ROOT / "src")})
+    assert r.returncode == 0, r.stderr

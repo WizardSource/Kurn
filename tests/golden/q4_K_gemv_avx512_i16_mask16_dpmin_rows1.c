@@ -4,8 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <immintrin.h>
-static inline float f16f(uint16_t h) { return _cvtsh_ss(h); }
-
 typedef struct { uint16_t d; uint16_t dmin; uint8_t scales[12]; uint8_t qs[128]; } nblock;
 typedef struct { int64_t nrec_k, ngroups; uint8_t *buf; } packed_t;
 #define REC_BYTES 2368
@@ -51,22 +49,7 @@ void *kq4k_gemv_prepare(const void *W, int64_t K, int64_t N) {
 static const uint8_t SCIDX[64] __attribute__((aligned(64))) = {0, 128, 0, 128, 1, 128, 1, 128, 2, 128, 2, 128, 3, 128, 3, 128, 4, 128, 4, 128, 5, 128, 5, 128, 6, 128, 6, 128, 7, 128, 7, 128, 8, 128, 8, 128, 9, 128, 9, 128, 10, 128, 10, 128, 11, 128, 11, 128, 12, 128, 12, 128, 13, 128, 13, 128, 14, 128, 14, 128, 15, 128, 15, 128};
 
 static inline int32_t ld32(const uint8_t *p) { int32_t v; memcpy(&v, p, 4); return v; }
-static inline int64_t ld64(const uint8_t *p) { int64_t v; memcpy(&v, p, 8); return v; }
-static inline uint16_t ld16(const uint8_t *p) { uint16_t v; memcpy(&v, p, 2); return v; }
 static inline float ldf(const uint8_t *p) { float v; memcpy(&v, p, 4); return v; }
-static inline int32_t sum_i8(const uint8_t *q, int n) {  /* sum of n = 16 or 32 int8 */
-    __m128i s;
-    if (n == 32) {
-        const __m256i t = _mm256_sad_epu8(_mm256_xor_si256(_mm256_loadu_si256((const __m256i *)q), _mm256_set1_epi8((char)0x80)),
-                                          _mm256_setzero_si256());
-        s = _mm_add_epi64(_mm256_castsi256_si128(t), _mm256_extracti128_si256(t, 1));
-    } else {
-        s = _mm_sad_epu8(_mm_xor_si128(_mm_loadu_si128((const __m128i *)q), _mm_set1_epi8((char)0x80)), _mm_setzero_si128());
-    }
-    s = _mm_add_epi64(s, _mm_unpackhi_epi64(s, s));
-    return _mm_cvtsi128_si32(s) - 128 * n;
-}
-
 static inline void storev(float *y, int64_t row0, int64_t r0, int64_t r1, __m512 v) {
     if (row0 >= r0 && row0 + 16 <= r1) { _mm512_storeu_ps(y + row0, v); return; }
     uint32_t m = 0xFFFF;

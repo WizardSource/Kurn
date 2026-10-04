@@ -5,13 +5,14 @@ import os
 import random
 import struct
 
-import numpy as np
 import pytest
 
 from kurn import mx
 from kurn.formats import FORMATS, reference_dot, split_blocks
 
 from conftest import BLOCKS
+
+np = pytest.importorskip("numpy")
 
 LIBGGML = os.path.expanduser(os.environ.get("KURN_LIBGGML", "~/src/llama.cpp/build/bin/libggml-base.so"))
 

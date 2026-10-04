@@ -10,9 +10,6 @@ static inline __m512i hi16(__m512i v) { return _mm512_cvtepi16_epi32(_mm512_extr
 static inline __m512 fma16(__m512i s, __m512 d, __m512 dx, __m512 acc) {
     return _mm512_fmadd_ps(_mm512_cvtepi32_ps(s), _mm512_mul_ps(d, dx), acc);
 }
-static inline __m256 fma8(__m512i s, __m256 d, __m256 dx, __m256 acc) {
-    return _mm256_fmadd_ps(_mm512_cvtepi64_ps(s), _mm256_mul_ps(d, dx), acc);
-}
 /* addsub=mask: multiplication-free; 2 bit plane(s) per weight, 256 B per 32 rows x 32 values */
 
 typedef struct { uint16_t d; uint8_t qs[16]; } nblock;
@@ -60,7 +57,6 @@ void *kq20_gemv_prepare(const void *W, int64_t K, int64_t N) {
     return pk;
 }
 
-static inline int64_t ldq(const uint8_t *p) { int64_t v; memcpy(&v, p, 8); return v; }
 void kq20_gemv_packed(const void *pv, const void *X, float *Y, int64_t K, int64_t r0, int64_t r1) {
     const packed_t *pk = (const packed_t *)pv;
     const xblock *xb = (const xblock *)X;

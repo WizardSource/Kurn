@@ -142,8 +142,18 @@ def test_int16_and_bsum_limits(cfg, target):
 def test_pair_single_chain_verify(w, rows, cols, M):
     """pair with more than PAIR_SPLIT_MAX (row group, column) pairs uses one accumulator chain;
     every column must still match the reference, and column 0 must equal the GEMV bit for bit."""
-    c = spec.resolve({"op": "verify", "weights": w, "target": "avx512_vnni", "layout": "i16", "unpack": "pair",
-                      "rows": rows, "cols": cols, **({"correction": "dpmin"} if w == "q4_K" else {})})
+    c = spec.resolve(
+        {
+            "op": "verify",
+            "weights": w,
+            "target": "avx512_vnni",
+            "layout": "i16",
+            "unpack": "pair",
+            "rows": rows,
+            "cols": cols,
+            **({"correction": "dpmin"} if w == "q4_K" else {}),
+        }
+    )
     _native(c)
     rng = random.Random(5)
     f = FORMATS[w]
@@ -151,8 +161,17 @@ def test_pair_single_chain_verify(w, rows, cols, M):
     X = BLOCKS[f.act](rng, M * K // 256 if f.act == "q8_K" else M * K // 32)
     y = _run(c, W, X, M)
     _close(y, reference_gemm(f, W, X, K, N, M))
-    g = spec.resolve({"op": "gemv", "weights": w, "target": "avx512_vnni", "layout": "i16", "unpack": "pair",
-                      "rows": 1, **({"correction": "dpmin"} if w == "q4_K" else {})})
+    g = spec.resolve(
+        {
+            "op": "gemv",
+            "weights": w,
+            "target": "avx512_vnni",
+            "layout": "i16",
+            "unpack": "pair",
+            "rows": 1,
+            **({"correction": "dpmin"} if w == "q4_K" else {}),
+        }
+    )
     assert _run(g, W, X) == y[:N]
 
 
@@ -245,7 +264,7 @@ def test_xprep_matches_packed(w, unpack, op, n):
     want = []
     for c0 in range(0, C, cols):
         m = min(cols, C - c0)
-        y = _run(c, W, X[c0 * xrow:(c0 + m) * xrow], m)
+        y = _run(c, W, X[c0 * xrow : (c0 + m) * xrow], m)
         want += y[: N * m]
     assert got == want
     _close(got, reference_gemm(f, W, X, K, N, C))

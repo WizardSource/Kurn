@@ -10,9 +10,6 @@ static inline __m512i hi16(__m512i v) { return _mm512_cvtepi16_epi32(_mm512_extr
 static inline __m512 fma16(__m512i s, __m512 d, __m512 dx, __m512 acc) {
     return _mm512_fmadd_ps(_mm512_cvtepi32_ps(s), _mm512_mul_ps(d, dx), acc);
 }
-static inline __m256 fma8(__m512i s, __m256 d, __m256 dx, __m256 acc) {
-    return _mm256_fmadd_ps(_mm512_cvtepi64_ps(s), _mm256_mul_ps(d, dx), acc);
-}
 /* lut=direct3 (perm2): 11 chunks per 32-value unit, 64-entry int16 tables, 6 index words per row per unit (3.2500 bpw incl. scales) */
 
 typedef struct { uint16_t d; uint8_t qs[16]; } nblock;

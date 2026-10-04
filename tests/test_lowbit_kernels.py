@@ -18,8 +18,9 @@ from conftest import BLOCKS, f16_bits
 
 c_i64, c_vp = ctypes.c_int64, ctypes.c_void_p
 F32P = ctypes.POINTER(ctypes.c_float)
-LOWBIT = [c for c in legal_configs(op="gemv", prefetch=(0,))
-          if c["layout"] in ("lut", "addsub", "k16") or c["weights"] in ("tq1_0", "q2_K")]
+LOWBIT = [
+    c for c in legal_configs(op="gemv", prefetch=(0,)) if c["layout"] in ("lut", "addsub", "k16") or c["weights"] in ("tq1_0", "q2_K")
+]
 
 
 def _id(c):

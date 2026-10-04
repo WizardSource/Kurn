@@ -116,9 +116,19 @@ def screen(fmts):
         rows = []
         for c in configs(fmt):
             r = measure(c, "hot", 1, 0.3)
-            rows.append({"format": fmt, "family": family(c), "rows": c["rows"], "prefetch": c["prefetch"],
-                         "us": r["us"], "cpu_us": r["cpu_us"], "energy_uJ": round(r["cpu_us"] * W_CORE, 2),
-                         "drift_s": r["drift_s"], "key": "|".join(map(str, key(c)))})
+            rows.append(
+                {
+                    "format": fmt,
+                    "family": family(c),
+                    "rows": c["rows"],
+                    "prefetch": c["prefetch"],
+                    "us": r["us"],
+                    "cpu_us": r["cpu_us"],
+                    "energy_uJ": round(r["cpu_us"] * W_CORE, 2),
+                    "drift_s": r["drift_s"],
+                    "key": "|".join(map(str, key(c))),
+                }
+            )
             print(fmt, family(c), c["rows"], c["prefetch"], f"{r['us']:.2f} us", flush=True)
         write(f"screen_hot1_{fmt}.csv", rows)
 
@@ -186,9 +196,17 @@ def sweepn(fmts):
                     res[kind].append(bench(toolchain.build(cc), cc, "hot", 0.5, ["--N", str(n)], harness=HARNESS))
             for kind, (fam, _c) in pick.items():
                 us = statistics.median(r["us"] for r in res[kind])
-                out.append({"format": fmt, "N": n, "family": fam, "us": round(us, 3), "ns_per_row": round(1e3 * us / n, 2),
-                            "Gweights_s": round(4096 * n / us / 1e3, 1),
-                            "max_drift_s": max(abs(float(r["drift_s"])) for r in res[kind])})
+                out.append(
+                    {
+                        "format": fmt,
+                        "N": n,
+                        "family": fam,
+                        "us": round(us, 3),
+                        "ns_per_row": round(1e3 * us / n, 2),
+                        "Gweights_s": round(4096 * n / us / 1e3, 1),
+                        "max_drift_s": max(abs(float(r["drift_s"])) for r in res[kind]),
+                    }
+                )
                 print(out[-1], flush=True)
     write("sweep_n_hot1.csv", out)
 

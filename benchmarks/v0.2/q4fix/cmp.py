@@ -58,13 +58,21 @@ def main():
     cpus = {lab: [] for lab, _, _ in vs}
     rows = []
     for i in range(a.reps):
-        order = vs[i % len(vs):] + vs[: i % len(vs)]
+        order = vs[i % len(vs) :] + vs[: i % len(vs)]
         for lab, env_s, cmd in order:
             vals, cpu, wall = run(env_s, cmd, a.pattern, a.llama)
             res[lab].append(vals)
             cpus[lab].append(cpu)
-            rows.append({"round": i, "label": lab, "values": " ".join(f"{v:.4f}" for v in vals),
-                         "cpu_s": f"{cpu:.3f}", "wall_s": f"{wall:.3f}", "load1": f"{os.getloadavg()[0]:.2f}"})
+            rows.append(
+                {
+                    "round": i,
+                    "label": lab,
+                    "values": " ".join(f"{v:.4f}" for v in vals),
+                    "cpu_s": f"{cpu:.3f}",
+                    "wall_s": f"{wall:.3f}",
+                    "load1": f"{os.getloadavg()[0]:.2f}",
+                }
+            )
             print(f"round {i} {lab}: {' '.join(f'{v:.3f}' for v in vals)} (cpu {cpu:.1f}s wall {wall:.1f}s)", flush=True)
     nmet = len(res[vs[0][0]][0])
     base = vs[0][0]

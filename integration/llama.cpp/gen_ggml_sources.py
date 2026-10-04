@@ -201,8 +201,10 @@ def main(argv=None):
                 f"void {entry}1_packed_x(const void *, const void *, const void *, int64_t, int64_t, float *, int64_t, int64_t, int64_t);"
             )
             for n in [f"{entry}1"] + vfy_names:
-                decls.append(f"size_t {n}_xprep_bytes(int64_t, int64_t); "
-                             f"void {n}_xprep(const void *, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, void *);")
+                decls.append(
+                    f"size_t {n}_xprep_bytes(int64_t, int64_t); "
+                    f"void {n}_xprep(const void *, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, void *);"
+                )
         for name, _ in vfy.values():
             decls.append(f"void {name}(const void *, const void *, float *, int64_t, int64_t, int64_t, int64_t, int64_t);")
             decls.append(
@@ -210,8 +212,10 @@ def main(argv=None):
                 f"void {name}_packed(const void *, const void *, float *, int64_t, int64_t, int64_t, int64_t, int64_t);"
             )
             if xp:
-                decls.append(f"void {name}_packed_x(const void *, const void *, const void *, int64_t, int64_t, float *, int64_t, "
-                             "int64_t, int64_t, int64_t, int64_t);")
+                decls.append(
+                    f"void {name}_packed_x(const void *, const void *, const void *, int64_t, int64_t, float *, int64_t, "
+                    "int64_t, int64_t, int64_t, int64_t);"
+                )
         desc = " ".join(f"{k}={c[k]}" for k in ("layout", "rows", "prefetch", "unpack", "correction", "scales", "accum", "ilv"))
         rec_rows = 32 if c["unpack"] == "pair" else 16  # pair records hold rows r and r + 16 in one byte
         align = rec_rows * int(c.get("ilv", 1))
@@ -220,9 +224,12 @@ def main(argv=None):
             f"{entry}_kurn_bytes, "
             f"{entry}_kurn_view, {entry}_kurn_pack, {entry}_packed, {entry}1_packed, "
             f"{{ {', '.join(n + '_packed' for n, _ in vfy.values())} }}, "
-            + (f"{entry}_xprep_bytes, {entry}_xprep, {entry}_packed_x, {entry}1_packed_x, "
-               f"{{ {', '.join(n + '_packed_x' for n in vfy_names)} }} }},"
-               if xp else "NULL, NULL, NULL, NULL, { NULL, NULL, NULL } },")
+            + (
+                f"{entry}_xprep_bytes, {entry}_xprep, {entry}_packed_x, {entry}1_packed_x, "
+                f"{{ {', '.join(n + '_packed_x' for n in vfy_names)} }} }},"
+                if xp
+                else "NULL, NULL, NULL, NULL, { NULL, NULL, NULL } },"
+            )
         )
         print(f"{fmt}: {desc}")
     cpp_open = ["#ifdef __cplusplus", 'extern "C" {', "#endif"]

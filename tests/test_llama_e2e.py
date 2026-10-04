@@ -3,8 +3,9 @@ fixed perplexity text, without running llama.cpp."""
 
 import sys
 
-from conftest import ROOT
+from conftest import ROOT, require_tree
 
+require_tree("benchmarks/v0.2/e2e/run_e2e.py", "benchmarks/v0.2/e2e/run_spec.py")
 E2E = ROOT / "benchmarks" / "v0.2" / "e2e"
 sys.path.insert(0, str(E2E))
 import run_e2e  # noqa: E402

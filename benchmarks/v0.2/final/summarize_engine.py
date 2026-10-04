@@ -28,7 +28,7 @@ def fmt(vals):
 
 
 for name in sys.argv[1:]:
-    rows = list(csv.DictReader(open(RES / f"{name}.csv")))[committed_rows(name):]
+    rows = list(csv.DictReader(open(RES / f"{name}.csv")))[committed_rows(name) :]
     print(f"## {name} ({len(rows)} new rows)")
     print("| config | " + " | ".join(COLS) + " |")
     print("|" + "---|" * (len(COLS) + 1))

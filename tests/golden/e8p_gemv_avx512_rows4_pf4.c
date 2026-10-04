@@ -5,15 +5,6 @@
 #include "kurn.h"
 typedef struct { uint16_t d; uint8_t lo[32]; uint8_t hi[32]; } block_e8p;
 _Static_assert(sizeof(block_e8p) == 66, "e8p size");
-static inline float f16f(uint16_t h) {
-    uint32_t s = (uint32_t)(h & 0x8000) << 16, e = (h >> 10) & 0x1f, m = h & 0x3ff, b;
-    if (e == 0) {
-        if (!m) b = s;
-        else { e = 113; while (!(m & 0x400)) { m <<= 1; e--; } b = s | (e << 23) | ((m & 0x3ff) << 13); }
-    } else if (e == 31) b = s | 0x7f800000 | (m << 13);
-    else b = s | ((e + 112) << 23) | (m << 13);
-    float f; memcpy(&f, &b, 4); return f;
-}
 static const uint64_t E8P_ABS4[256] __attribute__((aligned(64))) = {
     0x0202020202020202ULL, 0x0606020202020202ULL, 0x0602060202020202ULL, 0x0206060202020202ULL,
     0x0602020602020202ULL, 0x0206020602020202ULL, 0x0202060602020202ULL, 0x0602020206020202ULL,

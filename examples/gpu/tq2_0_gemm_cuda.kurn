@@ -1,0 +1,7 @@
+# Ternary TQ2_0 (BitNet b1.58) on the tensor-core engine at batch 1: crumbs dequantize to q-1 in f16 with one
+# LOP3 + one FMA per two weights. ggml-cuda has no TQ2_0 kernel at all.
+kernel   tq2_0_gemm_cuda
+op       gemm
+weights  tq2_0
+target   cuda
+tune     bm=32,64,128 wm=1,2,4 bk=128,256 stages=3,4,5

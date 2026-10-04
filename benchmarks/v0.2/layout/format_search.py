@@ -16,8 +16,29 @@ from kurn import spec, tune
 from kurn.harness import bench
 from kurn.toolchain import build
 
-KEYS = ("layout", "rows", "prefetch", "unpack", "correction", "scales", "accum", "align", "lanes", "plane", "kblock",
-        "rgroup", "meta", "rgpad", "swizzle", "chains", "pfhint", "pfgran", "stages", "kpanel", "rpanel")
+KEYS = (
+    "layout",
+    "rows",
+    "prefetch",
+    "unpack",
+    "correction",
+    "scales",
+    "accum",
+    "align",
+    "lanes",
+    "plane",
+    "kblock",
+    "rgroup",
+    "meta",
+    "rgpad",
+    "swizzle",
+    "chains",
+    "pfhint",
+    "pfgran",
+    "stages",
+    "kpanel",
+    "rpanel",
+)
 
 
 def fixed(op, f, t):
@@ -60,13 +81,20 @@ def main():
                     meas[n].append(r["us"])
         med = {n: round(statistics.median(v), 2) for n, v in meas.items() if v}
         best_fixed = min((n for n in med if n != "search_winner"), key=med.get)
-        report[f] = {"search_s": round(ts, 1), "stats": {k: st[k] for k in ("space_active", "legal_est", "builds",
-                                                                              "measurements")},
-                     "winner": {k: win[k] for k in KEYS}, "us": med, "best_fixed": best_fixed,
-                     "us_min_max": {n: [round(min(v), 2), round(max(v), 2)] for n, v in meas.items() if v},
-                     "speedup_vs_best_fixed": round(med[best_fixed] / med["search_winner"], 3)}
-        print(f"{f}: search {ts:.0f}s, winner {med['search_winner']} us vs best fixed {best_fixed} {med[best_fixed]} us "
-              f"({report[f]['speedup_vs_best_fixed']}x)  winner={ {k: win[k] for k in KEYS} }", flush=True)
+        report[f] = {
+            "search_s": round(ts, 1),
+            "stats": {k: st[k] for k in ("space_active", "legal_est", "builds", "measurements")},
+            "winner": {k: win[k] for k in KEYS},
+            "us": med,
+            "best_fixed": best_fixed,
+            "us_min_max": {n: [round(min(v), 2), round(max(v), 2)] for n, v in meas.items() if v},
+            "speedup_vs_best_fixed": round(med[best_fixed] / med["search_winner"], 3),
+        }
+        print(
+            f"{f}: search {ts:.0f}s, winner {med['search_winner']} us vs best fixed {best_fixed} {med[best_fixed]} us "
+            f"({report[f]['speedup_vs_best_fixed']}x)  winner={ {k: win[k] for k in KEYS} }",
+            flush=True,
+        )
     if a.out:
         with open(a.out, "w") as fh:
             json.dump(report, fh, indent=1)

@@ -46,9 +46,7 @@ void *kiq4nl_gemv_prepare(const void *W, int64_t K, int64_t N) {
 static const uint8_t LUT[64] __attribute__((aligned(64))) = {1, 24, 45, 63, 79, 93, 106, 118, 129, 141, 153, 166, 181, 197, 217, 241, 1, 24, 45, 63, 79, 93, 106, 118, 129, 141, 153, 166, 181, 197, 217, 241, 1, 24, 45, 63, 79, 93, 106, 118, 129, 141, 153, 166, 181, 197, 217, 241, 1, 24, 45, 63, 79, 93, 106, 118, 129, 141, 153, 166, 181, 197, 217, 241};
 
 static inline int32_t ld32(const uint8_t *p) { int32_t v; memcpy(&v, p, 4); return v; }
-static inline int64_t ld64(const uint8_t *p) { int64_t v; memcpy(&v, p, 8); return v; }
 static inline uint16_t ld16(const uint8_t *p) { uint16_t v; memcpy(&v, p, 2); return v; }
-static inline float ldf(const uint8_t *p) { float v; memcpy(&v, p, 4); return v; }
 static inline int32_t sum_i8(const uint8_t *q, int n) {  /* sum of n = 16 or 32 int8 */
     __m128i s;
     if (n == 32) {

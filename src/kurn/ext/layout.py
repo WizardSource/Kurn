@@ -35,6 +35,7 @@ def _possible(op, f, t):
 def _key(values_fn):
     def legal(op, f, t):
         return values_fn(op, f, t) if _possible(op, f, t) else values_fn.neutral
+
     return legal
 
 
@@ -46,8 +47,7 @@ def _vals(neutral, fn):
 KEYS = {
     "lanes": (0, _vals(0, lambda op, f, t: (0, 16, 8) if t == "avx512_vnni" else (0, 8))),
     "plane": ("auto", _vals("auto", lambda op, f, t: ("auto",) + sched.planes_for(generic.RECIPES[f].bits))),
-    "kblock": (0, _vals(0, lambda op, f, t: (0,) + tuple(k for k in (32, 64, 128, 256)
-                                                          if k % generic.RECIPES[f].period == 0))),
+    "kblock": (0, _vals(0, lambda op, f, t: (0,) + tuple(k for k in (32, 64, 128, 256) if k % generic.RECIPES[f].period == 0))),
     "rgroup": (1, _vals(1, lambda op, f, t: (1, 2, 4))),
     "meta": ("auto", _vals("auto", lambda op, f, t: ("auto", "head", "tail"))),
     "rgpad": (0, _vals(0, lambda op, f, t: (0, 64))),
@@ -74,6 +74,7 @@ def _layout_value(op, f, t):
 def _algo_values(key):
     def extra(op, f, t):
         return sched.algo_values(generic.RECIPES[f], t)[key] if _possible(op, f, t) else ()
+
     return extra
 
 
@@ -108,13 +109,16 @@ def _reason(c):
         return str(e)
 
 
-hooks.EXTRA_INVALID.extend([
-    (lambda c: c["layout"] != LAYOUT and any(c[k] != AUTO[k] for k in KEYS),
-     "lanes/plane/kblock/rgroup/meta/rgpad/swizzle/chains/pfhint/pfgran/stages/kpanel/rpanel apply to layout=composed "
-     "only"),
-    (lambda c: c["layout"] == LAYOUT and c["act"] != "once", "act applies to layout=native only (use act=once)"),
-    (lambda c: _reason(c) is not None, "illegal composed layout/schedule (run `kurn check` with the config for the reason)"),
-])
+hooks.EXTRA_INVALID.extend(
+    [
+        (
+            lambda c: c["layout"] != LAYOUT and any(c[k] != AUTO[k] for k in KEYS),
+            "lanes/plane/kblock/rgroup/meta/rgpad/swizzle/chains/pfhint/pfgran/stages/kpanel/rpanel apply to layout=composed only",
+        ),
+        (lambda c: c["layout"] == LAYOUT and c["act"] != "once", "act applies to layout=native only (use act=once)"),
+        (lambda c: _reason(c) is not None, "illegal composed layout/schedule (run `kurn check` with the config for the reason)"),
+    ]
+)
 
 
 def _resolve(c):
@@ -195,9 +199,13 @@ def covering(op, f, t):
 
 hooks.ENUMERATORS[LAYOUT] = covering
 
-hooks.GOLDEN.update({
-    "composed_q4_K_gemv_avx512": dict(op="gemv", weights="q4_K", target="avx512_vnni", layout=LAYOUT, rows=2,
-                                      correction="pair", unpack="perm", rgroup=2),
-    "composed_q4_0_vfy_avx2": dict(op="verify", weights="q4_0", target="avx2_vnni", layout=LAYOUT, rows=1, cols=4,
-                                   plane="khalf", kblock=64),
-})
+hooks.GOLDEN.update(
+    {
+        "composed_q4_K_gemv_avx512": dict(
+            op="gemv", weights="q4_K", target="avx512_vnni", layout=LAYOUT, rows=2, correction="pair", unpack="perm", rgroup=2
+        ),
+        "composed_q4_0_vfy_avx2": dict(
+            op="verify", weights="q4_0", target="avx2_vnni", layout=LAYOUT, rows=1, cols=4, plane="khalf", kblock=64
+        ),
+    }
+)

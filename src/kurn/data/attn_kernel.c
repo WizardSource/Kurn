@@ -34,7 +34,7 @@
 #define KA_ALIGN(x) (((x) + 63) & ~(size_t)63)
 #define KA_MIN(a, b) ((a) < (b) ? (a) : (b))
 #define KA_MAX(a, b) ((a) > (b) ? (a) : (b))
-#define KA_INLINE static inline __attribute__((always_inline))
+#define KA_INLINE static inline __attribute__((always_inline, unused)) /* shared by all engines; each uses a subset */
 
 #if KA_KV == KATTN_KV_Q8_0
 #define KA_ROW_BYTES(d) ((int64_t)(d) / 32 * 34)

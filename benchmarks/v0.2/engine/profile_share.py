@@ -13,14 +13,23 @@ import sys
 
 RULES = [
     ("spin", r"ggml_barrier|libgomp|sched_yield|\bawait_slow\b|\bwait_kind\b|gomp_|do_spin|do_wait"),
-    ("matmul", r"kq8e_(store|axpy|swiglu_q8|store_sumsq)|kq8_gemv|vec_dot|gemv|gemm|ggml_compute_forward_mul_mat|amx|tinyblas|"
-               r"repack|mul_mat|kq8"),
-    ("dispatch", r"libllama|ggml_backend_sched|ggml_gallocr|ggml_graph_(?!compute)|ggml_new_tensor|ggml_visit_parents|"
-                 r"ggml_hash|llm_build|llama_context|ggml_build_forward|ggml_view|ggml_reshape|ggml_permute|ggml_cont|"
-                 r"ggml_set_name|ggml_format_name|ggml_init|ggml_free|ggml_graph_compute_thread|ggml_compute_forward\b|"
-                 r"ggml_backend_(?!cpu_graph)|malloc|free|memset|operator new|_int_malloc|_int_free"),
-    ("attn_ops", r"attention|flash_attn|soft_max|rope|rms_norm|ggml_compute_forward_|ggml_vec_|swiglu|silu|quantize|"
-                 r"rmsnorm|norm_quant|reduce_into|step|cpy|get_rows|add|mul\b|exp"),
+    (
+        "matmul",
+        r"kq8e_(store|axpy|swiglu_q8|store_sumsq)|kq8_gemv|vec_dot|gemv|gemm|ggml_compute_forward_mul_mat|amx|tinyblas|"
+        r"repack|mul_mat|kq8",
+    ),
+    (
+        "dispatch",
+        r"libllama|ggml_backend_sched|ggml_gallocr|ggml_graph_(?!compute)|ggml_new_tensor|ggml_visit_parents|"
+        r"ggml_hash|llm_build|llama_context|ggml_build_forward|ggml_view|ggml_reshape|ggml_permute|ggml_cont|"
+        r"ggml_set_name|ggml_format_name|ggml_init|ggml_free|ggml_graph_compute_thread|ggml_compute_forward\b|"
+        r"ggml_backend_(?!cpu_graph)|malloc|free|memset|operator new|_int_malloc|_int_free",
+    ),
+    (
+        "attn_ops",
+        r"attention|flash_attn|soft_max|rope|rms_norm|ggml_compute_forward_|ggml_vec_|swiglu|silu|quantize|"
+        r"rmsnorm|norm_quant|reduce_into|step|cpy|get_rows|add|mul\b|exp",
+    ),
     ("kernel", r"\[kernel|\[k\]"),
 ]
 

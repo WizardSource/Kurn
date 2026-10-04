@@ -11,10 +11,11 @@ import subprocess
 import tempfile
 from unittest import mock
 
-import numpy as np
 import pytest
 
 from kurn import toolchain
+
+np = pytest.importorskip("numpy")
 
 gguf = pytest.importorskip("gguf")
 
@@ -71,7 +72,7 @@ def rmsnorm(x, w, eps):
 def rope_neox(v, pos, D, base):
     th = pos * np.power(np.float64(base), -2.0 * np.arange(D // 2) / D)
     c, s = np.cos(th), np.sin(th)
-    a, b = v[..., : D // 2].astype(np.float64), v[..., D // 2:].astype(np.float64)
+    a, b = v[..., : D // 2].astype(np.float64), v[..., D // 2 :].astype(np.float64)
     return np.concatenate([a * c - b * s, a * s + b * c], axis=-1).astype(np.float32)
 
 
@@ -106,28 +107,28 @@ def make_model(path, arch, seed, fmt="q8_0"):
         return v
 
     m["embd"] = q8("token_embd.weight", V, E, 0.25)
-    m["output"] = q8("output.weight", V, E, E ** -0.5) if arch == "olmoe" else m["embd"]  # Qwen3: tied
+    m["output"] = q8("output.weight", V, E, E**-0.5) if arch == "olmoe" else m["embd"]  # Qwen3: tied
     m["out_norm"] = f32("output_norm.weight", E)
     for i in range(L):
         b, ly = f"blk.{i}.", {}
         ly["attn_norm"] = f32(b + "attn_norm.weight", E)
-        ly["q"] = q8(b + "attn_q.weight", H * D, E, E ** -0.5)
-        ly["k"] = q8(b + "attn_k.weight", KV * D, E, E ** -0.5)
-        ly["v"] = q8(b + "attn_v.weight", KV * D, E, E ** -0.5)
+        ly["q"] = q8(b + "attn_q.weight", H * D, E, E**-0.5)
+        ly["k"] = q8(b + "attn_k.weight", KV * D, E, E**-0.5)
+        ly["v"] = q8(b + "attn_v.weight", KV * D, E, E**-0.5)
         ly["o"] = q8(b + "attn_output.weight", E, H * D, (H * D) ** -0.5)
         nq, nk = (D, D) if arch == "qwen3" else (H * D, KV * D)
         ly["q_norm"] = f32(b + "attn_q_norm.weight", nq)
         ly["k_norm"] = f32(b + "attn_k_norm.weight", nk)
         ly["ffn_norm"] = f32(b + "ffn_norm.weight", E)
         if arch == "qwen3":
-            ly["gate"] = q8(b + "ffn_gate.weight", F, E, E ** -0.5)
-            ly["up"] = q8(b + "ffn_up.weight", F, E, E ** -0.5)
-            ly["down"] = q8(b + "ffn_down.weight", E, F, F ** -0.5)
+            ly["gate"] = q8(b + "ffn_gate.weight", F, E, E**-0.5)
+            ly["up"] = q8(b + "ffn_up.weight", F, E, E**-0.5)
+            ly["down"] = q8(b + "ffn_down.weight", E, F, F**-0.5)
         else:
             X = p["n_expert"]
             ly["router"] = f32(b + "ffn_gate_inp.weight", X * E, 0.0, 0.3).reshape(X, E)
             for nm, rows, cols in (("gate", F, E), ("up", F, E), ("down", E, F)):
-                raws, wbs = zip(*(q_weight(rng, rows, cols, cols ** -0.5, fmt) for _ in range(X)))
+                raws, wbs = zip(*(q_weight(rng, rows, cols, cols**-0.5, fmt) for _ in range(X)))
                 w.add_tensor(b + f"ffn_{nm}_exps.weight", np.stack(raws), raw_dtype=qtype)
                 ly[nm] = wbs
         m["layers"].append(ly)
@@ -213,8 +214,9 @@ def _run(exe, arch, T, extra_env=None):
     path, m = _model(arch)
     dump = f"{exe}.T{T}.logits"
     env = {**os.environ, "KURN_WAIT": "futex:2000", "KURN_THP": "0", "KURN_DUMP_LOGITS": dump, **(extra_env or {})}
-    r = subprocess.run([exe, path, "gen", str(T), str(NGEN), ",".join(map(str, PROMPT))], env=env,
-                       capture_output=True, text=True, timeout=300, check=True)
+    r = subprocess.run(
+        [exe, path, "gen", str(T), str(NGEN), ",".join(map(str, PROMPT))], env=env, capture_output=True, text=True, timeout=300, check=True
+    )
     gen = [int(t) for t in r.stdout.split("gen:")[1].split("\n")[0].split()]
     logits = np.fromfile(dump, np.float32).reshape(-1, m["p"]["vocab"])
     return gen, logits, r.stdout

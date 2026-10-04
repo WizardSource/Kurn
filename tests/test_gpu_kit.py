@@ -13,6 +13,11 @@ from conftest import ROOT
 KIT = ROOT / "contrib" / "gpu-check"
 
 
+def test_release_requires_the_gpu_kit():
+    text = (ROOT / "tools" / "make_release.sh").read_text()
+    assert "contrib/gpu-check/run_gpu_check.sh" in text and "the hand-run GPU kit must ship" in text
+
+
 def test_scripts_parse():
     for s in ("run_gpu_check.sh", "make_kit.sh"):
         assert subprocess.run(["bash", "-n", str(KIT / s)]).returncode == 0

@@ -10,20 +10,30 @@ import pytest
 from kurn.gpu import codegen, emu, toolchain
 from kurn.gpu import spec as gs
 
+pytestmark = pytest.mark.skipif(bool(toolchain.cxx_problem()), reason=f"CPU emulator unavailable: {toolchain.cxx_problem()}")
+
 
 def _cases():
     out = []
     for f, d in gs.FORMATS.items():
         out.append({"op": "gemv", "weights": f})
-        out.append({"op": "gemv", "weights": f, "layout": "split", "sub": 1, "unroll": 4, "cols": 4, "rpb": 2})
-        out.append({"op": "gemv", "weights": f, "layout": "split", "sub": 4, "tpr": 64, "rpb": 2, "cols": 2,
+        un = 2 if f in ("q8_0", "e8p") else 1
+        out.append({"op": "gemv", "weights": f, "layout": "split", "sub": 2 if f == "q4_K" else 1, "unroll": un, "cols": 4,
+                    "rpb": 2})  # fmt: skip
+        out.append({"op": "gemv", "weights": f, "layout": "split", "sub": 4, "tpr": 64, "rpb": 2, "cols": 2, "unroll": 2,
                     **({"mins": "dp4a"} if f == "q4_K" else {})})  # fmt: skip
-        out.append({"op": "gemv", "weights": f, "tpr": 8, "rpb": 8, "unroll": 1, **({"unpack": "lut"} if f == "q1_0" else {})})
-        if d["gemm"]:
-            out.append({"op": "gemm", "weights": f})
-            for pipe in ("sync", "async2", "async3"):
-                out.append({"op": "gemm", "weights": f, "layout": "split", "pipe": pipe, "bm": 32, "wm": 1, "bn": 16, "wn": 2,
-                            "bkb": 4, "pad": 0})  # fmt: skip
+        out.append({"op": "gemv", "weights": f, "layout": "native", "tpr": 8, "rpb": 8, "unroll": 1,
+                    **({"unpack": "lut"} if f == "q1_0" else {})})  # fmt: skip
+        if d["act"] == "q8_0":  # aligned activation layout (contributed by the user)
+            out.append({"op": "gemv", "weights": f, "layout": "split", "sub": 1, "cols": 4, "rpb": 2, "xlayout": "split",
+                        "unroll": 2 if f == "q8_0" else 1})  # fmt: skip
+            out.append({"op": "gemv", "weights": f, "sub": 4, "tpr": 64, "rpb": 2, "cols": 2, "xlayout": "split", "unroll": 2})
+            out.append({"op": "gemv", "weights": f, "layout": "native", "xlayout": "blocks"})
+        bk = 256 if f == "q1_0" else 128
+        out.append({"op": "gemm", "weights": f})
+        out.append({"op": "gemm", "weights": f, "bm": 64, "bn": 32, "wm": 2, "wn": 2, "bk": bk, "stages": 3, "splitk": 2, "xin": "f16"})
+        out.append({"op": "gemm", "weights": f, "bm": 32, "bn": 16, "wm": 1, "wn": 2, "bk": 256, "stages": 2, "splitk": 4, "xin": "f16"})
+        out.append({"op": "gemm", "weights": f, "bm": 32, "bn": 8, "wm": 2, "wn": 1, "bk": 256, "stages": 2, "splitk": 8, "xin": "f32"})
     return out
 
 
@@ -59,16 +69,38 @@ def _mutant(c, old, new, scheds=(0, 3, 11)):
 
 
 @pytest.mark.parametrize("ov, old, new, why", [
-    ({"op": "gemm", "weights": "q8_0"}, "    __syncthreads();\n    if (ks + 1 < nks)", "    if (ks + 1 < nks)", "read before stored"),
-    ({"op": "gemm", "weights": "q8_0"}, "    compute(0);\n    __syncthreads();", "    compute(0);\n", "write after read"),
-    ({"op": "gemm", "weights": "q4_0", "layout": "split", "pipe": "async3"}, "KCP_WAIT(1);", "KCP_WAIT(2);", "cp.async not awaited"),
+    ({"op": "gemm", "weights": "q4_0", "bm": 64, "bn": 32, "wm": 2, "wn": 2, "xin": "f16", "stages": 3, "splitk": 2},
+     "^ (row & 7)) * 16));", ") * 16));", "ldmatrix reads the unswizzled layout"),
+    ({"op": "gemm", "weights": "q4_0", "bm": 64, "bn": 32, "wm": 2, "wn": 2, "xin": "f16", "stages": 3, "splitk": 2},
+     "KCP_WAIT(STAGES - 2);", "KCP_WAIT(STAGES - 1);", "pipeline reads a stage before its cp.async completes"),
+    ({"op": "gemm", "weights": "q4_0"}, "0x64086408u", "0x64076407u", "dequant offset off by one"),
+    ({"op": "gemm", "weights": "q4_K"}, "acc[mm][nn][0] += dsc[mm][0] * d[0] - dmn[mm][0] * xs0;",
+     "acc[mm][nn][0] += dsc[mm][0] * d[0];", "Q4_K min term dropped"),
+    ({"op": "gemm", "weights": "q4_0"}, "    __syncthreads();\n    const int nx", "    const int nx", "missing stage barrier"),
     ({"op": "gemv", "weights": "q8_0", "layout": "split", "sub": 1}, "kld_v4(wq + (size_t)u * 32 + p * 32 + 16)",
      "kld_v4(wq + (size_t)u * 32 + p * 32 + 18)", "misaligned 16-byte load"),
     ({"op": "gemv", "weights": "q4_K", "tpr": 64, "rpb": 2}, "__syncthreads();\n  if (lid == 0", "  if (lid == 0", "cross-warp reduce"),
     ({"op": "gemv", "weights": "q8_0"}, "v += __shfl_xor_sync(KURN_FULL, v, 16);", "", "dropped shuffle"),
-    ({"op": "gemv", "weights": "q8_0"}, "if (w < work) kunit", "if (w < work - 1) kunit", "dropped work"),
+    ({"op": "gemv", "weights": "q8_0"}, "for (; w0 < work; w0 += 32) kunit", "for (; w0 < work - 1; w0 += 32) kunit", "dropped tail work"),
 ])  # fmt: skip
 def test_emulator_catches_bugs(ov, old, new, why):
     res = _mutant(gs.resolve(ov), old, new)
     caught = isinstance(res, str) or not all(r["ok"] for r in res)
     assert caught, f"emulator missed: {why}"
+
+
+def test_cxx_probe_reports_a_broken_compiler(tmp_path, monkeypatch):
+    fake = tmp_path / "broken-c++"
+    fake.write_text("#!/bin/sh\necho \"fatal error: 'cmath' file not found\" >&2\nexit 1\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("KURN_CXX", str(fake))
+    for f in (toolchain.cxx, toolchain.cxx_problem, toolchain.cxx_is_clang):
+        f.cache_clear()
+    try:
+        why = toolchain.cxx_problem()
+        assert why and "cmath" in why and "KURN_CXX" in why
+        with pytest.raises(toolchain.GpuToolchainError):
+            toolchain.emu_build(gs.resolve({"op": "gemv", "weights": "q8_0"}))
+    finally:
+        for f in (toolchain.cxx, toolchain.cxx_problem, toolchain.cxx_is_clang):
+            f.cache_clear()

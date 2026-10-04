@@ -57,8 +57,10 @@ def main():
     a = ap.parse_args()
     g = groups(load(a.csv))
     bases, ggmls = a.base.split(","), a.ggml.split(",")
-    print(f"| config | reps | µs/layer (med) | σ | MB/layer | GB/s | % roof | spin share | cpu/wall | mJ/layer proxy | +{a.platform_w:g} W "
-          "| model tok/s | vs v0.1 | vs ggml | max relerr | max load | max drift |")
+    print(
+        f"| config | reps | µs/layer (med) | σ | MB/layer | GB/s | % roof | spin share | cpu/wall | mJ/layer proxy | +{a.platform_w:g} W "
+        "| model tok/s | vs v0.1 | vs ggml | max relerr | max load | max drift |"
+    )
     print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for label in g:
         rs = g[label]
@@ -80,12 +82,14 @@ def main():
 
         mj = med(rs, "proxy_mJ_tok")
         gbps = med(rs, "GBps")
-        print(f"| {label} | {len(rs)} | {us:.1f} | {100 * s:.1f}% | {med(rs, 'bytes_per_tok') / 1e6:.2f} | {gbps:.1f} "
-              f"| {100 * gbps / a.roofline:.0f}% | {100 * med(rs, 'spin_share'):.1f}% "
-              f"| {med(rs, 'cpu_wall'):.2f} | {mj:.3f} | {mj + a.platform_w * us * 1e-3:.3f} "
-              f"| {med(rs, 'model_tok_s'):.1f} | {cmp(ref(bases))} | {cmp(ref(ggmls))} "
-              f"| {max(float(r['relerr']) for r in rs):.1e} | {max(float(r['load']) for r in rs):.1f} "
-              f"| {max(abs(float(r['drift_s'])) for r in rs):.3f} |")
+        print(
+            f"| {label} | {len(rs)} | {us:.1f} | {100 * s:.1f}% | {med(rs, 'bytes_per_tok') / 1e6:.2f} | {gbps:.1f} "
+            f"| {100 * gbps / a.roofline:.0f}% | {100 * med(rs, 'spin_share'):.1f}% "
+            f"| {med(rs, 'cpu_wall'):.2f} | {mj:.3f} | {mj + a.platform_w * us * 1e-3:.3f} "
+            f"| {med(rs, 'model_tok_s'):.1f} | {cmp(ref(bases))} | {cmp(ref(ggmls))} "
+            f"| {max(float(r['relerr']) for r in rs):.1e} | {max(float(r['load']) for r in rs):.1f} "
+            f"| {max(abs(float(r['drift_s'])) for r in rs):.3f} |"
+        )
 
 
 if __name__ == "__main__":

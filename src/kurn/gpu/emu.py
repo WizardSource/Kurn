@@ -28,8 +28,13 @@ def default_shape(c):
     """A small shape that exercises row tails, column tails and several K steps."""
     f = FORMATS[c["weights"]]
     k = max(512, 2 * f["block"]) if f["block"] < 256 else 512
-    if c["op"] == "gemm":
-        return 72, 256 if c["bkb"] < 4 else 320, 21  # N not a multiple of bm, M not of bn, K tail for bkb=4
+    if c["op"] == "gemm":  # N not a multiple of bm, M not of bn, K not a multiple of bk * splits (tails), every warp busy
+        from .mma import kmul
+
+        km = kmul(c)
+        k = max(3 * c["bk"] + km, 2 * km)
+        k = (k + km - 1) // km * km
+        return max(48, c["bm"] + 32), k, max(5, min(c["bn"] + 3, 40))
     # every lane of a row gets work, and unrolled iterations run past the end of K
     need = c["tpr"] * f["unit"] * c["unroll"] // c["sub"] * 3 // 2
     k = max(k, min(16384, need))
@@ -67,8 +72,7 @@ def run(c, n=None, k=None, m=None, seed=0, extreme=False, keep=False, sched=0, p
     finally:
         if not keep:
             shutil.rmtree(d, ignore_errors=True)
-    want = ref.act_blocks(c["weights"], x)
-    quant_ok = xb == want
+    quant_ok = xb == ref.act_blocks(c["weights"], x) if c["op"] == "gemv" else True  # gemm: f16 activations, no q8 blocks
     if python_ref:
         rf = ref.reference(c["weights"], W, xb, n, k, m)
     err = ref.relerr(y, rf)

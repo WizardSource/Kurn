@@ -65,21 +65,30 @@ int main(int argc, char **argv) {
     if (kg_prepare(W, P, N, K, nullptr)) { fprintf(stderr, "kg_prepare failed\n"); return 4; }
     Wr = P;
   }
+  const int act = kg_act();
   size_t xb = kg_xbytes(K, M);
-  void *Xq = guarded(xb);
-  if (kg_quant(X, Xq, K, M, nullptr)) { fprintf(stderr, "kg_quant failed\n"); return 4; }
+  void *Xq = act == 1 ? (void *)X : guarded(xb ? xb : 16);
+  if (act != 1 && kg_quant(X, Xq, K, M, nullptr)) { fprintf(stderr, "kg_quant failed\n"); return 4; }
   float *Y = (float *)guarded((size_t)M * N * 4);
+  memset(Y, 0xFF, (size_t)M * N * 4);  // NaN: every output must be written
   if (kg_run(Wr, Xq, Y, N, K, M, nullptr)) { fprintf(stderr, "kg_run failed\n"); return 4; }
   dump(dir + "/Y.bin", Y, (size_t)M * N * 4);
-  size_t blk = kg_xblock_bytes(K, M);
-  void *Xb = guarded(blk);
-  if (kg_xblocks(X, Xb, K, M, nullptr)) { fprintf(stderr, "kg_xblocks failed\n"); return 4; }
-  dump(dir + "/Xb.bin", Xb, blk);
   std::vector<int> rows(N), cols(M);
   for (int i = 0; i < N; i++) rows[i] = i;
   for (int i = 0; i < M; i++) cols[i] = i;
   std::vector<double> ref;
-  kref_gemm(fmt, (const uint8_t *)W, (const uint8_t *)Xb, nullptr, N, K, M, rows, cols, ref);
+  if (act == 0) {
+    size_t blk = kg_xblock_bytes(K, M);
+    void *Xb = guarded(blk);
+    if (kg_xblocks(X, Xb, K, M, nullptr)) { fprintf(stderr, "kg_xblocks failed\n"); return 4; }
+    dump(dir + "/Xb.bin", Xb, blk);
+    kref_gemm(fmt, (const uint8_t *)W, (const uint8_t *)Xb, nullptr, N, K, M, rows, cols, ref);
+  } else {  // tensor-core engine: exact weights x f16-rounded activations
+    std::vector<float> xh((size_t)K * M);
+    for (size_t i = 0; i < xh.size(); i++) xh[i] = kref_round_f16(X[i]);
+    dump(dir + "/Xb.bin", xh.data(), 0);
+    kref_gemm(fmt, (const uint8_t *)W, nullptr, xh.data(), N, K, M, rows, cols, ref);
+  }
   dump(dir + "/R.bin", ref.data(), ref.size() * sizeof(double));
   return 0;
 }
