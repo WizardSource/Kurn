@@ -5,7 +5,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Compile identical source/target requests once per parallel search batch while benchmarking every runtime configuration separately.
+
 ### Fixed
+- Cache repeated legality-probe validations locally without changing draw weights or the random stream.
 - Aggregate energy-delay products per repetition and reject incomplete or invalid measurements during tuning.
 - Preserve confirmed refinement winners, validate plan reuse, and publish compiler outputs atomically.
 - Bound search parameters and avoid redundant sampling work without merging runtime settings.
