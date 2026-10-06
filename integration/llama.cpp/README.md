@@ -167,10 +167,20 @@ Verify cost on this buffer type is a staircase: 3 columns cost as much as 4 and 
   stops and truncates every draft through it (`KURN_SPEC_WIDTH_MODE=cap`: rate-only cap). The patch adds draft
   confidences and a keep-drafting callback to draft-simple; without `KURN_SPEC_WIDTH` behaviour is unchanged.
 
+- **llama-server** (`llama-server-spec-width.patch`): `--spec-width TABLE` (or `KURN_SPEC_WIDTH=TABLE`) with a draft
+  model (`-md DRAFT --spec-type draft-simple --spec-draft-n-max 15`) gives every slot its own policy, which keeps
+  learning across the slot's requests: the draft length is capped per step, drafting stops per token, and drafts are
+  truncated before verification (`--spec-width-mode cap`: rate-only cap). A step the policy declines runs without a
+  draft. Each finished request logs `kurn spec width: verify widths (M:steps) = ...`.
+
 ```sh
 kurn/integration/llama.cpp/spec-width/apply.sh ~/src/llama-kurn   # after apply.sh; idempotent
-cmake --build build -j --target llama-speculative-simple kurn-spec-calib
+cmake --build build -j --target llama-server llama-speculative-simple kurn-spec-calib
+llama-server -m TARGET.gguf -md DRAFT.gguf --spec-type draft-simple --spec-draft-n-max 15 --spec-width target.cost
 ```
+
+With `GGML_KURN_FA_MODE=exact` (kurn attention, see above) speculative output equals the no-draft output: Qwen3-1.7B /
+Qwen3-0.6B draft in llama-server, 8 prompts x 4 draft configs, 0 of 32 runs differ (ggml's FA: 22, kurn fast mode: 21).
 
 ## AMX caveat
 
