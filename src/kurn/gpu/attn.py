@@ -549,11 +549,13 @@ MATRIX_MODELS = {
 MATRIX_CONTEXTS = (1024, 4096, 16384, 32768)
 
 
-def matrix(harness, results, kvs=("f16", "bf16", "q8_0"), models=MATRIX_MODELS, contexts=MATRIX_CONTEXTS, nqs=(1,), secs=0.4, reps=5,
+def matrix(harness, results, kvs=None, models=MATRIX_MODELS, contexts=MATRIX_CONTEXTS, nqs=(1,), secs=0.4, reps=5,
            kernels=None, log=print, arch=ARCH):  # fmt: skip
-    """For each (model, KV format, context, nq): the default kernel (or the `kernels[(model, kv)]` overrides) is checked
-    on the GPU and timed in the cold regime. Writes RESULTS/attn_matrix.jsonl and returns the rows."""
+    """For each (model, KV format, context, nq) on tier tier_for(arch): the default kernel (or the
+    `kernels[(model, kv)]` overrides) is checked on the GPU and timed in the cold regime. Writes
+    RESULTS/attn_matrix.jsonl and returns the rows."""
     os.makedirs(results, exist_ok=True)
+    kvs = kvs or SCHEDULE["kv"]({"arch": tier_for(arch)})  # fp8 on the sm_100 / sm_120 tiers
     path = os.path.join(results, "attn_matrix.jsonl")
     rows = []
     with open(path, "w") as fh:
