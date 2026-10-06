@@ -41,6 +41,17 @@ FORMATS = {
     "tq2_0": dict(unit=128, ub=32, block=256, nbytes=66, act="q8_K", sb=2, gemm=True, doc="ternary (BitNet b1.58 TQ2_0)"),
     "q1_0": dict(unit=128, ub=16, block=128, nbytes=18, act="q8_0", sb=2, gemm=True, doc="1-bit Bonsai, value = d*(+-1)"),
     "e8p": dict(unit=32, ub=8, block=256, nbytes=66, act="q8_K", sb=2, gemm=True, doc="E8 lattice codebook, 2.06 bpw"),
+    "mxfp4": dict(unit=32, ub=16, block=32, nbytes=17, act="q8_0", sb=1, gemm=True, doc="OCP MXFP4: E2M1 codes, E8M0 scale per 32"),
+    "nvfp4": dict(
+        unit=32,
+        ub=16,
+        block=64,
+        nbytes=36,
+        act="q8_0",
+        sb=4,
+        gemm=True,
+        doc="NVFP4: E2M1 codes, UE4M3 scale per 16 (per-tensor scale applied by the caller)",
+    ),
 }
 ACT = {"q8_0": dict(block=32, nbytes=34), "q8_K": dict(block=256, nbytes=292)}
 ARCHS = ("sm_80", "sm_86", "sm_89", "sm_90", "sm_100", "sm_120")
@@ -102,6 +113,8 @@ GEMV_FORMAT_DEFAULTS = {
     "tq2_0": {"layout": "split", "sub": 2, "unroll": 2},
     "q1_0": {"layout": "split", "sub": 1, "unroll": 4, "xlayout": "split"},
     "e8p": {"layout": "split", "sub": 1, "unroll": 4},
+    "mxfp4": {"layout": "split", "sub": 1, "unroll": 4, "xlayout": "split"},
+    "nvfp4": {"layout": "split", "sub": 1, "unroll": 4, "xlayout": "split"},
 }
 PROBLEM = {"n": 4096, "k": 4096, "m": 1}
 COMMON = ("kernel", "op", "weights", "target", "arch")

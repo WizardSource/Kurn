@@ -39,6 +39,11 @@ GOLDEN = {
     "q1_0_gemm_bn8": {"op": "gemm", "weights": "q1_0"},
     "e8p_gemm_64x64_f16": {"op": "gemm", "weights": "e8p", "bm": 64, "bn": 64, "wm": 2, "wn": 2, "bk": 128, "xin": "f16",
                            "stages": 3},
+    "mxfp4_gemv_native_blocks": {"op": "gemv", "weights": "mxfp4", "layout": "native", "xlayout": "blocks"},
+    "nvfp4_gemv_split_sub2_cols2": {"op": "gemv", "weights": "nvfp4", "layout": "split", "sub": 2, "cols": 2},
+    "mxfp4_gemm_bn8": {"op": "gemm", "weights": "mxfp4"},
+    "nvfp4_gemm_64x32_f16": {"op": "gemm", "weights": "nvfp4", "bm": 64, "bn": 32, "wm": 2, "wn": 2, "bk": 128, "xin": "f16",
+                             "stages": 3},
 }  # fmt: skip
 
 needs_nvcc = pytest.mark.skipif(not nvcc(), reason="nvcc not installed")

@@ -30,6 +30,8 @@ ENGINE = {
     "tq2_0": dict(kt=128, bits=2),
     "e8p": dict(kt=128, bits=2),
     "q1_0": dict(kt=256, bits=1),
+    "mxfp4": dict(kt=64, bits=4),
+    "nvfp4": dict(kt=64, bits=4),
 }
 SMEM_MAX = {"sm_80": 166912, "sm_86": 101376, "sm_89": 101376, "sm_90": 232448, "sm_100": 232448, "sm_120": 101376}
 FLAG_SLOTS = 1 << 18
@@ -45,6 +47,12 @@ def block(fmt):
     return FORMATS[fmt]["block"]
 
 
+def sblock(fmt):
+    """Values per engine scale record: the format block, except NVFP4, whose 64-value block is stored as two 32-value
+    windows (each record holds that window's two UE4M3 sub-block scales)."""
+    return 32 if fmt == "nvfp4" else block(fmt)
+
+
 def nat(j, s):
     """Natural offset (within a 32-value window) of slot s of k16 chunk j: lane quad t owns 8t..8t+7."""
     t, p = (s % 8) // 2, (s % 2) + 2 * (s // 8)
@@ -56,7 +64,7 @@ SLOT_NAT = [nat(j, s) for j in range(2) for s in range(16)]  # slot order of a w
 
 def nbs(c):
     """Scale blocks per stage (a stage shorter than the block still needs the one block it is in)."""
-    blk = 256 if c["weights"] == "q4_K" else block(c["weights"])
+    blk = 256 if c["weights"] == "q4_K" else sblock(c["weights"])
     return max(1, c["bk"] // blk)
 
 
@@ -78,7 +86,7 @@ def est_regs(c):
     """Register estimate fitted to ptxas (sm_80/sm_90): accumulators, per-row-tile fragments and scales, per-n8-tile B
     fragments and MMA results (nvcc hoists them), staging and format overheads."""
     mi, ni = c["bm"] // c["wm"] // 16, c["bn"] // c["wn"] // 8
-    extra = {"q4_K": 48, "q8_0": 8, "iq4_nl": 16}.get(c["weights"], 0) + (40 if c["xin"] == "f32" else 0)
+    extra = {"q4_K": 48, "q8_0": 8, "iq4_nl": 16, "mxfp4": 16, "nvfp4": 24}.get(c["weights"], 0) + (40 if c["xin"] == "f32" else 0)
     kts = c["bk"] // ENGINE[c["weights"]]["kt"]  # k-tiles per stage: nvcc hoists their A words
     return 4 * mi * ni + 14 * mi + 8 * ni + 56 + extra + 4 * mi * max(0, kts - 2)
 
@@ -135,16 +143,19 @@ def _deq_q8():
     ]
 
 
-def _deq_iq4():
-    return [
+def _deq_iq4(cb="kiq4", scaled=False):
+    out = [
         "#pragma unroll",
         "for (int j = 0; j < 2; j++) {",
         "  const uint32_t u = q[2 * wl + j];",
-        "  const uint32_t lo = kiq4(u & 0x0F0F0F0Fu) ^ 0x80808080u, hi = kiq4((u >> 4) & 0x0F0F0F0Fu) ^ 0x80808080u;",
+        f"  const uint32_t lo = {cb}(u & 0x0F0F0F0Fu) ^ 0x80808080u, hi = {cb}((u >> 4) & 0x0F0F0F0Fu) ^ 0x80808080u;",
         f"  a[j][0] = {_i8pair('lo', '0x4140')}; a[j][1] = {_i8pair('lo', '0x4342')};",
         f"  a[j][2] = {_i8pair('hi', '0x4140')}; a[j][3] = {_i8pair('hi', '0x4342')};",
-        "}",
     ]
+    if scaled:  # NVFP4: code (|c| <= 12) x UE4M3/2 is exact in f16 (<= 6 significant bits, 2^-10 .. 2688)
+        out += ["  a[j][0] = khfma2(a[j][0], sg[mm], 0u); a[j][2] = khfma2(a[j][2], sg[mm], 0u);",
+                "  a[j][1] = khfma2(a[j][1], sg8[mm], 0u); a[j][3] = khfma2(a[j][3], sg8[mm], 0u);"]  # fmt: skip
+    return out + ["}"]
 
 
 def _deq_q2():
@@ -196,6 +207,8 @@ DEQ = {
     "tq2_0": _deq_q2,
     "q1_0": _deq_q1,
     "e8p": _deq_e8p,
+    "mxfp4": lambda: _deq_iq4("kfp4"),
+    "nvfp4": lambda: _deq_iq4("kfp4", scaled=True),
 }
 
 
@@ -219,7 +232,7 @@ def _fields(fmt):
             for r, (rs, p) in enumerate(regs):
                 words[w].append((4 * lo_pos[r], 4, rs, k(win, j, p)))
                 words[w].append((4 * (lo_pos[r] + 4), 4, rs, k(win, j, p + 1)))
-    elif fmt == "iq4_nl":
+    elif fmt in ("iq4_nl", "mxfp4", "nvfp4"):
         for w in range(4):
             win, j = w // 2, w % 2
             for i, (rs, p) in enumerate([(0, 0), (0, 1), (1, 0), (1, 1)]):
@@ -273,8 +286,17 @@ def _raw_decoder(fmt):
         "  return (uint32_t)b[2 + vec] | ((uint32_t)b[34 + vec] << 8);",
     }
     body["iq4_nl"] = body["q4_0"]
+    body["mxfp4"] = "const uint8_t *b = W + (size_t)row * rowb + (size_t)(k / 32) * 17; const int j = k % 32;\n" \
+                    "  return j < 16 ? b[1 + j] & 15u : b[1 + j - 16] >> 4;"  # fmt: skip
+    body["nvfp4"] = "const uint8_t *b = W + (size_t)row * rowb + (size_t)(k / 64) * 36; const int v = k % 64;\n" \
+                    "  return (b[4 + (v / 16) * 8 + v % 8] >> (4 * ((v % 16) >= 8))) & 15u;"  # fmt: skip
     scale = {
         "tq2_0": "return kld_u16(W + (size_t)row * rowb + (size_t)blk * 66 + 64);",
+        # E8M0 2^(e - 128) as bf16 bits (exact: e = 1 is the bf16 subnormal 2^-127, e = 0 is 0)
+        "mxfp4": "const uint32_t e = W[(size_t)row * rowb + (size_t)blk * 17]; return e == 0 ? 0u : e == 1 ? 0x40u : (e - 1) << 7;",
+        # window blk of NVFP4 block blk/2: its two UE4M3 sub-block scales (low byte: values 0-15 of the window)
+        "nvfp4": "const uint8_t *b = W + (size_t)row * rowb + (size_t)(blk / 2) * 36 + 2 * (blk % 2); "
+        "return (uint32_t)b[0] | ((uint32_t)b[1] << 8);",
     }.get(fmt, f"return kld_u16(W + (size_t)row * rowb + (size_t)blk * {nb});")
     return (
         f"KURN_FN uint32_t kraw(const uint8_t *__restrict__ W, size_t rowb, int row, int k) {{\n  {body[fmt]}\n}}\n"
@@ -388,14 +410,13 @@ def _xstage_store(c):
 def kernel(c):
     w = c["weights"]
     e = ENGINE[w]
-    f = FORMATS[w]
     bm, bn, bk, wm, wn, st = c["bm"], c["bn"], c["bk"], c["wm"], c["wn"], c["stages"]
     tm, tn = bm // wm, bn // wn
     mi, ni = tm // 16, tn // 8
     nt = wm * wn * 32
     kt = e["kt"]
     q4k = w == "q4_K"
-    blk = f["block"]
+    blk = sblock(w)
     lines = []
     lines.append(f"""
 #define BM {bm}
@@ -455,13 +476,22 @@ __device__ int kg_flags[{FLAG_SLOTS}];
         scale_decl = f"float dsc[{mi}][2], dmn[{mi}][2];"
         scale_vars = "dsc, dmn"
     else:
-        scale_load = f"""        const uint32_t sw = kld_u32(Sb + ((size_t)((wr * {mi} + mm) * NBS + (kwin / {blk} - sblk0)) * 8 + g) * 4);
+        sw = f"const uint32_t sw = kld_u32(Sb + ((size_t)((wr * {mi} + mm) * NBS + (kwin / {blk} - sblk0)) * 8 + g) * 4);"
+        scale_load = f"""        {sw}
         dw0[mm] = kh2f_lo(sw); dw1[mm] = kh2f_hi(sw);"""
+        if w == "mxfp4":  # bf16 scale records
+            scale_load = f"""        {sw}
+        dw0[mm] = __uint_as_float(sw << 16); dw1[mm] = __uint_as_float(sw & 0xFFFF0000u);"""
+        if w == "nvfp4":  # per row: the UE4M3 scale of this lane's 16-value sub-block (values 8t..8t+7 of the window)
+            scale_load = f"""        {sw}
+        const uint32_t hg = KURN_F2H(kue4m3h((sw >> (8 * (t >> 1))) & 0xFFu)), hg8 = KURN_F2H(kue4m3h((sw >> (16 + 8 * (t >> 1))) & 0xFFu));
+        sg[mm] = hg | (hg << 16); sg8[mm] = hg8 | (hg8 << 16);
+        dw0[mm] = 1.f; dw1[mm] = 1.f;"""
         apply = """            acc[mm][nn][0] += dw0[mm] * d[0];
             acc[mm][nn][1] += dw0[mm] * d[1];
             acc[mm][nn][2] += dw1[mm] * d[2];
             acc[mm][nn][3] += dw1[mm] * d[3];"""
-        scale_decl = f"float dw0[{mi}], dw1[{mi}];"
+        scale_decl = f"float dw0[{mi}], dw1[{mi}];" + (f" uint32_t sg[{mi}], sg8[{mi}];" if w == "nvfp4" else "")
         scale_vars = "dw0, dw1"
     del scale_vars
     xin32 = c["xin"] == "f32"
@@ -719,7 +749,7 @@ __constant__ signed short kfield[4][{nf}][4] = {{
 // native ggml blocks -> fragment-ordered A plane + scale plane; one thread per output word / record
 static __global__ void kg_repack(const uint8_t *__restrict__ W, uint8_t *__restrict__ P, int N, int K) {{
   const size_t rowb = (size_t)(K / {f["block"]}) * {f["nbytes"]};
-  const int nkt = K / {e["kt"]}, nblk = K / {f["block"] if w != "q4_K" else 256};
+  const int nkt = K / {e["kt"]}, nblk = K / {sblock(w) if w != "q4_K" else 256};
   const long na = (long)(N / 16) * nkt * 128, nmeta = {nmeta};
   const long i = (long)blockIdx.x * blockDim.x + threadIdx.x;
   if (i < na) {{
@@ -744,7 +774,7 @@ def prep_bytes_expr(c):
     w = c["weights"]
     e = ENGINE[w]
     a = f"(size_t)(N / 16) * (K / {e['kt']}) * 512"
-    m = "(size_t)(N / 16) * (K / 256) * 256" if w == "q4_K" else f"(size_t)(N / 16) * (K / {block(w)}) * 32"
+    m = "(size_t)(N / 16) * (K / 256) * 256" if w == "q4_K" else f"(size_t)(N / 16) * (K / {sblock(w)}) * 32"
     return f"({a} + {m})"
 
 
@@ -807,7 +837,7 @@ int kg_check_shape(int N, int K, int M) {{ return (N > 0 && M > 0 && N % 16 == 0
 size_t kg_prep_bytes(int N, int K) {{ return {prep_bytes_expr(c)}; }}
 size_t kg_xbytes(int K, int M) {{ (void)K; (void)M; return {xbytes}; }}
 int kg_prepare(const void *W, void *Wp, int N, int K, cudaStream_t s) {{
-  const long n = (long)(N / 16) * (K / {ENGINE[w]["kt"]}) * 128 + (long)(N / 16) * (K / {256 if w == "q4_K" else block(w)}) * {16 if w == "q4_K" else 8};
+  const long n = (long)(N / 16) * (K / {ENGINE[w]["kt"]}) * 128 + (long)(N / 16) * (K / {256 if w == "q4_K" else sblock(w)}) * {16 if w == "q4_K" else 8};
   KURN_LAUNCH(kg_repack, dim3((unsigned)((n + 127) / 128)), dim3(128), s, (const uint8_t *)W, (uint8_t *)Wp, N, K);
 {err}
 }}

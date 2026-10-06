@@ -21,7 +21,18 @@ struct kref_fmt {
 static const kref_fmt KREF_FORMATS[] = {
     {"q8_0", 32, 34, 32, 34},     {"q4_0", 32, 18, 32, 34},    {"iq4_nl", 32, 18, 32, 34}, {"q4_K", 256, 144, 256, 292},
     {"q2_0", 64, 18, 32, 34},     {"tq2_0", 256, 66, 256, 292}, {"q1_0", 128, 18, 32, 34}, {"e8p", 256, 66, 256, 292},
+    {"mxfp4", 32, 17, 32, 34},    {"nvfp4", 64, 36, 32, 34},
 };
+
+// MXFP4 / NVFP4 (kurn.mx): codes are 2 * E2M1; the scales carry the compensating 1/2
+static const int KREF_FP4[16] = {0, 1, 2, 3, 4, 6, 8, 12, 0, -1, -2, -3, -4, -6, -8, -12};
+static inline double kref_e8m0_half(int e) { return e == 0 ? 0.0 : ldexp(1.0, e - 128); }
+static inline double kref_ue4m3_half(int u) {
+  u &= 0x7F;
+  if (u == 0 || u == 0x7F) return 0.0;
+  const int e = (u >> 3) & 15, m = u & 7;
+  return e == 0 ? m * ldexp(1.0, -10) : ldexp(1.0 + m / 8.0, e - 8);
+}
 
 static inline const kref_fmt *kref_format(const char *name) {
   for (const auto &f : KREF_FORMATS)
@@ -108,6 +119,15 @@ static inline void kref_dequant_w(const char *fmt, const uint8_t *w, int K, doub
     } else if (!strcmp(fmt, "tq2_0")) {
       double d = kref_h2d(kref_u16(p + 64));
       for (int v = 0; v < 256; v++) o[v] = d * (((p[(v / 128) * 32 + v % 32] >> (2 * ((v % 128) / 32))) & 3) - 1);
+    } else if (!strcmp(fmt, "mxfp4")) {
+      const double d = kref_e8m0_half(p[0]);
+      for (int i = 0; i < 16; i++) {
+        o[i] = d * KREF_FP4[p[1 + i] & 15];
+        o[i + 16] = d * KREF_FP4[p[1 + i] >> 4];
+      }
+    } else if (!strcmp(fmt, "nvfp4")) {
+      for (int v = 0; v < 64; v++)
+        o[v] = kref_ue4m3_half(p[v / 16]) * KREF_FP4[(p[4 + (v / 16) * 8 + v % 8] >> (4 * ((v % 16) >= 8))) & 15];
     } else if (!strcmp(fmt, "e8p")) {
       double d = kref_h2d(kref_u16(p));
       for (int g = 0; g < 32; g++) {
@@ -171,6 +191,14 @@ static inline void kref_gen_weights(const char *fmt, int N, int K, uint64_t seed
     uint16_t d = kref_f16_scale(r, small);
     if (!strcmp(fmt, "q8_0")) {
       for (int i = 0; i < 32; i++) p[2 + i] = (uint8_t)(int8_t)(r.range(255) - 127);
+    }
+    if (!strcmp(fmt, "mxfp4")) {
+      p[0] = (uint8_t)((small ? 118 : 123) + r.range(5));
+      continue;
+    }
+    if (!strcmp(fmt, "nvfp4")) {
+      for (int s = 0; s < 4; s++) p[s] = (uint8_t)((small ? 0x10 : 0x30) + r.range(0x20));
+      continue;
     }
     if (!strcmp(fmt, "tq2_0")) {
       p[64] = d & 0xFF, p[65] = d >> 8;
