@@ -72,8 +72,8 @@ K gpu targets > "$OUT/targets.txt" 2>&1; head -2 "$OUT/targets.txt" | tee -a "$O
 FORMATS=${FORMATS:-q8_0,q4_0,iq4_nl,q4_K,q2_0,tq2_0,q1_0,e8p}
 if [ "$DRYRUN" = "1" ]; then
   ARCH=sm_80
-  ARCHS=sm_80  # the targets: A100, plus RTX 50 (sm_120) when nvcc >= 12.8
-  "$PY" -c 'import sys; from kurn.gpu.attn import fatbin_archs; sys.exit("sm_120" not in fatbin_archs())' && ARCHS=sm_80,sm_120
+  # the targets: A100, plus B200/GB200 (sm_100) and RTX 50 (sm_120) when nvcc >= 12.8
+  ARCHS=$("$PY" -c 'from kurn.gpu.attn import fatbin_archs; print(",".join(fatbin_archs()))')
 else
   ARCH=$("$PY" -c 'from kurn.gpu.harness import detect_arch; print(detect_arch() or "sm_80")')
   ARCHS=$ARCH

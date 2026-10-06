@@ -4,7 +4,9 @@ Attention only (one command, ~20-30 min on an A100; QUICK=1 for ~5-10 min):
 
     unzip kurn-gpu-check.zip && cd kurn-gpu-check && ./run_attn_check.sh
 
-  It builds every attention config (sm_80 + sm_120 fatbins), checks each one on the GPU against a float64 reference on
+  Runs on A100 (sm_80), B200/GB200 (sm_100) and RTX 50 (sm_120): every build carries SASS for all three (CUDA >= 12.8)
+  plus PTX, and the report says which arch and tier it ran on and whether that was native SASS or JIT.
+  It builds every attention config, checks each one on the GPU against a float64 reference on
   awkward shapes (GQA 1-8, MLA, causal/mask/non-causal, splits, head-major caches, rows that see no key), then runs a
   decode matrix (Llama-3-8B / Qwen3-1.7B / MLA x 1K-32K context x F16/BF16/Q8_0 KV). Output:
   kurn-attn-results-<host>-<date>.tar.gz with attn_report.md. Exit status 0 only if everything is correct.
@@ -18,7 +20,7 @@ Run on a Linux machine with an NVIDIA GPU (A100, H100/H200, B200, L40, RTX 30/40
     QUICK=1 ./run_gpu_check.sh    # ~25 min: smaller tune, matrix at batch 1 and 16, 3 rounds
     DRYRUN=1 ./run_gpu_check.sh   # any Linux box, no GPU: compile + CPU-emulator checks + packaging
 
-Needs: NVIDIA driver, CUDA toolkit 12.x (nvcc; 12.8+ also builds the RTX 50 / sm_120 code), python3 >= 3.9, g++ (KURN runs from the bundled source; no pip, no network needed except for llama.cpp).
+Needs: NVIDIA driver, CUDA toolkit 12.x (nvcc; 12.8+ also builds the B200 / sm_100 and RTX 50 / sm_120 code), python3 >= 3.9, g++ (KURN runs from the bundled source; no pip, no network needed except for llama.cpp).
 For the llama.cpp (ggml-cuda) competitor: git + cmake + network, or LLAMA_CPP_DIR=/path/to/llama.cpp.
 Marlin is measured only if PyTorch with vLLM or the `marlin` package is already installed (MARLIN_PYTHON=...).
 Installs nothing outside this folder. No root, no clock locking, no power-limit changes.
