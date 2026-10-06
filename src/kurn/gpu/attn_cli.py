@@ -1,10 +1,11 @@
-"""`kurn gpu attn ...`: the CUDA attention op (A100 / sm_80; RTX 50 / sm_120 compile-only).
+"""`kurn gpu attn ...`: the CUDA attention op. Tiers: sm_80 (A100, measured), sm_100 (B200/GB200) and sm_120 (RTX 50),
+the last two compile-only so far.
 
 kurn gpu attn check   SPEC [k=v ...]                 validate; print the resolved config, shared memory, archs it fits
 kurn gpu attn gen     SPEC [k=v ...] [-o out.cu]     emit CUDA C++
-kurn gpu attn build   SPEC [k=v ...]                 nvcc fatbin (sm_80 + sm_120 SASS, compute_80 PTX); path and resources
-kurn gpu attn ptxas   [SPEC | --all]                 registers / spills per arch, fatbin contents (no GPU)
-kurn gpu attn verify  [SPEC | --all] [--quick] [--gpu]   numerics vs the float64 reference: CPU emulator, or the local GPU
+kurn gpu attn build   SPEC [k=v ...]                 nvcc fatbin (sm_80 + sm_100 + sm_120 SASS, PTX); path and resources
+kurn gpu attn ptxas   [SPEC | --all [--tier T]]      registers / spills per arch, fatbin contents (no GPU)
+kurn gpu attn verify  [SPEC | --all [--tier T]] [--quick] [--gpu]   numerics vs float64: CPU emulator, or the local GPU
 kurn gpu attn bench   SPEC [k=v ...]                 check + time the spec's problem on the local GPU (cold regime)
 kurn gpu attn tune    SPEC [k=v,v ...]               correctness-gated sweep on the local GPU (speed or NVML energy)
 kurn gpu attn matrix  [--results DIR] [--quick]      decode matrix: model shapes x context x KV format, default kernels
@@ -32,9 +33,17 @@ def _load(a, allow_lists=False):
     return spec, space, single, lists
 
 
-def _configs(a):
+def _local_arch(a):
+    from .harness import detect_arch
+
+    return getattr(a, "arch", None) or detect_arch() or A.ARCH
+
+
+def _configs(a, default_tiers=A.ARCHS):
     if getattr(a, "all", False):
-        return A.covering_configs()
+        tier = getattr(a, "tier", None)
+        tiers = A.ARCHS if tier == "all" else (tier,) if tier else default_tiers
+        return [c for t in tiers for c in A.covering_configs(arch=t)]
     spec, space, ov, _ = _load(a)
     return [A.resolve(spec, ov)]
 
@@ -89,10 +98,12 @@ def cmd_ptxas(a):
 
 
 def cmd_verify(a):
-    configs = _configs(a)
     fails = 0
     if a.gpu:
-        h = A.build_harness(a.arch or A.ARCH)
+        arch = _local_arch(a)
+        configs = _configs(a, (A.tier_for(arch),))
+        print(f"GPU arch {arch} -> tier {A.tier_for(arch)}: {len(configs)} configurations")
+        h = A.build_harness(arch)
         for c in configs:
             try:
                 w = A.gpu_check(h, c, A.QUICK_SHAPES if a.quick else A.CHECK_SHAPES)
@@ -106,6 +117,7 @@ def cmd_verify(a):
     else:
         from .toolchain import cxx_problem
 
+        configs = _configs(a)
         if cxx_problem():
             print(f"skip   CPU emulator: {cxx_problem()}")
             return 0
@@ -125,7 +137,7 @@ def cmd_verify(a):
 def cmd_bench(a):
     spec, _, ov, _ = _load(a)
     c = A.resolve(spec, ov)
-    h = a.harness or A.build_harness(a.arch or A.ARCH)
+    h = a.harness or A.build_harness(_local_arch(a))
     chk, samples = A.gpu_run(h, A.nvcc_build(c)[0], c, secs=a.secs, reps=a.reps, cold_bytes=a.cold_bytes)
     print(json.dumps(chk))
     if samples:
@@ -136,7 +148,7 @@ def cmd_bench(a):
 def cmd_tune(a):
     spec, space, ov, lists = _load(a, allow_lists=True)
     space = {**space, **{k: [v] for k, v in ov.items()}, **lists} or {"tk": [32, 64, 128], "wn": [1, 2, 4], "split": [0, 8, 16, 32]}
-    h = a.harness or A.build_harness(a.arch or A.ARCH)
+    h = a.harness or A.build_harness(_local_arch(a))
     res = A.tune(spec, space, h, a.objective, a.secs, a.reps, a.cold_bytes)
     if not res:
         print("no configuration passed")
@@ -148,9 +160,10 @@ def cmd_tune(a):
 
 
 def cmd_matrix(a):
-    h = a.harness or A.build_harness(a.arch or A.ARCH)
+    arch = _local_arch(a)
+    h = a.harness or A.build_harness(arch)
     ctx = (1024, 16384) if a.quick else A.MATRIX_CONTEXTS
-    rows = A.matrix(h, a.results, contexts=ctx, secs=0.2 if a.quick else a.secs, reps=3 if a.quick else a.reps)
+    rows = A.matrix(h, a.results, contexts=ctx, secs=0.2 if a.quick else a.secs, reps=3 if a.quick else a.reps, arch=arch)
     bad = sum(r["status"] != "ok" for r in rows)
     print(f"{len(rows)} cells, {bad} not ok -> {a.results}/attn_matrix.jsonl")
     return 1 if bad else 0
@@ -162,6 +175,10 @@ def cmd_report(a):
         rows = [json.loads(ln) for ln in fh if ln.strip()]
     bad = sum(r["status"] != "ok" for r in rows)
     print("# kurn GPU attention: decode matrix\n")
+    ran = sorted({(r.get("device", "?"), r.get("sm"), r.get("native")) for r in rows if r["status"] != "error"}, key=str)
+    for dev, sm, native in ran:
+        how = "native SASS" if native else "JIT from embedded PTX" if native is not None else "?"
+        print(f"Ran on: {dev} (sm_{sm}, tier {A.tier_for(f'sm_{sm}') if sm else '?'}, {how})\n")
     print(
         f"{len(rows)} cells, {len(rows) - bad} correct, {bad} not ok. Default (untuned) kernels; times are the cold-KV mean per call "
         "and are informational: this is a correctness run.\n"
@@ -180,7 +197,7 @@ def cmd_report(a):
 
 
 def cmd_harness(a):
-    print(A.build_harness(a.arch or A.ARCH))
+    print(A.build_harness(_local_arch(a)))
 
 
 def main(argv=None):
@@ -199,8 +216,10 @@ def main(argv=None):
     spec_cmd("build", cmd_build)
     p = spec_cmd("ptxas", cmd_ptxas, optional=True)
     p.add_argument("--all", action="store_true", help="covering set of every KV format and head dim")
+    p.add_argument("--tier", choices=[*A.ARCHS, "all"], help="covering set of one tier (default: all three)")
     p = spec_cmd("verify", cmd_verify, optional=True)
     p.add_argument("--all", action="store_true")
+    p.add_argument("--tier", choices=[*A.ARCHS, "all"], help="covering set of one tier (default: emulator all, GPU its own)")
     p.add_argument("--quick", action="store_true", help="5 shapes, one schedule")
     p.add_argument("--gpu", action="store_true", help="run on the local GPU instead of the CPU emulator")
     p.add_argument("--arch")
