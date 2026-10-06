@@ -254,8 +254,8 @@ with nvcc and, with `-DKURN_EMU`, as host C++ against a CPU warp emulator.
 
 | op | formats | method | keys |
 |---|---|---|---|
-| `gemm`: the tensor-core engine, any batch size (decode 1-8 with `bn` 8, up to 256+) | all 8: Q8_0, Q4_0, IQ4_NL, Q4_K, Q2_0, TQ2_0, Q1_0, E8P | f16 `mma.sync.m16n8k16`, f32 accumulate; weights repacked once into fragment order and dequantized in registers to small integers that are exact in f16; block scales applied in f32 after the MMA; `cp.async` multi-stage pipeline; swizzled shared memory + `ldmatrix`; f32 activations rounded to f16 inside the kernel (`xin f32`, one launch per matmul) or once by `kg_quant` (`xin f16`); deterministic split-K | `bm`, `bn`, `wm`, `wn`, `bk`, `stages`, `splitk` (0 = from the SM count), `xin`, `minb` |
-| `gemv` (decode, dp4a) | the same 8 | dp4a over 32-value chunks with q8 activations, warp-shuffle reduction; default: split layout, 16-byte weight loads, 4 units in flight, and aligned activations (`xlayout split`, contributed by the user) for the q8_0-activation formats | `layout`, `tpr`, `rpb`, `sub`, `unroll`, `cols`, `xlayout`, `minb`, `mins` (Q4_K), `unpack` (Q1_0) |
+| `gemm`: the tensor-core engine, any batch size (decode 1-8 with `bn` 8, up to 256+) | all 10: Q8_0, Q4_0, IQ4_NL, Q4_K, Q2_0, TQ2_0, Q1_0, E8P, MXFP4, NVFP4 | f16 `mma.sync.m16n8k16`, f32 accumulate; weights repacked once into fragment order and dequantized in registers to small integers that are exact in f16; block scales applied in f32 after the MMA; `cp.async` multi-stage pipeline; swizzled shared memory + `ldmatrix`; f32 activations rounded to f16 inside the kernel (`xin f32`, one launch per matmul) or once by `kg_quant` (`xin f16`); deterministic split-K | `bm`, `bn`, `wm`, `wn`, `bk`, `stages`, `splitk` (0 = from the SM count), `xin`, `minb` |
+| `gemv` (decode, dp4a) | the same 10 | dp4a over 32-value chunks with q8 activations, warp-shuffle reduction; default: split layout, 16-byte weight loads, 4 units in flight, and aligned activations (`xlayout split`, contributed by the user) for the q8_0-activation formats | `layout`, `tpr`, `rpb`, `sub`, `unroll`, `cols`, `xlayout`, `minb`, `mins` (Q4_K), `unpack` (Q1_0) |
 
 **Why f16 tensor cores rather than int8.** With ggml's per-32-value block scales, an int8 MMA kernel must convert every int32
 result to float and apply two scales per output and block. On A100 that conversion runs at a quarter of the tensor-core rate,
@@ -269,6 +269,15 @@ the tuner drops anything ptxas reports as spilling.
 
 Only sm_80 features are used, so the code runs on Ampere, Ada, Hopper and Blackwell. wgmma / tcgen05 / TMA / FP8 / FP4 paths are
 planned, not built.
+
+**Blackwell (0.3.0.dev3, compile-only plus emulator).**
+- Attention configs come in three `arch` tiers: sm_80 (A100), sm_100 (B200/GB200) and sm_120 (RTX 50). Each tier
+  has its own shared-memory limits and default tiles, and `kernel_for()` dispatches by the local GPU. Every build is a
+  fatbin with SASS for all three plus PTX.
+- MXFP4/NVFP4 weights run on every arch through the same exact dequant-in-register GEMV/GEMM.
+- FP8 (e4m3) KV attention uses FP8 `mma.sync` on sm_100/sm_120.
+- Native block-scaled FP4 MMA and tcgen05/TMEM kernels are planned, not built: they can't be validated without the
+  hardware.
 
 **Attention (`op attn`, `target cuda`, 0.3.0.dev3).** It has the same semantics as the CPU op: F16/BF16/Q8_0 KV, GQA, MLA,
 causal or fp16 mask, and split-KV with an LSE merge. The kernel streams KV tiles with `cp.async` and runs QKᵀ and PV on

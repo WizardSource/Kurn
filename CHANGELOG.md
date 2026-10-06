@@ -50,6 +50,31 @@ All notable changes to this project are documented here. The format follows
 - `kurn specwidth simulate` replays greedy acceptance traces (exact for greedy chain drafting) against fixed widths,
   p_min cutoffs and the policy.
 
+### Added: Blackwell tiers (sm_100 B200/GB200, sm_120 RTX 50), compile-only plus emulator
+- GPU attention has `arch` tiers sm_80 / sm_100 / sm_120 with per-tier shared-memory limits (163 / 227 / 99 KB per block)
+  and default tiles. dk=256 on sm_120 now defaults to 32-token tiles (78 KB; the 64-token tile did not fit).
+  `kernel_for(kv, dk, arch)` dispatches, and `tier_for()` maps other GPUs.
+- Fatbins carry SASS for sm_80, sm_100 and sm_120 (nvcc >= 12.8) plus PTX. The kit builds all three archs and reports
+  which arch a run used, and whether that was native SASS or PTX JIT.
+- The existing `mma.sync` GEMM/GEMV kernels compile spill-free for sm_100 (398-config covering set, 40 defaults).
+
+### Added: MXFP4 and NVFP4 weights on the GPU (all archs, A100 included)
+- GEMV: dp4a over the 2 * E2M1 int8 codebook with Q8_0 activations. MXFP4 uses the E8M0 scale per 32; NVFP4 uses
+  UE4M3 per 16, two scales per 32-value unit. Split and native layouts, including 17-byte MXFP4 blocks with byte loads.
+- Tensor-core engine, both exact against the double reference:
+  - MXFP4: codes dequantized in registers, with the E8M0 scale stored as an exact bf16 record and applied after the MMA.
+  - NVFP4: codes times UE4M3/2 multiplied into the f16 fragment before the MMA. The product is exact in f16: at most
+    6 significant bits, 2^-10 .. 2688.
+- `gemv_threads.json` entries for both, ptxas-measured on sm_80/90/100/120. `tools/gemv_threads.py --formats` measures
+  and merges selected formats.
+
+### Added: FP8 (e4m3) KV attention on sm_100 / sm_120
+- `kv fp8` runs QK^T on FP8 `mma.sync` m16n8k32 with q per-row scaled. By default (`qsplit 1`) q is split into hi + lo
+  e4m3, for about 8 bits. PV runs in f16 with V converted e4m3 -> f16 (exact).
+- Emulator, end to end vs float64: 2e-3 with `qsplit 1`, up to 9.6e-2 with `qsplit 0` on the peaked test data. Every
+  check also runs against a reference with q rounded exactly as the kernel does: <= 4.2e-4.
+- Emulator: FP8 `mma.sync` and e4m3 conversions.
+
 ### Added: GPU attention (`op attn`, `target cuda`), built for A100 (sm_80) and RTX 50 (sm_120)
 - Flash attention / flash-decoding with the CPU op's semantics: F16/BF16/Q8_0 KV, GQA, MLA (v aliases k), causal plus
   optional fp16 mask, split-KV with an LSE merge kernel. `kga_args` (`kurn_gpu_attn.h`) has `kattn_args`'s layout.
