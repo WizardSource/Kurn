@@ -62,6 +62,12 @@ int main(int argc, char **argv) {
   std::vector<double> ref;
   kgar_reference(p, toks, ref);
   const double err = kgar_relerr(p, toks, ref, out);
+  char q8[64] = "";
+  if (p.kv == KGA_KV_FP8) {  // also against the reference with q rounded to e4m3 as the kernel does
+    std::vector<double> rq;
+    kgar_reference(p, toks, rq, strstr(kga_config(nullptr, nullptr, nullptr), "qsplit=1") ? 2 : 1);
+    snprintf(q8, sizeof q8, ", \"relerr_q8\": %.6e", kgar_relerr(p, toks, rq, out));
+  }
   // KGA_CPU_LIB=path/to/kattn.so: run the CPU attention op (kurn_attn.h; kattn_args has kga_args's layout) on the same
   // arguments and report max |gpu - cpu| / max |cpu|
   char cpu[96] = "";
@@ -83,7 +89,7 @@ int main(int argc, char **argv) {
     }
     snprintf(cpu, sizeof cpu, ", \"vs_cpu\": %.6e, \"cpu_relerr\": %.6e", me / (mr > 0 ? mr : 1), kgar_relerr(p, toks, ref, co.data()));
   }
-  printf("{\"relerr\": %.6e, \"splits\": %d, \"nq\": %lld, \"nkv\": %lld, \"heads\": %d, \"kv_heads\": %d%s}\n", err, kga_splits(&a),
-         (long long)p.nq, (long long)p.nkv, p.nh, p.nhkv, cpu);
+  printf("{\"relerr\": %.6e, \"splits\": %d, \"nq\": %lld, \"nkv\": %lld, \"heads\": %d, \"kv_heads\": %d%s%s}\n", err, kga_splits(&a),
+         (long long)p.nq, (long long)p.nkv, p.nh, p.nhkv, cpu, q8);
   return 0;
 }
