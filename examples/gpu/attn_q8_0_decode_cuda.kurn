@@ -1,0 +1,14 @@
+kernel   attn_q8_0_decode_cuda
+op       attn               # flash-decoding: split-KV with an LSE merge
+target   cuda               # built for sm_80 (A100) and sm_120 (RTX 50), plus compute_80 PTX
+kv       q8_0               # KV cache: 1.06 bytes per value, about 1.9x fewer bytes than f16
+dk       128
+tk       64                 # KV tokens per tile
+wm       1                  # one 16-row group: 4 GQA heads x 1 token, padded
+wn       4                  # 4 warps split each tile (QK^T) and the output columns (PV)
+split    0                  # about two waves of CTAs on the device's SMs
+heads    32                 # problem (not codegen): Llama-3-8B decode at 8K context
+kv_heads 8
+nq       1
+nkv      8192
+tune     tk=32,64,128 wn=1,2,4 split=0,16,32,64

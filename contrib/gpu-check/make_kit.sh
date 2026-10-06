@@ -10,13 +10,13 @@ OUTDIR=$(mkdir -p "${1:-.}" && cd "${1:-.}" && pwd)
 STAGE=$(mktemp -d)
 K="$STAGE/kurn-gpu-check"
 mkdir -p "$K/kurn/examples"
-cp "$HERE/run_gpu_check.sh" "$HERE/README.txt" "$HERE/bench_marlin.py" "$K/"
+cp "$HERE/run_gpu_check.sh" "$HERE/run_attn_check.sh" "$HERE/README.txt" "$HERE/bench_marlin.py" "$K/"
 cp "$ROOT/pyproject.toml" "$ROOT/README.md" "$ROOT/LICENSE" "$ROOT/CHANGELOG.md" "$K/kurn/"
 cp -r "$ROOT/src" "$K/kurn/"
 cp -r "$ROOT/examples/gpu" "$K/kurn/examples/"
 find "$K" \( -name __pycache__ -o -name '*.egg-info' \) -type d -prune -exec rm -rf {} +
 find "$K" -name '*.pyc' -type f -exec rm -f {} +
-chmod +x "$K/run_gpu_check.sh"
+chmod +x "$K/run_gpu_check.sh" "$K/run_attn_check.sh"
 big=$(find "$K" -type f -size +1000k)
 if [ -n "$big" ]; then echo "files over 1 MB: $big" >&2; exit 1; fi
 rm -f "$OUTDIR/kurn-gpu-check.zip" "$OUTDIR"/kurn-gpu-check-part-*.zip

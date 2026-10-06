@@ -270,6 +270,18 @@ the tuner drops anything ptxas reports as spilling.
 Only sm_80 features are used, so the code runs on Ampere, Ada, Hopper and Blackwell. wgmma / tcgen05 / TMA / FP8 / FP4 paths are
 planned, not built.
 
+**Attention (`op attn`, `target cuda`, 0.3.0.dev3).** It has the same semantics as the CPU op: F16/BF16/Q8_0 KV, GQA, MLA,
+causal or fp16 mask, and split-KV with an LSE merge. The kernel streams KV tiles with `cp.async` and runs QKᵀ and PV on
+f16/bf16 `mma.sync`. Each build is a fatbin with sm_80 (A100) and sm_120 (RTX 50) SASS plus compute_80 PTX. It is verified on
+the CPU emulator, including against the CPU op on identical arguments, and is **not yet run on a GPU**.
+
+```sh
+kurn check  examples/gpu/attn_q8_0_decode_cuda.kurn      # resolved config, shared memory, which archs it fits
+kurn gpu attn verify --all --quick                       # covering set on the CPU emulator
+kurn gpu attn ptxas --all                                # sm_80 + sm_120 registers, spills, fatbin contents
+kurn gpu attn verify --all --gpu && kurn gpu attn matrix # on a GPU: correctness, then the decode matrix
+```
+
 ```sh
 kurn check  examples/gpu/q8_0_gemm_cuda.kurn            # validate; tune-space size
 kurn gen    examples/gpu/tq2_0_gemv_cuda.kurn -o k.cu    # emit CUDA C++

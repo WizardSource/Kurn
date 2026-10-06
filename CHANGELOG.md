@@ -5,6 +5,37 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Added: cost-aware speculative verify width (`kurn specwidth`, `integration/llama.cpp/spec-width`)
+- Verify cost on the KURN buffer type is a staircase: one kernel per 2 / 4 / 8 columns (3 and 5-7 columns pay for 4
+  and 8), plus a group pass per further 8. `kurn specwidth kernels` measures it per kernel; `kurn-spec-calib` measures
+  the whole forward inside llama.cpp (Qwen3-8B Q8_0, 8 threads: M = 1 / 2 / 4 / 8 / 16 cost 1.00 / 1.53 / 1.86 / 2.19 /
+  3.04x of 74.8 ms; M = 3 costs as much as 4, M = 5-6 more than 8, M = 13-15 more than 16).
+- `WidthPolicy` (Python) / `kurn-spec-width.h` (C++ twin) pick the draft length that maximises expected accepted
+  tokens minus lambda x time from that table, with acceptance learned online per draft-confidence bin.
+  `KURN_SPEC_WIDTH=table llama-speculative-simple` uses it (patch: draft confidences + a keep-drafting callback in
+  draft-simple). Qwen3-8B / Qwen3-0.6B draft, 8 prompts, 256 tokens: see `benchmarks/v0.2/specwidth/results/`.
+- `kurn specwidth simulate` replays greedy acceptance traces (exact for greedy chain drafting) against fixed widths,
+  p_min cutoffs and the policy.
+
+### Added: GPU attention (`op attn`, `target cuda`), built for A100 (sm_80) and RTX 50 (sm_120)
+- Flash attention / flash-decoding with the CPU op's semantics: F16/BF16/Q8_0 KV, GQA, MLA (v aliases k), causal plus
+  optional fp16 mask, split-KV with an LSE merge kernel. `kga_args` (`kurn_gpu_attn.h`) has `kattn_args`'s layout.
+- A100 design: `cp.async` double-buffered KV tiles (4-byte copies for 34-byte Q8_0 blocks), f16 or bf16 `mma.sync`
+  m16n8k16 with `ldmatrix`, log2-domain online softmax with lazy rescale, auto split from the SM count.
+- Every build is a fatbin: sm_80 and sm_120 SASS plus compute_80 PTX. sm_120 allows 99 KB of shared memory per block,
+  so `kga_run` returns -4 when a tile doesn't fit the device.
+- Verified without a GPU: CPU warp emulator against a float64 reference and against the CPU op on identical arguments,
+  injected-bug tests, 0 spills on both archs for the 150-config covering set (CUDA 12.9). **Not run on a GPU yet.**
+- `kurn gpu attn ...`, `examples/gpu/attn_q8_0_decode_cuda.kurn`, a GPU harness (cold KV larger than L2, CUDA graphs,
+  NVML energy), and an attention stage in the gpu-check kit.
+
+### Changed: CPU warp emulator
+- bf16 `mma.sync` and 4-byte `cp.async`. Seeded schedules (`KEMU_SEED`) also hold back whole warps and land half of the
+  `cp.async` copies at issue, which exposes cross-warp races and refilling a stage that other warps still read.
+
+### Added: `tools/sm120_probe.py`
+- Which PTX features ptxas accepts for sm_80 / sm_90a / sm_100a / sm_120 / sm_120a / sm_120f.
+
 ### Added: aligned activation layout for the dp4a GEMV (`xlayout split`), contributed by the user
 - `xlayout blocks|split` for the q8_0-activation formats (Q8_0, Q4_0, IQ4_NL, Q2_0, Q1_0). `split` reads the activations as an
   aligned int8 plane [M][K] plus a float scale plane [M][K/32], with 16-byte vector loads instead of 16-bit loads from ggml's

@@ -1,0 +1,13 @@
+# 2026-10-05T23:55:45Z ctx=2048 chunks=6 model=Qwen3-1.7B-Q8_0.gguf
+f16 ppl 14.1914 over 6138 tokens; 41.35 tok/s, cpu_s/tok 0.1856 barriers_per_tok 57.0 wait_share 0.312
+f16 kv f16 ctx 2048
+q8_0 ppl 14.2294 over 6138 tokens; 31.90 tok/s, cpu_s/tok 0.2060 barriers_per_tok 57.0 wait_share 0.465
+q8_0 kv q8_0 ctx 2048 kld_top32 0.006864 top1_agree 0.9651 over 6138
+q4_0 ppl 31.1844 over 6138 tokens; 52.15 tok/s, cpu_s/tok 0.1533 barriers_per_tok 57.0 wait_share 0.137
+q4_0 kv q4_0 ctx 2048 kld_top32 1.157281 top1_agree 0.5736 over 6138
+k4c_q4 ppl 14.2504 over 6138 tokens; 41.24 tok/s, cpu_s/tok 0.1939 barriers_per_tok 57.0 wait_share 0.133
+k4c_q4 kv k4c_q4 ctx 2048 kld_top32 0.013793 top1_agree 0.9555 over 6138
+k4c_q8 ppl 14.1279 over 6138 tokens; 41.60 tok/s, cpu_s/tok 0.1917 barriers_per_tok 57.0 wait_share 0.155
+k4c_q8 kv k4c_q8 ctx 2048 kld_top32 0.004961 top1_agree 0.9681 over 6138
+vqk_q4 ppl 14.4260 over 6138 tokens; 36.33 tok/s, cpu_s/tok 0.2201 barriers_per_tok 57.0 wait_share 0.145
+vqk_q4 kv vqk_q4 ctx 2048 kld_top32 0.064458 top1_agree 0.8993 over 6138

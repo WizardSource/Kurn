@@ -1,0 +1,186 @@
+diff --git a/common/speculative.cpp b/common/speculative.cpp
+index 328ed241a..898a69c85 100644
+--- a/common/speculative.cpp
++++ b/common/speculative.cpp
+@@ -436,8 +436,13 @@ struct common_speculative_impl_draft_simple : public common_speculative_impl {
+                     dp.result_q->emplace_back(cur_p->data, cur_p->data + cur_p->size);
+                 }
+ 
++                if (dp.result_p) {
++                    dp.result_p->push_back(cur_p->data[0].p);
++                }
++
+                 if ((params.n_max <= (int) result.size()) ||
+-                    (dp.n_max > 0 && dp.n_max <= (int) result.size())) {
++                    (dp.n_max > 0 && dp.n_max <= (int) result.size()) ||
++                    (dp.keep_drafting && dp.result_p && !dp.keep_drafting(*dp.result_p))) {
+                     drafting[seq_id] = false;
+                     n_drafting--;
+                     continue;
+diff --git a/common/speculative.h b/common/speculative.h
+index 0c9e0cf37..11ffdf434 100644
+--- a/common/speculative.h
++++ b/common/speculative.h
+@@ -3,6 +3,8 @@
+ #include "llama.h"
+ #include "common.h"
+ 
++#include <functional>
++
+ struct common_speculative;
+ 
+ // comma separated list the provided types
+@@ -76,6 +78,12 @@ struct common_speculative_draft_params {
+     // the target's temp and seed, read only when the drafter samples probabilistically
+     float    temp = 1.0f;
+     uint32_t seed = LLAMA_DEFAULT_SEED;
++
++    // draft-simple: top-1 probability of each drafted token (draft confidence), if set
++    std::vector<float> * result_p = nullptr;
++
++    // draft-simple: asked after each drafted token with the confidences so far; false stops drafting
++    std::function<bool(const std::vector<float> &)> keep_drafting = nullptr;
+ };
+ 
+ common_speculative_draft_params & common_speculative_get_draft_params(common_speculative * spec, llama_seq_id seq_id);
+diff --git a/examples/speculative-simple/CMakeLists.txt b/examples/speculative-simple/CMakeLists.txt
+index 5ef3b4131..e93c6d40d 100644
+--- a/examples/speculative-simple/CMakeLists.txt
++++ b/examples/speculative-simple/CMakeLists.txt
+@@ -3,3 +3,10 @@ add_executable(${TARGET} speculative-simple.cpp)
+ install(TARGETS ${TARGET} RUNTIME)
+ target_link_libraries(${TARGET} PRIVATE llama-common llama ${CMAKE_THREAD_LIBS_INIT})
+ target_compile_features(${TARGET} PRIVATE cxx_std_17)
++
++# kurn cost-aware verify width (kurn/integration/llama.cpp/spec-width): cost table + acceptance trace
++if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/kurn-spec-calib.cpp)
++    add_executable(kurn-spec-calib kurn-spec-calib.cpp)
++    target_link_libraries(kurn-spec-calib PRIVATE llama-common llama ${CMAKE_THREAD_LIBS_INIT})
++    target_compile_features(kurn-spec-calib PRIVATE cxx_std_17)
++endif()
+diff --git a/examples/speculative-simple/speculative-simple.cpp b/examples/speculative-simple/speculative-simple.cpp
+index 08a1f2a88..d915f2621 100644
+--- a/examples/speculative-simple/speculative-simple.cpp
++++ b/examples/speculative-simple/speculative-simple.cpp
+@@ -4,12 +4,14 @@
+ #include "speculative.h"
+ #include "log.h"
+ #include "llama.h"
++#include "kurn-spec-width.h"
+ 
+ #include <algorithm>
+ #include <clocale>
+ #include <cstdio>
+ #include <cstring>
+ #include <cinttypes>
++#include <map>
+ #include <string>
+ #include <vector>
+ #include <utility>
+@@ -155,6 +157,27 @@ int main(int argc, char ** argv) {
+ 
+     common_prompt_checkpoint ckpt;
+ 
++    // KURN_SPEC_WIDTH=<cost table from kurn-spec-calib>: cost-aware draft length (kurn-spec-width.h);
++    // KURN_SPEC_WIDTH_MODE=cap uses only the acceptance-rate cap (no per-token stop / truncation)
++    kurn::width_policy width;
++    const char * width_table = getenv("KURN_SPEC_WIDTH");
++    const bool use_width = width_table && *width_table;
++    const bool width_cap_only = getenv("KURN_SPEC_WIDTH_MODE") && !strcmp(getenv("KURN_SPEC_WIDTH_MODE"), "cap");
++    if (use_width) {
++        kurn::verify_cost_table t;
++        std::string err;
++        if (!t.load(width_table, &err)) {
++            LOG_ERR("%s: %s\n", __func__, err.c_str());
++            return 1;
++        }
++        width.init(t, std::min<int>(params_spec.draft.n_max, t.m_max() - 1));
++        LOG_INF("kurn spec width: %s, k <= %d, mode %s\n", width_table, width.k_max(), width_cap_only ? "cap" : "policy");
++    }
++    std::vector<float> draft_p;
++    std::map<int, int> n_width;  // verify width -> steps
++    int64_t t_step0 = 0;
++    int n_truncated = 0;
++
+     const auto t_enc_end = ggml_time_us();
+ 
+     const auto t_dec_start = ggml_time_us();
+@@ -167,6 +190,7 @@ int main(int argc, char ** argv) {
+         // offloaded to a remote device. it doesn't even have to be based on an LLM. instead, it can provide tokens
+         // from a cache or lookup tables.
+         //
++        t_step0 = ggml_time_us();
+         if (draft.empty()) {
+             ckpt.update_pos(
+                     prompt_tgt.size(),
+@@ -183,9 +207,13 @@ int main(int argc, char ** argv) {
+                 n_draft_max = std::min(n_draft_max, params.n_predict - n_predict - 1);
+             }
+             n_draft_max = std::max(n_draft_max, 0);
++            if (use_width) {
++                n_draft_max = std::min(n_draft_max, width_cap_only ? width.n_cap() : width.k_max());
++            }
+ 
+             // generate a new draft
+-            common_speculative_get_draft_params(spec, seq_id) = {
++            auto & dp = common_speculative_get_draft_params(spec, seq_id);
++            dp = {
+                 /* .drafting   = */ true,
+                 /* .n_max      = */ n_draft_max,
+                 /* .pos0       = */ n_past,
+@@ -193,7 +221,25 @@ int main(int argc, char ** argv) {
+                 /* .prompt     = */ &prompt_tgt,
+                 /* .result     = */ &draft, // output
+             };
+-            common_speculative_draft(spec);
++            draft_p.clear();
++            if (use_width) {
++                dp.result_p = &draft_p;
++                if (!width_cap_only) {
++                    dp.keep_drafting = [&width](const std::vector<float> & p) { return width.keep_drafting(p); };
++                }
++            }
++            if (n_draft_max > 0) {
++                common_speculative_draft(spec);
++            }
++            if (use_width) {
++                draft_p.resize(draft.size(), -1.0f);
++                if (!width_cap_only) {
++                    const size_t k = (size_t) width.truncate(draft_p);
++                    n_truncated += k < draft.size();
++                    draft.resize(k);
++                    draft_p.resize(k);
++                }
++            }
+ 
+             // save a checkpoint of the target context before evaluating the draft
+             // this allows us to restore the state if partial draft acceptance occurs
+@@ -290,6 +336,11 @@ int main(int argc, char ** argv) {
+ 
+         common_speculative_accept(spec, seq_id, ids.size() - 1);
+ 
++        n_width[(int) n_draft + 1]++;
++        if (use_width) {
++            width.observe(draft_p, (int) ids.size() - 1, (ggml_time_us() - t_step0) / 1000.0, (int) ids.size());
++        }
++
+         // full acceptance: consume the draft and commit accepted tokens
+         n_past    += ids.size() - 1;
+         n_drafted += n_draft; // note: we ignore the discarded small drafts
+@@ -355,6 +406,16 @@ int main(int argc, char ** argv) {
+     LOG_INF("n_drafted = %d\n", n_drafted);
+     LOG_INF("n_accept  = %d\n", n_accept);
+     LOG_INF("accept    = %.3f%%\n", 100.0f * n_accept / n_drafted);
++    {
++        std::string s;
++        for (const auto & [w, n] : n_width) {
++            s += " " + std::to_string(w) + ":" + std::to_string(n);
++        }
++        LOG_INF("verify widths (M:steps) =%s\n", s.c_str());
++        if (use_width) {
++            LOG_INF("kurn spec width: truncated %d drafts, final alpha %.3f, lambda %.4f tok/ms\n", n_truncated, width.alpha(), width.lam());
++        }
++    }
+ 
+     LOG_INF("\n");
+     LOG_INF("draft:\n\n");
