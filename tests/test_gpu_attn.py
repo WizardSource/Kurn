@@ -48,7 +48,7 @@ def test_generated_source_carries_the_config():
 
 
 @emu
-@pytest.mark.parametrize("kv", sorted(A.KV_FORMATS))
+@pytest.mark.parametrize("kv", sorted(set(A.KV_FORMATS) - {"fp8"}))  # fp8 needs sm_100 / sm_120: tested below
 def test_default_kernel_matches_reference_on_awkward_shapes(kv):
     w = A.emu_check(A.resolve({"kv": kv}))
     assert w["ok"], w
@@ -255,7 +255,7 @@ def test_gpu_plumbing_with_a_stub_harness(tmp_path):
 def test_per_arch_defaults_and_dispatch():
     for arch in A.ARCHS:  # every default fits its tier
         for dk in A.HEAD_DIMS:
-            for kv in A.KV_FORMATS:
+            for kv in A.SCHEDULE["kv"]({"arch": arch}):
                 c = A.kernel_for(kv, dk, arch)
                 assert c["arch"] == arch and A.smem_bytes(c) <= A.SMEM_LIMITS[arch] and A.est_regs(c) <= A.REG_BUDGET
     assert (A.kernel_for("f16", 256, "sm_120")["tk"], A.kernel_for("f16", 256, "sm_120")["wn"]) == (32, 2)
@@ -270,3 +270,97 @@ def test_per_arch_defaults_and_dispatch():
 def test_per_arch_defaults_match_reference(arch, kv, dk):
     w = A.emu_check(A.kernel_for(kv, dk, arch), shapes=A.QUICK_SHAPES, scheds=(0, 5))
     assert w["ok"], w
+
+
+# --------------------------------------------------------------------------- FP8 (e4m3) KV on sm_100 / sm_120
+
+
+def test_fp8_spec_rules():
+    with pytest.raises(SpecError, match="sm_89"):
+        A.resolve({"kv": "fp8"})  # sm_80 has no FP8 mma.sync
+    c = A.resolve({"kv": "fp8", "arch": "sm_100"})
+    assert c["qsplit"] == 1 and A.tol(c) == A.TOL["fp8"] and A.tol(A.resolve({"kv": "fp8", "arch": "sm_120", "qsplit": 0})) == 1e-1
+    with pytest.raises(SpecError, match="qsplit"):
+        A.resolve({"kv": "f16", "qsplit": 1})
+    assert "sm_80" not in A.archs_for(c) and set(A.archs_for(c)) <= {"sm_100", "sm_120"}
+    assert {x["kv"] for x in A.covering_configs(arch="sm_120")} == set(A.KV_FORMATS)
+    assert "fp8" not in {x["kv"] for x in A.covering_configs(arch="sm_80")}
+
+
+@emu
+@pytest.mark.parametrize("arch", ["sm_100", "sm_120"])
+def test_fp8_default_matches_reference_on_awkward_shapes(arch):
+    w = A.emu_check(A.kernel_for("fp8", 128, arch))
+    assert w["ok"] and w["relerr"] <= A.TOL["fp8"] and w["relerr_q8"] <= A.TOL_Q8, w
+
+
+@emu
+@pytest.mark.parametrize("ov", [
+    {"arch": "sm_100", "dk": 576},
+    {"arch": "sm_120", "dk": 576},
+    {"arch": "sm_120", "dk": 256},
+    {"arch": "sm_100", "dk": 64, "wn": 1, "split": 16},
+    {"arch": "sm_120", "dk": 128, "qsplit": 0},
+    {"arch": "sm_100", "dk": 128, "wm": 4, "wn": 2, "tk": 32},
+], ids=lambda o: "-".join(f"{k}{v}" for k, v in o.items()))  # fmt: skip
+def test_fp8_variants_match_reference_under_random_schedules(ov):
+    w = A.emu_check(A.resolve({"kv": "fp8", **ov}), shapes=A.QUICK_SHAPES, scheds=(0, 9))
+    assert w["ok"], w
+
+
+FP8 = {"kv": "fp8", "arch": "sm_100"}
+
+
+@emu
+@pytest.mark.parametrize("ov, old, new, why", [
+    (FP8, "sc[n][0] *= iqa;", "", "q's per-row e4m3 scale not undone on the scores"),
+    (FP8, "kga_mma8(sc[2 * np], al, bf[0], bf[1]);", "", "the lo half of split q dropped"),
+    (FP8, "kga_cvt_v8(KGA_MLA ? ldst_k(st) : ldst_v(st)", "kga_cvt_v8(ldst_k(st)", "V converted from the K stage"),
+    (FP8, "qsc[row] = amax > 0.f ? 448.f / amax : 1.f;", "qsc[row] = 1.f;", "no per-row q scale (e4m3 range lost)"),
+])  # fmt: skip
+def test_emulator_catches_fp8_bugs(ov, old, new, why):
+    res = _mutant(A.resolve(ov), old, new, (DEC, PRE))
+    assert isinstance(res, str) or not all(r["ok"] for r in res), f"emulator missed: {why}"
+
+
+@pytest.mark.skipif(not toolchain.nvcc() or "sm_100" not in A.fatbin_archs(), reason="needs nvcc >= 12.8")
+@pytest.mark.parametrize("ov", [{"arch": "sm_100"}, {"arch": "sm_120"}, {"arch": "sm_100", "dk": 576}, {"arch": "sm_120", "dk": 256}])
+def test_fp8_fatbin_is_sm100_sm120_without_spills(ov):
+    c = A.resolve({"kv": "fp8", **ov})
+    rep = A.ptxas(c)
+    assert set(rep) == {"sm_100", "sm_120"} and all(k["kga_main"]["spill"] == 0 for k in rep.values()), rep
+    assert A.fatbin_contents(A.nvcc_build(c)[0]) == (["sm_100", "sm_120"], ["sm_100"])
+
+
+_E4M3 = """#include "kurn_cuemu.h"
+#include "kurn_gpu_attn_ref.h"
+int main() {
+  int bad = 0;
+  for (int b = 0; b < 256; b++)  // every code but NaN decodes the same
+    if ((b & 0x7F) != 0x7F && (double)kemu::e4m3_to_f((uint8_t)b) != kgar_e4m3_to_d((uint8_t)b)) bad++;
+  for (int i = -200000; i <= 200000; i++) {  // and rounding agrees on a sweep through subnormals, ties and saturation
+    const float x = i * 0.0025f * (1 + (i % 7) * 0.1f);
+    if (kemu_f2e4m3(x) != kgar_f2e4m3(x)) bad++;
+    if (kemu_f2e4m3(ldexpf(1.f + (i & 15) / 16.f, (i % 24) - 12)) != kgar_f2e4m3(ldexpf(1.f + (i & 15) / 16.f, (i % 24) - 12))) bad++;
+  }
+  printf("%d\\n", bad);
+  return bad != 0;
+}
+"""
+
+
+@emu
+def test_emulator_e4m3_conversions_match_the_reference(tmp_path):
+    import os
+    import subprocess
+
+    src = tmp_path / "e4m3.cpp"
+    src.write_text(_E4M3)
+    exe = tmp_path / "e4m3"
+    inc = os.path.dirname(toolchain.data_path("kurn_cuemu.h"))
+    r = subprocess.run(
+        [*toolchain.cxx(), "-std=c++17", "-O1", "-DKURN_EMU", "-I", inc, str(src), "-o", str(exe)], capture_output=True, text=True
+    )
+    assert r.returncode == 0, r.stderr[-2000:]
+    r = subprocess.run([str(exe)], capture_output=True, text=True)
+    assert r.returncode == 0 and r.stdout.strip() == "0", r.stdout

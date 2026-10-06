@@ -24,6 +24,7 @@ typedef void *cudaStream_t;
 #define KGA_KV_F16 0
 #define KGA_KV_BF16 1
 #define KGA_KV_Q8_0 2
+#define KGA_KV_FP8 3  // e4m3 (e4m3fn), one byte per value, no scale; GPU only (sm_89+), not a CPU-op format
 
 typedef struct {
   int64_t n_q, n_kv, q_pos0;

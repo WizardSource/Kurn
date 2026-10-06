@@ -1,7 +1,7 @@
 // kurn GPU attention harness: correctness of a generated kga_* library against the float64 reference, and timing.
 //
 //   bench_gpu_attn run --lib attn.so --nq 1 --nkv 8192 --heads 32 --kv-heads 8 [--causal 1] [--pos0 -1] [--mask 0]
-//                      [--layout 0] [--seed 1] [--tol 4e-3] [--check-toks 16] [--secs 0.5] [--reps 3] [--cold-bytes 3e8]
+//                      [--layout 0] [--seed 1] [--tol 4e-3] [--tol-q8 4e-3] [--check-toks 16] [--secs 0.5] [--reps 3] [--cold-bytes 3e8]
 //
 // Data and reference as kurn_gpu_attn_ref.h (the CPU attention harness's distributions). Timing:
 // - cold regime: the KV cache is replicated into enough "layers" to exceed --cold-bytes (default 300 MB, several
@@ -110,7 +110,7 @@ static int cmd_run(int argc, char **argv) {
   p.use_mask = (int)arg_f(argc, argv, "--mask", 0);
   p.layout = (int)arg_f(argc, argv, "--layout", 0);
   const uint64_t seed = (uint64_t)arg_f(argc, argv, "--seed", 1);
-  const double tol = arg_f(argc, argv, "--tol", 4e-3), secs = arg_f(argc, argv, "--secs", 0.5);
+  const double tol = arg_f(argc, argv, "--tol", 4e-3), tol_q8 = arg_f(argc, argv, "--tol-q8", 4e-3), secs = arg_f(argc, argv, "--secs", 0.5);
   const int reps = (int)arg_f(argc, argv, "--reps", 3);
   const double cold_bytes = arg_f(argc, argv, "--cold-bytes", 3e8);
   const int64_t check_toks = (int64_t)arg_f(argc, argv, "--check-toks", 16);
@@ -164,13 +164,19 @@ static int cmd_run(int argc, char **argv) {
   const std::vector<int64_t> toks = kgar_check_tokens(p.nq, check_toks, seed);
   std::vector<double> ref;
   kgar_reference(p, toks, ref);
-  const double err = kgar_relerr(p, toks, ref, out.data());
+  double err = kgar_relerr(p, toks, ref, out.data()), err_q8 = 0.0;
+  if (p.kv == KGA_KV_FP8) {  // FP8: also against the reference with q rounded to e4m3 as the kernel does
+    std::vector<double> rq;
+    kgar_reference(p, toks, rq, config.find("qsplit=1") != std::string::npos ? 2 : 1);
+    err_q8 = kgar_relerr(p, toks, rq, out.data());
+  }
+  const bool ok = err <= tol && err_q8 <= tol_q8;
   printf("{\"kind\": \"check\", \"config\": \"%s\", \"device\": \"%s\", \"sm\": %d, \"sms\": %d, \"relerr\": %.4e, \"tol\": %.1e, "
-         "\"status\": \"%s\", \"splits\": %d, \"workspace\": %zu}\n",
-         config.c_str(), prop.name, prop.major * 10 + prop.minor, prop.multiProcessorCount, err, tol, err <= tol ? "ok" : "FAIL",
+         "\"relerr_q8\": %.4e, \"status\": \"%s\", \"splits\": %d, \"workspace\": %zu}\n",
+         config.c_str(), prop.name, prop.major * 10 + prop.minor, prop.multiProcessorCount, err, tol, err_q8, ok ? "ok" : "FAIL",
          splits(&args[0]), wsb);
   fflush(stdout);
-  if (secs <= 0) return err <= tol ? 0 : 1;
+  if (secs <= 0) return ok ? 0 : 1;
 
   // timing: one graph = one call per layer
   cudaGraph_t g;
@@ -214,7 +220,7 @@ static int cmd_run(int argc, char **argv) {
            r, us, bytes / (us * 1e3), flop / (us * 1e6), (j1 - j0) / calls * 1e6, calls, nl, kv_bytes, nvml.clk(1), nvml.clk(2));
     fflush(stdout);
   }
-  return err <= tol ? 0 : 1;
+  return ok ? 0 : 1;
 }
 
 int main(int argc, char **argv) {

@@ -40,6 +40,26 @@ static inline double kgar_bf2d(uint16_t h) {
   return f;
 }
 
+// f32 -> e4m3 (RNE, saturating to +-448), e4m3 -> double
+static inline uint8_t kgar_f2e4m3(float x) {
+  const uint8_t sg = signbit(x) ? 0x80 : 0;
+  const double a = fabs((double)x);
+  if (a >= 448.0) return sg | 0x7E;
+  if (a < 0.015625) return sg | (uint8_t)nearbyint(a * 512.0);
+  int e;
+  frexp(a, &e);
+  e -= 1;
+  int q = (int)nearbyint(ldexp(a, 3 - e));
+  if (q == 16) q = 8, e++;
+  if (e + 7 > 15 || (e + 7 == 15 && q == 15)) return sg | 0x7E;
+  return sg | (uint8_t)(((e + 7) << 3) | (q - 8));
+}
+static inline double kgar_e4m3_to_d(uint8_t b) {
+  const int e = (b >> 3) & 15, m = b & 7;
+  const double v = e ? ldexp(1.0 + m / 8.0, e - 7) : ldexp((double)m, -9);
+  return (b & 0x80) ? -v : v;
+}
+
 struct kgar_problem {
   int dk = 128, dv = 128, kv = KGA_KV_F16;
   int64_t nq = 1, nkv = 1024, pos0 = -1;
@@ -51,7 +71,7 @@ struct kgar_problem {
   std::vector<uint16_t> mask;
 };
 
-static inline int64_t kgar_row_bytes(int kv, int d) { return kv == KGA_KV_Q8_0 ? d / 32 * 34 : 2 * (int64_t)d; }
+static inline int64_t kgar_row_bytes(int kv, int d) { return kv == KGA_KV_Q8_0 ? d / 32 * 34 : kv == KGA_KV_FP8 ? d : 2 * (int64_t)d; }
 
 static inline void kgar_encode(int kv, const float *x, int d, uint8_t *dst) {
   if (kv == KGA_KV_F16) {
@@ -64,6 +84,8 @@ static inline void kgar_encode(int kv, const float *x, int d, uint8_t *dst) {
       const uint16_t h = kgar_f2bf(x[i]);
       memcpy(dst + 2 * i, &h, 2);
     }
+  } else if (kv == KGA_KV_FP8) {
+    for (int i = 0; i < d; i++) dst[i] = kgar_f2e4m3(x[i]);
   } else {
     for (int b = 0; b < d / 32; b++) {
       float amax = 0;
@@ -82,6 +104,8 @@ static inline void kgar_decode(int kv, const uint8_t *src, int d, double *out) {
     for (int i = 0; i < d; i++) out[i] = kref_h2d(kref_u16(src + 2 * i));
   } else if (kv == KGA_KV_BF16) {
     for (int i = 0; i < d; i++) out[i] = kgar_bf2d(kref_u16(src + 2 * i));
+  } else if (kv == KGA_KV_FP8) {
+    for (int i = 0; i < d; i++) out[i] = kgar_e4m3_to_d(src[i]);
   } else {
     for (int b = 0; b < d / 32; b++) {
       const double dd = kref_h2d(kref_u16(src + 34 * b));
@@ -152,8 +176,10 @@ static inline kga_args kgar_args(const kgar_problem &p, const float *q, const vo
   return a;
 }
 
-// Reference for query tokens `toks` (all heads): ref[(ti * nh + h) * dv + i]
-static inline void kgar_reference(const kgar_problem &p, const std::vector<int64_t> &toks, std::vector<double> &ref) {
+// Reference for query tokens `toks` (all heads): ref[(ti * nh + h) * dv + i]. fp8q 1 / 2: q rounded to e4m3 exactly as
+// the FP8 kernel does with qsplit 0 / 1 (per-row scale 448 / max |q * scale * log2 e|; 2 adds the e4m3-rounded residual),
+// which isolates the kernel's own error.
+static inline void kgar_reference(const kgar_problem &p, const std::vector<int64_t> &toks, std::vector<double> &ref, int fp8q = 0) {
   ref.assign(toks.size() * p.nh * p.dv, 0.0);
   const double scale = (double)(float)(1.0 / sqrt((double)p.dk));
   std::vector<double> kd((size_t)p.nkv * p.dk), vd((size_t)p.nkv * p.dv), s(p.nkv);
@@ -171,6 +197,20 @@ static inline void kgar_reference(const kgar_problem &p, const std::vector<int64
       for (size_t ti = 0; ti < toks.size(); ti++) {
         const int64_t t = toks[ti];
         const float *qr = p.q.data() + (t * p.nh + h) * p.dk;
+        std::vector<float> qq;
+        if (fp8q) {
+          const float qs = (float)(1.0 / sqrt((double)p.dk)) * 1.4426950408889634f;
+          float amax = 0.f;
+          for (int i = 0; i < p.dk; i++) amax = fmaxf(amax, fabsf(qr[i] * qs));
+          const float rs = amax > 0.f ? 448.f / amax : 1.f;
+          qq.resize(p.dk);
+          for (int i = 0; i < p.dk; i++) {
+            const float x = qr[i] * qs * rs;
+            const double hi = kgar_e4m3_to_d(kgar_f2e4m3(x)), lo = fp8q == 2 ? kgar_e4m3_to_d(kgar_f2e4m3(x - (float)hi)) : 0.0;
+            qq[i] = (float)((hi + lo) / ((double)rs * qs));  // ~ q
+          }
+          qr = qq.data();
+        }
         int64_t lim = p.nkv - 1;
         if (p.causal || p.use_mask) lim = p.pos0 + t < lim ? p.pos0 + t : lim;
         double mx = -INFINITY;

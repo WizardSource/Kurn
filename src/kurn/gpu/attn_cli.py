@@ -111,7 +111,7 @@ def cmd_verify(a):
                 w = A.gpu_check(h, c, A.QUICK_SHAPES if a.quick else A.CHECK_SHAPES)
                 ok = w["status"] == "ok"
                 tag = "ok    " if ok else "FAIL  "
-                print(f"{tag} {A.label(c)}  relerr={w['relerr']:.1e} (tol {A.TOL[c['kv']]:.0e})  [gpu {w['device']}]")
+                print(f"{tag} {A.label(c)}  relerr={w['relerr']:.1e} (tol {A.tol(c):.0e})  [gpu {w['device']}]")
             except (GpuBuildError, A.HarnessError) as e:
                 ok = False
                 print(f"FAIL   {A.label(c)}: {str(e).splitlines()[0]}")
@@ -127,7 +127,7 @@ def cmd_verify(a):
             try:
                 w = A.emu_check(c, A.QUICK_SHAPES if a.quick else A.CHECK_SHAPES, scheds=(0,) if a.quick else (0, 7))
                 ok = w["ok"]
-                print(f"{'ok    ' if ok else 'FAIL  '} {A.label(c)}  relerr={w['relerr']:.1e} (tol {A.TOL[c['kv']]:.0e})  [emu]")
+                print(f"{'ok    ' if ok else 'FAIL  '} {A.label(c)}  relerr={w['relerr']:.1e} (tol {A.tol(c):.0e})  [emu]")
             except (GpuBuildError, A.EmuError) as e:
                 ok = False
                 print(f"FAIL   {A.label(c)}: {str(e).splitlines()[0]}")

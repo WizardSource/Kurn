@@ -42,7 +42,8 @@ from .toolchain import (
     parse_ptxas,
 )
 
-KV_FORMATS = {"f16": 0, "bf16": 1, "q8_0": 2}
+KV_FORMATS = {"f16": 0, "bf16": 1, "q8_0": 2, "fp8": 3}  # fp8 = e4m3, GPU only: needs FP8 mma.sync (sm_89+)
+FP8_ARCHS = ("sm_100", "sm_120")
 HEAD_DIMS = {64: (64,), 128: (128,), 256: (256,), 576: (512,)}  # dk -> legal dv (as the CPU op)
 ARCH = "sm_80"  # the default and measured target (A100)
 # Tiers a config is validated and tuned for: sm_80 (A100, measured), sm_100 (B200 / GB200) and sm_120 (RTX 50), the
@@ -66,7 +67,7 @@ REG_BUDGET = 200  # estimated registers per thread above which ptxas would likel
 STAGES = 2
 
 SCHEDULE = {
-    "kv": lambda c: tuple(KV_FORMATS),
+    "kv": lambda c: tuple(k for k in KV_FORMATS if k != "fp8" or c["arch"] in FP8_ARCHS),
     "dk": lambda c: tuple(HEAD_DIMS),
     "dv": lambda c: HEAD_DIMS[c["dk"]],
     "mla": lambda c: (0, 1) if c["dv"] <= c["dk"] else (0,),
@@ -74,23 +75,38 @@ SCHEDULE = {
     "wm": lambda c: (1, 2, 4),
     "wn": lambda c: (1, 2, 4),
     "split": lambda c: (0, 1, 2, 4, 8, 16, 32, 64),
+    "qsplit": lambda c: (1, 0) if c["kv"] == "fp8" else (0,),
 }
 DEFAULTS = {"kv": "f16", "dk": 128, "tk": 64, "wm": 1, "wn": 4, "split": 0}
-CODEGEN_KEYS = ("arch", "kv", "dk", "dv", "mla", "tk", "wm", "wn", "split")
+CODEGEN_KEYS = ("arch", "kv", "dk", "dv", "mla", "tk", "wm", "wn", "split", "qsplit")
 PROBLEM = {"heads": 32, "kv_heads": 8, "nq": 1, "nkv": 4096, "pos0": -1, "causal": 1, "mask": 0, "layout": 0}
 KNOWN = ("kernel", "op", "target", "arch") + tuple(SCHEDULE) + tuple(PROBLEM)
 # max |out - ref| / max |ref| against the float64 reference on the stored (dequantized) K/V. f16: q, k, P rounded to
 # 11 bits; bf16: 8 bits (the CPU AMX-BF16 engine's tolerance); Q8_0 adds one f16 rounding of d * q.
-TOL = {"f16": 4e-3, "bf16": 1.5e-2, "q8_0": 4e-3}
+TOL = {"f16": 4e-3, "bf16": 1.5e-2, "q8_0": 4e-3, "fp8": 1.5e-2, "fp8_q1": 1e-1}
+# fp8: K and V are exact (the reference reads the stored e4m3) but q is rounded to e4m3 for the FP8 QK^T MMA. qsplit 1
+# (default) keeps q as hi + lo e4m3 (about 8 bits, like bf16); qsplit 0 keeps 3 bits, which on the deliberately peaked
+# test distribution (q ~ N(0, 3^2)) moves the outputs by up to ~8%. Independently of q's rounding, every fp8 run is
+# also checked against a reference with q rounded exactly as the kernel does (TOL_Q8): that isolates the kernel's own
+# error (P in f16, f32 accumulation order).
+TOL_Q8 = 4e-3
+
+
+def tol(c):
+    return TOL["fp8_q1"] if c["kv"] == "fp8" and not c["qsplit"] else TOL[c["kv"]]
 
 
 def _row_bytes(kv, d):
-    return d // 32 * 34 if kv == "q8_0" else 2 * d
+    return d // 32 * 34 if kv == "q8_0" else d if kv == "fp8" else 2 * d
 
 
 def smem_bytes(c):
     al = lambda x: (x + 15) // 16 * 16  # noqa: E731
     bm, tk, dk, dv = 16 * c["wm"], c["tk"], c["dk"], c["dv"]
+    if c["kv"] == "fp8":  # e4m3 q + row scales, raw e4m3 K (and V) stages, V converted to f16, P, reductions
+        q = (1 + c["qsplit"]) * al(bm * (dk + 16)) + al(bm * 4)
+        raw = al(tk * (dk + 16)) + (0 if c["mla"] else al(tk * (dv + 16)))
+        return q + STAGES * raw + al(tk * (dv + 8) * 2) + al(bm * (tk + 8) * 2) + al(c["wn"] * bm * 4)
     kbuf = 1 if c["kv"] == "q8_0" else STAGES
     q = al(bm * (dk + 8) * 2)
     k = al(tk * (dk + 8) * 2)
@@ -138,6 +154,8 @@ def resolve(spec, overrides=None):
     c["target"] = "cuda"
     if c.setdefault("arch", ARCH) not in ARCHS:
         raise SpecError(f"arch {c['arch']!r}: GPU attention tiers are {list(ARCHS)} (map other GPUs with tier_for)")
+    if c.get("kv") == "fp8" and c["arch"] not in FP8_ARCHS:
+        raise SpecError(f"kv fp8 runs QK^T on FP8 mma.sync (sm_89+): use arch {' or '.join(FP8_ARCHS)}, not {c['arch']}")
     for k in c:
         if k not in KNOWN:
             raise SpecError(f"unknown key {k!r} for op attn target cuda: expected one of {sorted(KNOWN)}")
@@ -199,7 +217,8 @@ def generate(c):
     with open(data_path("attn_kernel.cu")) as fh:
         body = fh.read()
     defs = {"KGA_DK": c["dk"], "KGA_DV": c["dv"], "KGA_KV": KV_FORMATS[c["kv"]], "KGA_TK": c["tk"], "KGA_WM": c["wm"],
-            "KGA_WN": c["wn"], "KGA_STAGES": STAGES, "KGA_SPLIT": c["split"], "KGA_MLA": c["mla"]}  # fmt: skip
+            "KGA_WN": c["wn"], "KGA_STAGES": STAGES, "KGA_SPLIT": c["split"], "KGA_MLA": c["mla"],
+            "KGA_QSPLIT": c["qsplit"]}  # fmt: skip
     head = [f"// kurn GPU attention kernel (tuned for {c['arch']}): {label(c)}"]
     head += [f"#define {k} {v}" for k, v in defs.items()]
     head.append(f'#define KGA_CONFIG "op=attn {label(c)}"')
@@ -245,7 +264,8 @@ def fatbin_archs(c=None):
         have = tuple(int(x) for x in v.split(".")[:2])
     except ValueError:
         have = (0, 0)
-    return [a for a in FATBIN_ARCHS if have >= MIN_NVCC[a]]
+    ok = FP8_ARCHS if c is not None and c["kv"] == "fp8" else FATBIN_ARCHS
+    return [a for a in FATBIN_ARCHS if have >= MIN_NVCC[a] and a in ok]
 
 
 def fatbin_flags(c=None):
@@ -358,7 +378,7 @@ def emu_run(c, shape, seed=1, sched=0, exe=None, cpu_lib=None):
     res = json.loads(line)
     if "error" in res:
         raise EmuError(res["error"])
-    res["ok"] = res["relerr"] <= TOL[c["kv"]]
+    res["ok"] = res["relerr"] <= tol(c) and res.get("relerr_q8", 0.0) <= TOL_Q8
     return res
 
 
@@ -451,7 +471,8 @@ def gpu_run(harness, lib, c, shape=None, secs=0.0, reps=3, cold_bytes=3e8, seed=
     sh = {**PROBLEM, **{k: c[k] for k in PROBLEM if k in c}, **(shape or {})}
     cmd = [harness, "run", "--lib", lib, "--nq", sh["nq"], "--nkv", sh["nkv"], "--heads", sh["heads"], "--kv-heads", sh["kv_heads"],
            "--causal", sh["causal"], "--pos0", sh["pos0"], "--mask", sh["mask"], "--layout", sh["layout"], "--seed", seed,
-           "--tol", TOL[c["kv"]], "--secs", secs, "--reps", reps, "--cold-bytes", cold_bytes, "--check-toks", check_toks]  # fmt: skip
+           "--tol", tol(c), "--tol-q8", TOL_Q8, "--secs", secs, "--reps", reps, "--cold-bytes", cold_bytes,
+           "--check-toks", check_toks]  # fmt: skip
     r = subprocess.run([str(x) for x in cmd], capture_output=True, text=True, timeout=timeout)
     rows = [json.loads(ln) for ln in r.stdout.splitlines() if ln.startswith("{")]
     err = next((x for x in rows if x.get("kind") == "error"), None)

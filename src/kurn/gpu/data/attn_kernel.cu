@@ -2,20 +2,23 @@
 // CUDA helpers (kurn.gpu.codegen.PRELUDE / CPASYNC, kurn.gpu.mma.HELPERS) in front of this file.
 //
 //   KGA_DK, KGA_DV    head dims
-//   KGA_KV            KGA_KV_F16 | KGA_KV_BF16 | KGA_KV_Q8_0 (KV cache format)
+//   KGA_KV            KGA_KV_F16 | KGA_KV_BF16 | KGA_KV_Q8_0 | KGA_KV_FP8 (KV cache format; FP8 needs sm_89+)
 //   KGA_TK            KV tokens per tile
 //   KGA_WM, KGA_WN    warps along rows (16 rows each) and along the tile: for QK^T the WN warps of a row group
 //                     split the tile's tokens, for PV they split the output columns (P goes through shared memory)
 //   KGA_STAGES        cp.async pipeline depth for KV tiles
 //   KGA_SPLIT         KV splits per (row tile, kv head); 0 = from the SM count (flash-decoding)
 //   KGA_MLA           1: v aliases k (v = first DV values of each k row); the K tile is reused for PV
+//   KGA_QSPLIT        FP8 only: 1 = q as hi + lo e4m3 tiles (two FP8 MMAs, about 8 bits of q), 0 = one e4m3 tile
 //
 // Rows are GQA-packed as in the CPU op: row r of kv head g is query token r / G, head g * G + r % G. A CTA owns
 // 16 * WM rows x one kv head x one KV split. Scores are in the log2 domain (q pre-scaled by scale * log2 e) with
 // lazy rescaling (the running max only moves when a tile's max exceeds it by more than 2^8), f16 (F16 / Q8_0 KV)
 // or bf16 (BF16 KV) mma.sync m16n8k16 with f32 accumulation. Q8_0 tiles land raw (4-byte cp.async: 34-byte
-// blocks) and are dequantized to f16 in shared memory. Split results are merged by a second kernel from
-// (max, sum, unnormalized O) partials in the workspace.
+// blocks) and are dequantized to f16 in shared memory. FP8 (e4m3) KV runs QK^T on FP8 mma.sync m16n8k32 (q quantized
+// to e4m3 per row with a scale that maps the row's max to 448, undone on the scores) and PV on f16 mma.sync with V
+// converted from e4m3 to f16 in shared memory (exact). Split results are merged by a second kernel from (max, sum,
+// unnormalized O) partials in the workspace.
 #include "kurn_gpu_attn.h"
 
 #define KGA_LOG2E 1.4426950408889634f
@@ -25,11 +28,18 @@
 #define KGA_NT (32 * KGA_WM * KGA_WN)
 #define KGA_TKW (KGA_TK / KGA_WN)  // tile tokens per warp in QK^T
 #define KGA_DVW (KGA_DV / KGA_WN)  // output columns per warp in PV
+#define KGA_FP8 (KGA_KV == KGA_KV_FP8)
 #define KGA_QST (KGA_DK + 8)       // shared-memory row strides in halves (+16 bytes: conflict-free ldmatrix)
 #define KGA_KST (KGA_DK + 8)
-#define KGA_VST (KGA_MLA ? KGA_KST : KGA_DV + 8)
+#define KGA_VST (KGA_MLA && !KGA_FP8 ? KGA_KST : KGA_DV + 8)
 #define KGA_PST (KGA_TK + 8)
-#if KGA_KV == KGA_KV_Q8_0
+#define KGA_QST8 (KGA_DK + 16)     // FP8: row strides in bytes
+#define KGA_KST8 (KGA_DK + 16)
+#define KGA_VST8 (KGA_DV + 16)
+#if KGA_FP8
+#define KGA_RB(d) (d)
+#define KGA_KBUF 0  // K stays e4m3 in the raw stages; V is converted into one f16 buffer
+#elif KGA_KV == KGA_KV_Q8_0
 #define KGA_RB(d) ((d) / 32 * 34)
 #define KGA_KBUF 1  // f16 tiles are converted from raw staging; one buffer suffices
 #else
@@ -37,13 +47,23 @@
 #define KGA_KBUF KGA_STAGES
 #endif
 #define KGA_AL(x) (((x) + 15) / 16 * 16)
+#if KGA_FP8
+#define KGA_QT_BYTES KGA_AL(KGA_BM * KGA_QST8)
+#define KGA_Q_BYTES ((1 + KGA_QSPLIT) * KGA_QT_BYTES + KGA_AL(KGA_BM * 4))  // e4m3 q tile(s) + per-row scale
+#define KGA_K_BYTES 0
+#define KGA_V_BYTES 0
+#define KGA_RAW_BYTES (KGA_AL(KGA_TK * KGA_KST8) + (KGA_MLA ? 0 : KGA_AL(KGA_TK * KGA_VST8)))
+#define KGA_VF_BYTES KGA_AL(KGA_TK * KGA_VST * 2)  // V converted to f16
+#else
 #define KGA_Q_BYTES KGA_AL(KGA_BM * KGA_QST * 2)
 #define KGA_K_BYTES KGA_AL(KGA_TK * KGA_KST * 2)
 #define KGA_V_BYTES (KGA_MLA ? 0 : KGA_AL(KGA_TK * KGA_VST * 2))
 #define KGA_RAW_BYTES (KGA_KV == KGA_KV_Q8_0 ? KGA_AL(KGA_TK * (KGA_RB(KGA_DK) + (KGA_MLA ? 0 : KGA_RB(KGA_DV)))) : 0)
+#define KGA_VF_BYTES 0
+#endif
 #define KGA_P_BYTES KGA_AL(KGA_BM * KGA_PST * 2)
 #define KGA_RED_BYTES KGA_AL(KGA_WN * KGA_BM * 4)
-#define KGA_SMEM (KGA_Q_BYTES + KGA_KBUF * (KGA_K_BYTES + KGA_V_BYTES) + KGA_STAGES * KGA_RAW_BYTES + KGA_P_BYTES + KGA_RED_BYTES)
+#define KGA_SMEM (KGA_Q_BYTES + KGA_KBUF * (KGA_K_BYTES + KGA_V_BYTES) + KGA_STAGES * KGA_RAW_BYTES + KGA_VF_BYTES + KGA_P_BYTES + KGA_RED_BYTES)
 
 #if KGA_TKW % 16 || KGA_DVW % 16 || KGA_DK % 64 || KGA_DV % 64
 #error "tile and head dims must split into 16-wide warp slices (dims multiples of 64)"
@@ -58,6 +78,32 @@ KURN_FN void kldsm4t(uint32_t r[4], const void *p) {  // ldmatrix .trans: B frag
                : "=r"(r[0]), "=r"(r[1]), "=r"(r[2]), "=r"(r[3]) : "r"(s));
 #endif
 }
+#if KGA_FP8
+KURN_FN void kga_mma8(float d[4], const uint32_t a[4], uint32_t b0, uint32_t b1) {  // D += A (16x32 e4m3) B (32x8 e4m3)
+#ifdef KURN_EMU
+  const unsigned bb[2] = {b0, b1};
+  kemu_mma_e4m3_16832(d, a, bb, d);
+#else
+  asm volatile("mma.sync.aligned.m16n8k32.row.col.f32.e4m3.e4m3.f32 {%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%0,%1,%2,%3};\n"
+               : "+f"(d[0]), "+f"(d[1]), "+f"(d[2]), "+f"(d[3])
+               : "r"(a[0]), "r"(a[1]), "r"(a[2]), "r"(a[3]), "r"(b0), "r"(b1));
+#endif
+}
+KURN_FN uint32_t kga_e4m3x2(float hi, float lo) {  // {lo, hi} -> two e4m3 bytes (RNE, saturating)
+#ifdef KURN_EMU
+  return kemu_cvt_e4m3x2(hi, lo);
+#else
+  unsigned short d; asm("cvt.rn.satfinite.e4m3x2.f32 %0, %1, %2;" : "=h"(d) : "f"(hi), "f"(lo)); return d;
+#endif
+}
+KURN_FN uint32_t kga_f16x2_e4m3x2(uint32_t v) {  // two e4m3 bytes -> f16x2 (exact)
+#ifdef KURN_EMU
+  return kemu_cvt_f16x2_e4m3x2(v);
+#else
+  uint32_t d; asm("cvt.rn.f16x2.e4m3x2 %0, %1;" : "=r"(d) : "h"((unsigned short)v)); return d;
+#endif
+}
+#endif
 KURN_FN void kga_mma(float d[4], const uint32_t a[4], uint32_t b0, uint32_t b1) {
 #if KGA_KV == KGA_KV_BF16
 #ifdef KURN_EMU
@@ -141,6 +187,20 @@ KURN_FN void kga_load_tile(const kga_args &a, int g, int64_t kv0, int64_t k1, ui
       kcp4(vdst + row * KGA_RB(KGA_DV) + 4 * (w - WK), src, ok ? 4 : 0);
     }
   }
+#elif KGA_FP8
+  constexpr int CK = KGA_DK / 16, CV = KGA_MLA ? 0 : KGA_DV / 16, C = CK + CV;  // 16-byte chunks of e4m3 rows
+  for (int i = tid; i < KGA_TK * C; i += KGA_NT) {
+    const int row = i / C, c = i % C;
+    const int64_t j = kv0 + row;
+    const bool ok = j < k1;
+    if (c < CK) {
+      const uint8_t *src = (const uint8_t *)a.k + (ok ? j * a.k_s_tok + g * a.k_s_head + 16 * c : 0);
+      kcp16(kdst + row * KGA_KST8 + 16 * c, src, ok ? 16 : 0);
+    } else {
+      const uint8_t *src = (const uint8_t *)a.v + (ok ? j * a.v_s_tok + g * a.v_s_head + 16 * (c - CK) : 0);
+      kcp16(vdst + row * KGA_VST8 + 16 * (c - CK), src, ok ? 16 : 0);
+    }
+  }
 #else
   constexpr int CK = KGA_DK / 8, CV = KGA_MLA ? 0 : KGA_DV / 8, C = CK + CV;
   for (int i = tid; i < KGA_TK * C; i += KGA_NT) {
@@ -157,6 +217,16 @@ KURN_FN void kga_load_tile(const kga_args &a, int g, int64_t kv0, int64_t k1, ui
   }
 #endif
 }
+
+#if KGA_FP8
+// e4m3 rows (row stride `rst` bytes; the first DV values) -> f16 tile with row stride KGA_VST halves (exact)
+KURN_FN void kga_cvt_v8(const uint8_t *raw, int rst, uint8_t *dst, int tid) {
+  for (int i = tid; i < KGA_TK * (KGA_DV / 2); i += KGA_NT) {
+    const int row = i / (KGA_DV / 2), e = 2 * (i % (KGA_DV / 2));
+    kst_u32(dst + (row * KGA_VST + e) * 2, kga_f16x2_e4m3x2(kld_u16(raw + row * rst + e)));
+  }
+}
+#endif
 
 #if KGA_KV == KGA_KV_Q8_0
 // raw Q8_0 rows (TK x d/32 blocks of 34 bytes) -> f16 tile with row stride `st` halves; d * q rounded to f16
@@ -184,9 +254,11 @@ static __global__ void __launch_bounds__(KGA_NT, 1) kga_main(kga_args a, kga_pla
   uint8_t *Ks = Qs + KGA_Q_BYTES;
   uint8_t *Vs = Ks + KGA_KBUF * KGA_K_BYTES;
   uint8_t *Raw = Vs + KGA_KBUF * KGA_V_BYTES;
-  uint8_t *Ps = Raw + KGA_STAGES * KGA_RAW_BYTES;
+  uint8_t *Vf = Raw + KGA_STAGES * KGA_RAW_BYTES;  // FP8: V as f16
+  uint8_t *Ps = Vf + KGA_VF_BYTES;
   float *red = (float *)(Ps + KGA_P_BYTES);
   (void)Raw;
+  (void)Vf;
 
   const int tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
   const int wm = warp / KGA_WN, wn = warp % KGA_WN;
@@ -207,6 +279,35 @@ static __global__ void __launch_bounds__(KGA_NT, 1) kga_main(kga_args a, kga_pla
 
   // Q tile, pre-scaled into the log2 domain, rounded to the MMA type; padding rows are 0
   const float qs = a.scale * KGA_LOG2E;
+#if KGA_FP8
+  // e4m3 q with a per-row scale mapping the row's max |q * qs| to 448; the scores are multiplied back by its inverse
+  float *qsc = (float *)(Qs + (1 + KGA_QSPLIT) * KGA_QT_BYTES);
+  for (int row = tid; row < KGA_BM; row += KGA_NT) {
+    const int r = r0 + row;
+    float amax = 0.f;
+    if (r < R) {
+      const float *q = a.q + (int64_t)(r / G) * a.q_s_tok + (int64_t)(g * G + r % G) * a.q_s_head;
+      for (int e = 0; e < KGA_DK; e++) amax = fmaxf(amax, fabsf(q[e] * qs));
+    }
+    qsc[row] = amax > 0.f ? 448.f / amax : 1.f;
+  }
+  __syncthreads();
+  for (int i = tid; i < KGA_BM * (KGA_DK / 2); i += KGA_NT) {
+    const int row = i / (KGA_DK / 2), e = 2 * (i % (KGA_DK / 2)), r = r0 + row;
+    float x0 = 0.f, x1 = 0.f;
+    if (r < R) {
+      const float *q = a.q + (int64_t)(r / G) * a.q_s_tok + (int64_t)(g * G + r % G) * a.q_s_head + e;
+      x0 = q[0] * qs * qsc[row];
+      x1 = q[1] * qs * qsc[row];
+    }
+    const uint32_t hi = kga_e4m3x2(x1, x0);
+    kst_u16(Qs + row * KGA_QST8 + e, hi);
+#if KGA_QSPLIT
+    const uint32_t h2 = kga_f16x2_e4m3x2(hi);  // the residual q - hi, itself rounded to e4m3
+    kst_u16(Qs + KGA_QT_BYTES + row * KGA_QST8 + e, kga_e4m3x2(x1 - kh2f_hi(h2), x0 - kh2f_lo(h2)));
+#endif
+  }
+#else
   for (int i = tid; i < KGA_BM * (KGA_DK / 2); i += KGA_NT) {
     const int row = i / (KGA_DK / 2), e = 2 * (i % (KGA_DK / 2)), r = r0 + row;
     float x0 = 0.f, x1 = 0.f;
@@ -217,6 +318,7 @@ static __global__ void __launch_bounds__(KGA_NT, 1) kga_main(kga_args a, kga_pla
     }
     kst_u32(Qs + (row * KGA_QST + e) * 2, kga_pack(x1, x0));
   }
+#endif
 
   // per thread: rows ra = 16 wm + gq and ra + 8 of the CTA tile
   const int ra = 16 * wm + gq;
@@ -225,6 +327,10 @@ static __global__ void __launch_bounds__(KGA_NT, 1) kga_main(kga_args a, kga_pla
   const int64_t lima = va ? a.q_pos0 + rga / G : -1, limb = vb ? a.q_pos0 + rgb / G : -1;  // last visible kv (causal)
   const uint16_t *mra = a.mask && va ? a.mask + (int64_t)(rga / G) * a.mask_s_tok : nullptr;
   const uint16_t *mrb = a.mask && vb ? a.mask + (int64_t)(rgb / G) * a.mask_s_tok : nullptr;
+#if KGA_FP8
+  __syncthreads();
+  const float iqa = 1.f / qsc[ra], iqb = 1.f / qsc[ra + 8];
+#endif
   float m[2] = {kga_ninf(), kga_ninf()}, l[2] = {0.f, 0.f};
   float o[KGA_DVW / 8][4];
 #pragma unroll
@@ -233,9 +339,13 @@ static __global__ void __launch_bounds__(KGA_NT, 1) kga_main(kga_args a, kga_pla
   const int ntiles = (int)((k1 - k0 + KGA_TK - 1) / KGA_TK);
   auto kbuf = [&](int st) { return Ks + (KGA_KBUF == 1 ? 0 : st) * KGA_K_BYTES; };
   auto vbuf = [&](int st) { return KGA_MLA ? kbuf(st) : Vs + (KGA_KBUF == 1 ? 0 : st) * KGA_V_BYTES; };
+  (void)vbuf;
 #if KGA_KV == KGA_KV_Q8_0
   auto ldst_k = [&](int st) { return Raw + st * KGA_RAW_BYTES; };
   auto ldst_v = [&](int st) { return Raw + st * KGA_RAW_BYTES + KGA_TK * KGA_RB(KGA_DK); };
+#elif KGA_FP8
+  auto ldst_k = [&](int st) { return Raw + st * KGA_RAW_BYTES; };
+  auto ldst_v = [&](int st) { return Raw + st * KGA_RAW_BYTES + KGA_AL(KGA_TK * KGA_KST8); };
 #else
   auto ldst_k = [&](int st) { return kbuf(st); };
   auto ldst_v = [&](int st) { return vbuf(st); };
@@ -261,13 +371,50 @@ static __global__ void __launch_bounds__(KGA_NT, 1) kga_main(kga_args a, kga_pla
 #endif
     __syncthreads();
 #endif
+#if KGA_FP8
+    kga_cvt_v8(KGA_MLA ? ldst_k(st) : ldst_v(st), KGA_MLA ? KGA_KST8 : KGA_VST8, Vf, tid);
+    __syncthreads();
+    const uint8_t *Kt = ldst_k(st), *Vt = Vf;
+#else
     const uint8_t *Kt = kbuf(st), *Vt = vbuf(st);
+#endif
     const int64_t kv0 = k0 + (int64_t)it * KGA_TK;
 
     // S = Q K^T for rows 16 wm.., tile tokens wn * TKW..
     float sc[KGA_TKW / 8][4];
 #pragma unroll
     for (int n = 0; n < KGA_TKW / 8; n++) sc[n][0] = sc[n][1] = sc[n][2] = sc[n][3] = 0.f;
+#if KGA_FP8
+#pragma unroll 2
+    for (int kk = 0; kk < KGA_DK / 32; kk++) {  // m16n8k32: 32 e4m3 values = the same 16-byte ldmatrix rows as f16
+      uint32_t af[4];
+      const uint8_t *qa = Qs + (16 * wm + (lane & 7) + 8 * ((lane >> 3) & 1)) * KGA_QST8 + 32 * kk + 16 * (lane >> 4);
+      kldsm4(af, qa);
+#if KGA_QSPLIT
+      uint32_t al[4];
+      kldsm4(al, qa + KGA_QT_BYTES);
+#endif
+#pragma unroll
+      for (int np = 0; np < KGA_TKW / 16; np++) {
+        uint32_t bf[4];
+        const int j = lane >> 3;
+        kldsm4(bf, Kt + (wn * KGA_TKW + 16 * np + (lane & 7) + 8 * (j >> 1)) * KGA_KST8 + 32 * kk + 16 * (j & 1));
+        kga_mma8(sc[2 * np], af, bf[0], bf[1]);
+        kga_mma8(sc[2 * np + 1], af, bf[2], bf[3]);
+#if KGA_QSPLIT
+        kga_mma8(sc[2 * np], al, bf[0], bf[1]);
+        kga_mma8(sc[2 * np + 1], al, bf[2], bf[3]);
+#endif
+      }
+    }
+#pragma unroll
+    for (int n = 0; n < KGA_TKW / 8; n++) {
+      sc[n][0] *= iqa;
+      sc[n][1] *= iqa;
+      sc[n][2] *= iqb;
+      sc[n][3] *= iqb;
+    }
+#else
 #pragma unroll 2
     for (int kk = 0; kk < KGA_DK / 16; kk++) {
       uint32_t af[4];
@@ -281,6 +428,7 @@ static __global__ void __launch_bounds__(KGA_NT, 1) kga_main(kga_args a, kga_pla
         kga_mma(sc[2 * np + 1], af, bf[2], bf[3]);
       }
     }
+#endif
 
     // masks: tile tail, causal, explicit fp16 mask, padding rows; per-row tile max
     float tmax[2] = {kga_ninf(), kga_ninf()};
