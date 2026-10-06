@@ -47,6 +47,12 @@ def weight_blocks(fmt, rng, nblocks, extreme=False):
             from ..ext.compress import e8p_blocks
 
             out += e8p_blocks(rng, 1, extreme)
+        elif fmt == "mxfp4":  # E8M0 scale 2^-8 .. 2^-2 (times the 1/2 of the doubled codes); 0xFF = all codes -12
+            out += bytes([120 + rng.randrange(7)]) + bytes(0xFF if extreme else rng.randrange(256) for _ in range(16))
+        elif fmt == "nvfp4":  # UE4M3 scales 2^-5 .. 2^1 (codes 0x20-0x4F), sometimes 0 or subnormal (codes 1-7); no NaN
+            d = [(lambda r: 0 if r < 0.05 else 1 + rng.randrange(7) if r < 0.1 else 0x20 + rng.randrange(0x30))(rng.random())
+                 for _ in range(4)]  # fmt: skip
+            out += bytes(d) + bytes(0xFF if extreme else rng.randrange(256) for _ in range(32))
         else:
             raise KeyError(fmt)
     return bytes(out)

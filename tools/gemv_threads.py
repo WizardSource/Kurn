@@ -6,7 +6,9 @@ predict (uncapped counts swing by +-90 with tpr alone), so the limits are measur
 cols, unroll), the largest of 256/512/1024 at which every layout/mins/unpack variant compiles without spill or stack
 for every tpr and minb (1, 2, 4) giving that block size on every arch, and 0 when it spills even at 256.
 
-    PATH=/usr/local/cuda/bin:$PATH python tools/gemv_threads.py [--jobs N]
+    PATH=/usr/local/cuda/bin:$PATH python tools/gemv_threads.py [--jobs N] [--formats mxfp4,nvfp4 [--archs sm_80,sm_100,sm_120]]
+
+With --formats, only those formats are measured and merged into the existing table (other rows are kept).
 """
 
 import argparse
@@ -44,22 +46,26 @@ def key(c):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--jobs", type=int, default=None)
+    ap.add_argument("--formats", help="measure only these formats and merge them into the existing table")
+    ap.add_argument("--archs", help=f"archs to compile for (default {','.join(ARCHS)})")
     a = ap.parse_args()
+    fmts = a.formats.split(",") if a.formats else list(spec.FORMATS)
+    archs = tuple(a.archs.split(",")) if a.archs else ARCHS
     spec.INVALID[:] = [r for r in spec.INVALID if r not in spec.GEMV_SPILL_RULES]
     lim, alive = {}, None  # a tier is measured only for the keys that compiled clean at every smaller one
     for tier, pairs in sorted(TIERS.items()):
         cs = [
             c
-            for f in spec.FORMATS
+            for f in fmts
             for nt, m in pairs
             for t in TPRS
             if 1 <= nt // t <= 32
             for c in variants(f, nt, m if m > 1 else 0, t)
             if alive is None or key(c) in alive
         ]
-        print(f"block size {tier}: {len(cs)} configurations x {len(ARCHS)} archs", file=sys.stderr)
+        print(f"block size {tier}: {len(cs)} configurations x {len(archs)} archs", file=sys.stderr)
         spills = {}
-        for c, rep in toolchain.build_many(cs, lambda c: toolchain.ptxas_report(c, ARCHS), a.jobs):
+        for c, rep in toolchain.build_many(cs, lambda c: toolchain.ptxas_report(c, archs), a.jobs):
             if isinstance(rep, Exception):
                 raise SystemExit(f"{spec.label(c)}: {rep}")
             spills[key(c)] = spills.get(key(c), False) or any(r["spill"] for r in toolchain.resource_rows(c, rep))
@@ -69,17 +75,23 @@ def main():
                 lim[k] = tier
         alive = {k for k, sp in spills.items() if not sp}
     limits, gk = {}, spec.GEMV_KEYS
-    for w in spec.FORMATS:
+    old = json.load(open(OUT)) if a.formats else {"limits": {}, "measured_with": {}}
+    if a.formats:
+        limits = {k: v for k, v in old["limits"].items() if k.split()[0] not in fmts}
+    for w in fmts:
         p = {"op": "gemv", "weights": w}
         for xl, sub, cols, unroll in itertools.product(gk["xlayout"](p), gk["sub"](p), gk["cols"](p), gk["unroll"](p)):
             row = limits.setdefault(spec.gemv_threads_key(w, xl, sub, cols), {})
             row[str(unroll)] = lim.get((w, xl, sub, cols, unroll), 0)
     meta = {
         "nvcc": toolchain.nvcc_version(),
-        "archs": list(ARCHS),
+        "archs": list(archs),
         "tpr": list(TPRS),
         "threads_minb": {str(k): [list(p) for p in v] for k, v in TIERS.items()},
     }
+    if a.formats:  # keep the original measurement record; note the merged formats
+        meta = {**old["measured_with"], "merged": {**old["measured_with"].get("merged", {}),
+                                                   ",".join(fmts): {"nvcc": meta["nvcc"], "archs": list(archs)}}}  # fmt: skip
     lines = [f"  {json.dumps(k)}: {json.dumps(v, sort_keys=True)}" for k, v in sorted(limits.items())]
     with open(OUT, "w") as fh:
         fh.write('{\n "measured_with": ' + json.dumps(meta) + ',\n "limits": {\n' + ",\n".join(lines) + "\n }\n}\n")

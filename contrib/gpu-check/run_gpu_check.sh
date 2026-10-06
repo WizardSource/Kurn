@@ -11,7 +11,7 @@
 #   NO_LLAMA=1            skip the ggml-cuda competitor (otherwise llama.cpp is cloned if git and network work)
 #   NO_MARLIN=1           skip the Marlin competitor (runs only if PyTorch + vLLM or `marlin` are importable)
 #   MARLIN_PYTHON=python  interpreter that has torch (default: python3)
-#   FORMATS=q4_0,tq2_0    restrict formats (default: all eight)
+#   FORMATS=q4_0,tq2_0    restrict formats (default: all ten)
 #   CUDA_VISIBLE_DEVICES  pick the GPU (default: GPU 0)
 #
 # Needs: Linux, NVIDIA driver + CUDA toolkit (nvcc) 12.x, python3 >= 3.9, g++. cmake + git for llama.cpp.
@@ -69,7 +69,7 @@ K() { "$PY" -m kurn "$@"; }
 K --version | tee -a "$OUT/run.log"
 K gpu targets > "$OUT/targets.txt" 2>&1; head -2 "$OUT/targets.txt" | tee -a "$OUT/run.log"
 
-FORMATS=${FORMATS:-q8_0,q4_0,iq4_nl,q4_K,q2_0,tq2_0,q1_0,e8p}
+FORMATS=${FORMATS:-q8_0,q4_0,iq4_nl,q4_K,q2_0,tq2_0,q1_0,e8p,mxfp4,nvfp4}
 if [ "$DRYRUN" = "1" ]; then
   ARCH=sm_80
   # the targets: A100, plus B200/GB200 (sm_100) and RTX 50 (sm_120) when nvcc >= 12.8

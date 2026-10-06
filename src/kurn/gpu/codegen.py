@@ -22,6 +22,7 @@ Ampere, Ada, Hopper and Blackwell.
 from .spec import ACT, FORMATS, codegen_keys, gemm_smem, threads
 
 KV_IQ4NL = (-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113)
+KV_FP4 = (0, 1, 2, 3, 4, 6, 8, 12, 0, -1, -2, -3, -4, -6, -8, -12)  # ggml kvalues_mxfp4 = 2 * E2M1 (exact in int8 and f16)
 
 PRELUDE = r"""#ifdef KURN_EMU
 #include "kurn_cuemu.h"
@@ -138,15 +139,33 @@ def _u32(bs):
     return [int.from_bytes(bytes(b & 0xFF for b in bs[i : i + 4]), "little") for i in range(0, len(bs), 4)]
 
 
-def _iq4_table():
-    t = _u32(KV_IQ4NL)
+def _iq4_table(name="kiq4", values=KV_IQ4NL, doc="IQ4_NL"):
+    t = _u32(values)
     return (
-        "// IQ4_NL: 4 nibble indices (one per byte) -> 4 int8 codebook values\n"
-        "KURN_FN uint32_t kiq4(uint32_t q) {\n"
+        f"// {doc}: 4 nibble indices (one per byte) -> 4 int8 codebook values\n"
+        f"KURN_FN uint32_t {name}(uint32_t q) {{\n"
         "  const uint32_t sel = (q & 0x7) | ((q >> 4) & 0x70) | ((q >> 8) & 0x700) | ((q >> 12) & 0x7000);\n"
         f"  const uint32_t lo = __byte_perm(0x{t[0]:08x}u, 0x{t[1]:08x}u, sel), hi = __byte_perm(0x{t[2]:08x}u, 0x{t[3]:08x}u, sel);\n"
         "  const uint32_t m = ((q >> 3) & 0x01010101u) * 0xFFu;\n"
         "  return (lo & ~m) | (hi & m);\n"
+        "}\n"
+    )
+
+
+def _fp4_helpers():
+    """MXFP4 / NVFP4: the 2 * E2M1 codebook, scale decoders and a byte-aligned word load (17-byte MXFP4 blocks)."""
+    return _iq4_table("kfp4", KV_FP4, "MXFP4/NVFP4 (2 * E2M1)") + (
+        "// E8M0 scale with ggml's 1/2 for the doubled codes: 2^(e - 128); e == 0 -> 0 (kurn.mx's documented corner)\n"
+        "KURN_FN float ke8m0h(uint32_t e) { return __uint_as_float(e << 23) * 0.5f; }\n"
+        "// UE4M3 / 2 (ggml_ue4m3_to_fp32); 0 and 0x7F (NaN) -> 0\n"
+        "KURN_FN float kue4m3h(uint32_t u) {\n"
+        "  u &= 0x7Fu;\n"
+        "  if (u == 0x7Fu) return 0.f;\n"
+        "  const uint32_t e = u >> 3, m = u & 7u;\n"
+        "  return e ? __uint_as_float(((e + 119u) << 23) | (m << 20)) : (float)m * 0.0009765625f;\n"
+        "}\n"
+        "KURN_FN uint32_t kld_u32_b1(const uint8_t *p) {\n"
+        "  return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);\n"
         "}\n"
     )
 
@@ -190,12 +209,16 @@ def _act_macros(act, xs=False):
 
 
 def _loadq(dst, ptr, nb, aligned):
-    """C statements loading nb quant bytes at ptr into uint32_t dst[nb/4] (or dst[0] for nb < 4)."""
+    """C statements loading nb quant bytes at ptr into uint32_t dst[nb/4] (or dst[0] for nb < 4). aligned: True (vector
+    loads), False (2-byte aligned), "b1" (byte aligned) or "b4" (4-byte aligned word loads)."""
     if nb < 4:
         return [f"uint32_t {dst}[1] = {{{'kld_u16' if nb == 2 else 'kld_u8'}({ptr})}};"]
     nw = nb // 4
     out = [f"uint32_t {dst}[{nw}];"]
-    if not aligned:
+    if aligned in ("b1", "b4"):
+        fn = "kld_u32_b1" if aligned == "b1" else "kld_u32"
+        out.append(f"for (int i = 0; i < {nw}; i++) {dst}[i] = {fn}({ptr} + 4 * i);")
+    elif not aligned:
         out.append(f"for (int i = 0; i < {nw}; i++) {dst}[i] = kld_u32_b2({ptr} + 4 * i);")
     elif nb >= 16:
         for v in range(nb // 16):
@@ -281,6 +304,75 @@ def _unit_q4(c, split, iq4):
         "}",
     ]
     return s
+
+
+def _unit_mxfp4(c, split):
+    nb = 16 // c["sub"]
+    if split:
+        s = _loadq("q", "wq + (size_t)u * 16 + p * %d" % nb, nb, True) + ["const float dw = ke8m0h(ws[u]);"]
+    else:
+        s = ["const uint8_t *b = wq + (size_t)u * 17;", "const float dw = ke8m0h(b[0]);"]
+        s += _loadq("q", "b + 1 + p * %d" % nb, nb, "b1")
+    s += [
+        f"uint32_t lo[{nb // 4}], hi[{nb // 4}];",
+        "#pragma unroll",
+        f"for (int i = 0; i < {nb // 4}; i++) {{ lo[i] = kfp4(q[i] & 0x0F0F0F0Fu); hi[i] = kfp4((q[i] >> 4) & 0x0F0F0F0Fu); }}",
+        "#pragma unroll",
+        "for (int j = 0; j < COLS; j++) {",
+    ]
+    if c["xlayout"] == "split":
+        s += _xload("xl", f"XP(xr[j], u) + p * {nb}", nb) + _xload("xh", f"XP(xr[j], u) + 16 + p * {nb}", nb)
+        xl, xh, xd = "(int)xl[i]", "(int)xh[i]", "xd[j]"
+    else:
+        xl, xh, xd = f"XQ(xr[j], u, p * {nb} + 4 * i)", f"XQ(xr[j], u, 16 + p * {nb} + 4 * i)", "xr[j]"
+    return s + [
+        "  int s = 0;",
+        "#pragma unroll",
+        f"  for (int i = 0; i < {nb // 4}; i++) {{",
+        f"    s = __dp4a((int)lo[i], {xl}, s);",
+        f"    s = __dp4a((int)hi[i], {xh}, s);",
+        "  }",
+        f"  acc[j] += dw * XD({xd}, u) * (float)s;",
+        "}",
+    ]
+
+
+def _unit_nvfp4(c, split):
+    # unit u = 32 values = half h of block u/2 = sub-blocks 2h (quant bytes 0-7) and 2h+1 (bytes 8-15); in each 8 bytes the
+    # low nibbles are values 0-7 and the high nibbles values 8-15 of the sub-block. Lane p holds bytes p*nb .. p*nb+nb-1.
+    nb = 16 // c["sub"]
+    nw = nb // 4
+    if split:
+        s = _loadq("q", "wq + (size_t)u * 16 + p * %d" % nb, nb, True)
+        s += ["const uint32_t sc = kld_u16(ws + 2 * (size_t)u);", "const float d0 = kue4m3h(sc & 0xFFu), d1 = kue4m3h(sc >> 8);"]
+    else:
+        s = ["const uint8_t *b = wq + (size_t)(u >> 1) * 36;", "const int h = u & 1;",
+             "const float d0 = kue4m3h(b[2 * h]), d1 = kue4m3h(b[2 * h + 1]);"]  # fmt: skip
+        s += _loadq("q", "b + 4 + 16 * h + p * %d" % nb, nb, "b4")
+    s += [
+        f"uint32_t lo[{nw}], hi[{nw}];",
+        "#pragma unroll",
+        f"for (int i = 0; i < {nw}; i++) {{ lo[i] = kfp4(q[i] & 0x0F0F0F0Fu); hi[i] = kfp4((q[i] >> 4) & 0x0F0F0F0Fu); }}",
+        "#pragma unroll",
+        "for (int j = 0; j < COLS; j++) {",
+        "  int s0 = 0, s1 = 0;",
+        "#pragma unroll",
+        f"  for (int i = 0; i < {nw}; i++) {{",
+        f"    const int wi = p * {nw} + i, sbk = wi >> 1, ol = 16 * sbk + 4 * (wi & 1);",
+    ]
+    if c["xlayout"] == "split":
+        s += ["    const int xl = (int)kld_u32(XP(xr[j], u) + ol), xh = (int)kld_u32(XP(xr[j], u) + ol + 8);"]
+        xd = "xd[j]"
+    else:
+        s += ["    const int xl = XQ(xr[j], u, ol), xh = XQ(xr[j], u, ol + 8);"]
+        xd = "xr[j]"
+    return s + [
+        "    const int t = __dp4a((int)lo[i], xl, __dp4a((int)hi[i], xh, 0));",
+        "    if (sbk) s1 += t; else s0 += t;",
+        "  }",
+        f"  acc[j] += XD({xd}, u) * (d0 * (float)s0 + d1 * (float)s1);",
+        "}",
+    ]
 
 
 def _unit_q4_K(c, split):
@@ -461,6 +553,8 @@ UNITS = {
     "q1_0": lambda c, sp: _unit_crumbs(c, sp, 1),
     "tq2_0": _unit_tq2_0,
     "e8p": _unit_e8p,
+    "mxfp4": _unit_mxfp4,
+    "nvfp4": _unit_nvfp4,
 }
 
 
@@ -476,6 +570,8 @@ def _table_setup(c):
                      "tab[n] = __vsub4(z + z, 0x01010101u); }", "__syncthreads();"])  # fmt: skip
     if w == "iq4_nl":
         return (_iq4_table(), ["const uint32_t *tab = nullptr; (void)tab;"])
+    if w in ("mxfp4", "nvfp4"):
+        return (_fp4_helpers(), ["const uint32_t *tab = nullptr; (void)tab;"])
     return ("", ["const uint32_t *tab = nullptr; (void)tab;"])
 
 
@@ -513,6 +609,10 @@ def _repack_body(fmt):
         return [copy(16, 2, 0), "s[0] = src[0]; s[1] = src[1];"]
     if fmt == "q4_K":
         return [copy(128, 16, 0), "for (int i = 0; i < 16; i++) s[i] = src[i];"]
+    if fmt == "mxfp4":
+        return [copy(16, 1, 0), "s[0] = src[0];"]
+    if fmt == "nvfp4":
+        return [copy(32, 4, 0), "for (int i = 0; i < 4; i++) s[i] = src[i];"]
     if fmt == "tq2_0":
         return [copy(64, 0, 0), "s[0] = src[64]; s[1] = src[65];"]
     if fmt == "e8p":  # per 32-value chunk: 4 code bytes then 4 sign bytes
@@ -775,7 +875,7 @@ def generate(c):
     if c["op"] == "gemm":
         from . import mma
 
-        tables = _iq4_table() if c["weights"] == "iq4_nl" else ""
+        tables = _iq4_table() if c["weights"] == "iq4_nl" else _fp4_helpers() if c["weights"] in ("mxfp4", "nvfp4") else ""
         return (head + PRELUDE + CPASYNC + mma.HELPERS + tables + mma.kernel(c) + mma.repack_kernel(c) + mma.x16_kernel(c)
                 + mma.abi(c, cfg))  # fmt: skip
     act = FORMATS[c["weights"]]["act"]
