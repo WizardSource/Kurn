@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Changed: the model engine's context is sized at run time
+- `engine.c` no longer has a 2048-token compile-time `MAX_CTX`: the KV cache, RoPE table and score rows are sized from
+  the request (gen: prompt + generated tokens, ppl: CTX, rounded up to 256); `KURN_CTX=n` asks for more and
+  `-DMAX_CTX=n` is now a minimum. Same results as a fixed-capacity build (Qwen3-1.7B, ppl at CTX 4096, F16 and k4c_q4
+  KV: identical). ppl mode no longer overruns the cache when CTX exceeds the old limit.
+
 ### Added: cost-aware verify width in llama-server (`integration/llama.cpp/spec-width`)
 - `llama-server-spec-width.patch` (applied by `spec-width/apply.sh`): `--spec-width TABLE [--spec-width-mode cap]`
   (or `KURN_SPEC_WIDTH`) runs `kurn-spec-width.h`'s policy per slot with a draft model: per-step cap, per-token stop,

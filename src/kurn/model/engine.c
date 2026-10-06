@@ -25,7 +25,8 @@
 //      KURN_DUMP_LOGITS=file (gen: float32 logits of every step, prompt included), KURN_PERF_CTL=fifo (below),
 //      KURN_KV=f16|q8_0|q4_0|k4c_q4|k4c_q8|vqk_q4|vqk_q8 (KV cache format, below; vqk_* also KURN_VQ=codebooks),
 //      KURN_KLD=ref:file|cmp:file (ppl: KL vs a reference run), KURN_DUMP_KQ=prefix (calibration dump, below).
-//      -DMAX_CTX=n raises the context limit (default 2048).
+//      KURN_CTX=n (context capacity at least n; by default it is sized from the request: prompt + generated tokens,
+//      or CTX, rounded up to 256; -DMAX_CTX=n sets a minimum).
 #define _GNU_SOURCE
 #include "model_config.h"
 #include "kq8e.h"
@@ -52,9 +53,15 @@
 #endif
 
 #define MAXT 64
-#ifndef MAX_CTX
-#define MAX_CTX 2048
+// Context capacity (KV cache, RoPE table, score rows) is a runtime value set in main() before anything is sized by it.
+#ifdef MAX_CTX
+#define KURN_CTX_MIN MAX_CTX
+#undef MAX_CTX
+#else
+#define KURN_CTX_MIN 256
 #endif
+static int64_t G_max_ctx = KURN_CTX_MIN;
+#define MAX_CTX G_max_ctx
 #define QB(K) ((K) / 32)
 #define D HEAD_DIM
 #define NG(n) (((n) + 15) / 16)
@@ -334,7 +341,7 @@ typedef struct {
     _Alignas(64) float att[N_HEAD * D];
     _Alignas(64) float gu[2 * N_FF];
     _Alignas(64) float act[N_FF];
-    float sc[MAX_CTX];
+    float *sc;  // [MAX_CTX] scores
     float rope[D];
     kq8e_act ax, aa, af;
 } work_t;
@@ -798,6 +805,7 @@ static void run(int ith) {
     pack_thread(ith);
     WK[ith] = aligned_alloc(64, ALIGN64(sizeof(work_t)));
     memset(WK[ith], 0, sizeof(work_t));
+    WK[ith]->sc = aligned_alloc(64, ALIGN64(sizeof(float) * MAX_CTX));
     pthread_barrier_wait(&START);
     if (ith == 0 && G_drop_cache) {  // the packed copy is all we stream; let the file's page cache go
         madvise(G_file, G_file_sz, MADV_DONTNEED);
@@ -912,6 +920,16 @@ int main(int argc, char **argv) {
     if (argc < 6) { fprintf(stderr, "usage: %s model.gguf gen|ppl THREADS N_GEN|CTX tokens\n", argv[0]); return 2; }
     T = atoi(argv[3]);
     if (T < 1 || T > MAXT) return 2;
+    {  // context capacity: what the request needs (gen: prompt + generated tokens, ppl: CTX), or KURN_CTX if larger
+        int64_t need = atol(argv[4]);
+        if (!strcmp(argv[2], "gen"))
+            for (const char *p = argv[5]; *p; p++) need += *p == ',';
+        need += !strcmp(argv[2], "gen");
+        if (getenv("KURN_CTX") && atol(getenv("KURN_CTX")) > need) need = atol(getenv("KURN_CTX"));
+        if (need < 1 || need > (1 << 24)) { fprintf(stderr, "context %ld out of range\n", (long)need); return 2; }
+        G_max_ctx = (need + 255) / 256 * 256;
+        if (G_max_ctx < KURN_CTX_MIN) G_max_ctx = KURN_CTX_MIN;
+    }
     parse_wait();
     if (getenv("KURN_THP") && !strcmp(getenv("KURN_THP"), "0")) USE_THP = 0;
     if (getenv("KURN_PFWAIT")) PF_MAX = atol(getenv("KURN_PFWAIT"));
