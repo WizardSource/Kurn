@@ -48,17 +48,27 @@ class LoweringError(ValueError):
 def prims(target, lanes):
     if target == "avx512_vnni" and lanes == 16:
         return dict(
-            V="__m512i", F="__m512", L=16, zero="_mm512_setzero_si512()", fzero="_mm512_setzero_ps()",
+            V="__m512i",
+            F="__m512",
+            L=16,
+            zero="_mm512_setzero_si512()",
+            fzero="_mm512_setzero_ps()",
             loadu=lambda p: f"_mm512_loadu_si512((const void *)({p}))",
-            and_=lambda a, b: f"_mm512_and_si512({a}, {b})", srli16=lambda a, n: f"_mm512_srli_epi16({a}, {n})",
-            set1_8=lambda v: f"_mm512_set1_epi8((char)({v}))", set1_32=lambda v: f"_mm512_set1_epi32({v})",
-            shuf=lambda t, i: f"_mm512_shuffle_epi8({t}, {i})", perm8=lambda i, t: f"_mm512_permutexvar_epi8({i}, {t})",
+            and_=lambda a, b: f"_mm512_and_si512({a}, {b})",
+            srli16=lambda a, n: f"_mm512_srli_epi16({a}, {n})",
+            set1_8=lambda v: f"_mm512_set1_epi8((char)({v}))",
+            set1_32=lambda v: f"_mm512_set1_epi32({v})",
+            shuf=lambda t, i: f"_mm512_shuffle_epi8({t}, {i})",
+            perm8=lambda i, t: f"_mm512_permutexvar_epi8({i}, {t})",
             dp=lambda acc, u, x: f"_mm512_dpbusd_epi32({acc}, {u}, {x})",
             dpw=lambda acc, a, b: f"_mm512_dpwssd_epi32({acc}, {a}, {b})",
-            add=lambda a, b: f"_mm512_add_epi32({a}, {b})", mullo=lambda a, b: f"_mm512_mullo_epi32({a}, {b})",
-            cvt=lambda a: f"_mm512_cvtepi32_ps({a})", fma=lambda a, b, c: f"_mm512_fmadd_ps({a}, {b}, {c})",
+            add=lambda a, b: f"_mm512_add_epi32({a}, {b})",
+            mullo=lambda a, b: f"_mm512_mullo_epi32({a}, {b})",
+            cvt=lambda a: f"_mm512_cvtepi32_ps({a})",
+            fma=lambda a, b, c: f"_mm512_fmadd_ps({a}, {b}, {c})",
             fnma=lambda a, b, c: f"_mm512_fnmadd_ps({a}, {b}, {c})",
-            mul=lambda a, b: f"_mm512_mul_ps({a}, {b})", fset1=lambda v: f"_mm512_set1_ps({v})",
+            mul=lambda a, b: f"_mm512_mul_ps({a}, {b})",
+            fset1=lambda v: f"_mm512_set1_ps({v})",
             h2f=lambda p: f"_mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)({p})))",
             f32=lambda p: f"_mm512_loadu_ps((const float *)({p}))",
             u8x=lambda p: f"_mm512_cvtepu8_epi32(_mm_loadu_si128((const __m128i *)({p})))",
@@ -72,26 +82,39 @@ def prims(target, lanes):
     if lanes == 8 and target in ("avx512_vnni", "avx2_vnni"):
         evex = target == "avx512_vnni"
         return dict(
-            V="__m256i", F="__m256", L=8, zero="_mm256_setzero_si256()", fzero="_mm256_setzero_ps()",
+            V="__m256i",
+            F="__m256",
+            L=8,
+            zero="_mm256_setzero_si256()",
+            fzero="_mm256_setzero_ps()",
             loadu=lambda p: f"_mm256_loadu_si256((const __m256i *)({p}))",
-            and_=lambda a, b: f"_mm256_and_si256({a}, {b})", srli16=lambda a, n: f"_mm256_srli_epi16({a}, {n})",
-            set1_8=lambda v: f"_mm256_set1_epi8((char)({v}))", set1_32=lambda v: f"_mm256_set1_epi32({v})",
-            shuf=lambda t, i: f"_mm256_shuffle_epi8({t}, {i})", perm8=lambda i, t: f"_mm256_permutexvar_epi8({i}, {t})",
-            dp=(lambda acc, u, x: f"_mm256_dpbusd_epi32({acc}, {u}, {x})") if evex else
-               (lambda acc, u, x: f"_mm256_dpbusd_avx_epi32({acc}, {u}, {x})"),
-            dpw=(lambda acc, a, b: f"_mm256_dpwssd_epi32({acc}, {a}, {b})") if evex else
-                (lambda acc, a, b: f"_mm256_dpwssd_avx_epi32({acc}, {a}, {b})"),
-            add=lambda a, b: f"_mm256_add_epi32({a}, {b})", mullo=lambda a, b: f"_mm256_mullo_epi32({a}, {b})",
-            cvt=lambda a: f"_mm256_cvtepi32_ps({a})", fma=lambda a, b, c: f"_mm256_fmadd_ps({a}, {b}, {c})",
+            and_=lambda a, b: f"_mm256_and_si256({a}, {b})",
+            srli16=lambda a, n: f"_mm256_srli_epi16({a}, {n})",
+            set1_8=lambda v: f"_mm256_set1_epi8((char)({v}))",
+            set1_32=lambda v: f"_mm256_set1_epi32({v})",
+            shuf=lambda t, i: f"_mm256_shuffle_epi8({t}, {i})",
+            perm8=lambda i, t: f"_mm256_permutexvar_epi8({i}, {t})",
+            dp=(lambda acc, u, x: f"_mm256_dpbusd_epi32({acc}, {u}, {x})")
+            if evex
+            else (lambda acc, u, x: f"_mm256_dpbusd_avx_epi32({acc}, {u}, {x})"),
+            dpw=(lambda acc, a, b: f"_mm256_dpwssd_epi32({acc}, {a}, {b})")
+            if evex
+            else (lambda acc, a, b: f"_mm256_dpwssd_avx_epi32({acc}, {a}, {b})"),
+            add=lambda a, b: f"_mm256_add_epi32({a}, {b})",
+            mullo=lambda a, b: f"_mm256_mullo_epi32({a}, {b})",
+            cvt=lambda a: f"_mm256_cvtepi32_ps({a})",
+            fma=lambda a, b, c: f"_mm256_fmadd_ps({a}, {b}, {c})",
             fnma=lambda a, b, c: f"_mm256_fnmadd_ps({a}, {b}, {c})",
-            mul=lambda a, b: f"_mm256_mul_ps({a}, {b})", fset1=lambda v: f"_mm256_set1_ps({v})",
+            mul=lambda a, b: f"_mm256_mul_ps({a}, {b})",
+            fset1=lambda v: f"_mm256_set1_ps({v})",
             h2f=lambda p: f"_mm256_cvtph_ps(_mm_loadu_si128((const __m128i *)({p})))",
             f32=lambda p: f"_mm256_loadu_ps((const float *)({p}))",
             u8x=lambda p: f"_mm256_cvtepu8_epi32(_mm_loadl_epi64((const __m128i *)({p})))",
             u8w=lambda p: f"_mm256_cvtepu8_epi16(_mm_loadu_si128((const __m128i *)({p})))",
             i16x=lambda p: f"_mm256_cvtepi16_epi32(_mm_loadu_si128((const __m128i *)({p})))",
-            bits=(lambda p: f"_mm256_maskz_mov_epi8(_cvtu32_mask32(*(const uint32_t *)({p})), _mm256_set1_epi8(1))") if evex
-                 else (lambda p: f"bits8x4(*(const uint32_t *)({p}))"),
+            bits=(lambda p: f"_mm256_maskz_mov_epi8(_cvtu32_mask32(*(const uint32_t *)({p})), _mm256_set1_epi8(1))")
+            if evex
+            else (lambda p: f"bits8x4(*(const uint32_t *)({p}))"),
             tbl16=lambda name: f"_mm256_broadcastsi128_si256(_mm_loadu_si128((const __m128i *){name}))",
             tbl64=lambda name: f"_mm256_loadu_si256((const __m256i *){name})",
             store=lambda p, v: f"_mm256_storeu_ps({p}, {v})",
@@ -198,9 +221,20 @@ def build_layout(c):
     meta = recipe_meta(r, c["scales"])
     if r.two_level and c["correction"] == "pair":
         meta = tuple(m if m[0] != "mn" else ("mnp", "u8", 8, 2) for m in meta)
-    return record_layout(r.bits, meta, lanes=c["lanes"], plane=c["plane"], kblock=c["kblock"], period=r.period,
-                         rgroup=c["rgroup"], place=c["meta"], corr_fields=corr, align=64 if c["align"] == 64 else 0,
-                         rg_pad=c["rgpad"], swizzle=c["swizzle"])
+    return record_layout(
+        r.bits,
+        meta,
+        lanes=c["lanes"],
+        plane=c["plane"],
+        kblock=c["kblock"],
+        period=r.period,
+        rgroup=c["rgroup"],
+        place=c["meta"],
+        corr_fields=corr,
+        align=64 if c["align"] == 64 else 0,
+        rg_pad=c["rgpad"],
+        swizzle=c["swizzle"],
+    )
 
 
 def preset_config(name, c):
@@ -209,8 +243,9 @@ def preset_config(name, c):
     if name == "vnni16":
         return dict(lanes=16, plane="none", kblock=32, meta="tail", rgroup=1, rgpad=0, swizzle=0)
     if name in ("i16", "i8"):
-        return dict(lanes=16 if name == "i16" else 8, plane=planes_for(r.bits)[0], kblock=r.period, meta="head",
-                    rgroup=1, rgpad=0, swizzle=0)
+        return dict(
+            lanes=16 if name == "i16" else 8, plane=planes_for(r.bits)[0], kblock=r.period, meta="head", rgroup=1, rgpad=0, swizzle=0
+        )
     raise KeyError(name)
 
 
@@ -259,18 +294,23 @@ def _prepare(r, lay, c):
     R, KB, per = lay.rows, lay.kblock, r.period
     two = r.two_level
     corr_w = c["correction"] == "weight"
-    kv = ("static const int8_t KV[16] __attribute__((unused)) = {" + ", ".join(str(v) for v in generic.KV_IQ4NL) + "};\n"
-          if "KV[" in (r.signed_c + "".join(m[0] for m in r.maps.values())) else "")
+    kv = (
+        "static const int8_t KV[16] __attribute__((unused)) = {" + ", ".join(str(v) for v in generic.KV_IQ4NL) + "};\n"
+        if "KV[" in (r.signed_c + "".join(m[0] for m in r.maps.values()))
+        else ""
+    )
     code_e = lay.code.c_expr(("row", "kk"))
     if lay.swizzle is not None:
         sw = lay.swizzle
         nb_lg = lay.lg_code_bytes
         # swizzle the vector index inside its (lane group, K-group) chunk by the row-group bits
-        swz = (f"{{ const int64_t rel = byte - {lay.code_base}, kgi = rel / {lay.kg_bytes}, rem = rel % {lay.kg_bytes};\n"
-               f"                      if (rem < {nb_lg * lay.params['rgroup']}) {{\n"
-               f"                        const int64_t lgi = rem / {nb_lg}, off = rem % {nb_lg};\n"
-               f"                        byte = {lay.code_base} + kgi * {lay.kg_bytes} + lgi * {nb_lg} + "
-               f"(off ^ ((gr & {(1 << sw.bits) - 1}) << {sw.base})); }} }}")
+        swz = (
+            f"{{ const int64_t rel = byte - {lay.code_base}, kgi = rel / {lay.kg_bytes}, rem = rel % {lay.kg_bytes};\n"
+            f"                      if (rem < {nb_lg * lay.params['rgroup']}) {{\n"
+            f"                        const int64_t lgi = rem / {nb_lg}, off = rem % {nb_lg};\n"
+            f"                        byte = {lay.code_base} + kgi * {lay.kg_bytes} + lgi * {nb_lg} + "
+            f"(off ^ ((gr & {(1 << sw.bits) - 1}) << {sw.base})); }} }}"
+        )
     else:
         swz = ""
     fill = []
@@ -278,11 +318,13 @@ def _prepare(r, lay, c):
     if two:
         fill.append(f"memcpy(rec + {f('d').layout.c_expr(('row', '0', 'q'))}, &b->d, 2);" if f("d") else "")
         fill.append(f"memcpy(rec + {f('dmin').layout.c_expr(('row', '0', 'q'))}, &b->dmin, 2);" if f("dmin") else "")
-        dec = ("const uint8_t *q6 = b->scales; int sc[8], mn[8];\n"
-               "                    for (int s = 0; s < 8; s++) {\n"
-               "                        sc[s] = s < 4 ? q6[s] & 63 : (q6[s + 4] & 0xF) | ((q6[s - 4] >> 6) << 4);\n"
-               "                        mn[s] = s < 4 ? q6[s + 4] & 63 : (q6[s + 4] >> 4) | ((q6[s] >> 6) << 4);\n"
-               "                    }\n                    (void)sc; (void)mn;")
+        dec = (
+            "const uint8_t *q6 = b->scales; int sc[8], mn[8];\n"
+            "                    for (int s = 0; s < 8; s++) {\n"
+            "                        sc[s] = s < 4 ? q6[s] & 63 : (q6[s + 4] & 0xF) | ((q6[s - 4] >> 6) << 4);\n"
+            "                        mn[s] = s < 4 ? q6[s + 4] & 63 : (q6[s + 4] >> 4) | ((q6[s] >> 6) << 4);\n"
+            "                    }\n                    (void)sc; (void)mn;"
+        )
         fill.append(dec)
         if f("sc"):
             fill.append(f"for (int s = 0; s < 8; s++) rec[{f('sc').layout.c_expr(('row', 's', 'q'))}] = (uint8_t)sc[s];")
@@ -293,17 +335,23 @@ def _prepare(r, lay, c):
         if f("raw"):
             fill.append(f"for (int t = 0; t < 12; t++) rec[{f('raw').layout.c_expr(('row', 't', 'q'))}] = b->scales[t];")
         if f("dsc"):
-            fill.append(f"for (int s = 0; s < 8; s++) {{ const float v = f16f(b->d) * (float)sc[s]; "
-                        f"memcpy(rec + {f('dsc').layout.c_expr(('row', 's', 'q'))}, &v, 4); }}")
-            fill.append(f"for (int s = 0; s < 8; s++) {{ const float v = f16f(b->dmin) * (float)mn[s]; "
-                        f"memcpy(rec + {f('dmn').layout.c_expr(('row', 's', 'q'))}, &v, 4); }}")
+            fill.append(
+                f"for (int s = 0; s < 8; s++) {{ const float v = f16f(b->d) * (float)sc[s]; "
+                f"memcpy(rec + {f('dsc').layout.c_expr(('row', 's', 'q'))}, &v, 4); }}"
+            )
+            fill.append(
+                f"for (int s = 0; s < 8; s++) {{ const float v = f16f(b->dmin) * (float)mn[s]; "
+                f"memcpy(rec + {f('dmn').layout.c_expr(('row', 's', 'q'))}, &v, 4); }}"
+            )
     else:
         fill.append(f"memcpy(rec + {f('d').layout.c_expr(('row', '0', 'q'))}, &{r.d_c}, 2);")
     fill = "\n                    ".join(x for x in fill if x)
     wsum = ""
     if corr_w:
-        wsum = (f"if ((kk & 31) == 31) {{ const int16_t ws = (int16_t)wsum; "
-                f"memcpy(rec + {f('wsum').layout.c_expr(('row', 'kk / 32'))}, &ws, 2); wsum = 0; }}")
+        wsum = (
+            f"if ((kk & 31) == 31) {{ const int16_t ws = (int16_t)wsum; "
+            f"memcpy(rec + {f('wsum').layout.c_expr(('row', 'kk / 32'))}, &ws, 2); wsum = 0; }}"
+        )
     ustore = _ustore(r, c)
     return f"""
 typedef struct {{ {r.struct} }} nblock;
@@ -312,11 +360,11 @@ typedef struct {{ {r.struct} }} nblock;
 #define REC_BYTES {lay.rec_bytes}
 #define RG_STRIDE(nrec) ((size_t)(nrec) * REC_BYTES + {lay.rg_pad})
 
-void *{c['entry']}_prepare(const void *W, int64_t K, int64_t N) {{
+void *{c["entry"]}_prepare(const void *W, int64_t K, int64_t N) {{
     const nblock *w = (const nblock *)W;
     const int64_t nb = K / {r.block};
     packed_t *pk = malloc(sizeof *pk);
-    pk->nrec_k = K / {KB}; pk->ngroups = (N + {R - 1}) / {R} + {c['rows'] // c['rgroup']};
+    pk->nrec_k = K / {KB}; pk->ngroups = (N + {R - 1}) / {R} + {c["rows"] // c["rgroup"]};
     const size_t bytes = (size_t)pk->ngroups * RG_STRIDE(pk->nrec_k);
     pk->buf = aligned_alloc(64, (bytes + 63) & ~(size_t)63);
     memset(pk->buf, 0, bytes);
@@ -514,7 +562,7 @@ def _kernel(target, r, lay, c):
                 loads[key] = f"c{t}_{byte}"
         if PF and c["pfgran"] == "line":
             seen = set()
-            for (t, byte) in loads:
+            for t, byte in loads:
                 line = byte // 64
                 if (t, line) not in seen:
                     seen.add((t, line))
@@ -538,8 +586,7 @@ def _kernel(target, r, lay, c):
             t, rr = divmod(lg * L, R)
             for m in range(M):
                 if corr == "weight":
-                    seed = P["mullo"](P["i16x"](f"rec{t} + kgo + {lay.field('wsum').layout(rr, 0) }"),
-                                      P["set1_32"]("-128"))
+                    seed = P["mullo"](P["i16x"](f"rec{t} + kgo + {lay.field('wsum').layout(rr, 0)}"), P["set1_32"]("-128"))
                 elif not two and beta and alpha == 1:
                     seed = P["set1_32"](f"{beta} * sx[{m} * nk + k]")
                 else:
@@ -622,15 +669,19 @@ def _kernel(target, r, lay, c):
     tiled = KP > 0
     nacc = nlg * M
     if tiled:
-        decl = " ".join(f"{F} a{lg}_{m} = kp ? {P['f32'](f'pt + {(lg * M + m) * L}')} : {P['fzero']};"
-                        for lg in range(nlg) for m in range(M))
+        decl = " ".join(
+            f"{F} a{lg}_{m} = kp ? {P['f32'](f'pt + {(lg * M + m) * L}')} : {P['fzero']};" for lg in range(nlg) for m in range(M)
+        )
     else:
         decl = " ".join(f"{F} a{lg}_{m} = {P['fzero']};" for lg in range(nlg) for m in range(M))
     swz_decl = ""
     if sw is not None:
         swz_decl = " ".join(f"const size_t swz{t} = (size_t)((gr + {t}) & {(1 << sw.bits) - 1});" for t in range(recs))
-    stores = "\n".join((f"        if ({m} < M) " if m else "        ") + f"storev(Y + {m} * N, gr * {R} + {lg * L}, r0, r1, a{lg}_{m});"
-                       for lg in range(nlg) for m in range(M))
+    stores = "\n".join(
+        (f"        if ({m} < M) " if m else "        ") + f"storev(Y + {m} * N, gr * {R} + {lg * L}, r0, r1, a{lg}_{m});"
+        for lg in range(nlg)
+        for m in range(M)
+    )
     if L == 16:
         storev = """
 static inline void storev(float *y, int64_t row0, int64_t r0, int64_t r1, __m512 v) {
@@ -658,14 +709,14 @@ static inline __m256i bits8x4(uint32_t w) {  /* 32 bits -> 32 bytes of 0/1 */
         q4k_packed = f"""
 /* 6-bit scale/min decode for {L} rows at once; q[t] holds raw scale byte t of every row */
 static inline {V} q4k_sc(const {V} *q, int s) {{
-    const {V} m63 = {P['set1_32'](63)}, m15 = {P['set1_32'](15)};
-    if (s < 4) return {P['and_']('q[s]', 'm63')};
-    return {P['add'](P['and_']('q[s + 4]', 'm15'), P['mullo'](P['srli16']('q[s - 4]', 6), P['set1_32'](16)))};
+    const {V} m63 = {P["set1_32"](63)}, m15 = {P["set1_32"](15)};
+    if (s < 4) return {P["and_"]("q[s]", "m63")};
+    return {P["add"](P["and_"]("q[s + 4]", "m15"), P["mullo"](P["srli16"]("q[s - 4]", 6), P["set1_32"](16)))};
 }}
 static inline {V} q4k_mn(const {V} *q, int s) {{
-    const {V} m63 = {P['set1_32'](63)};
-    if (s < 4) return {P['and_']('q[s + 4]', 'm63')};
-    return {P['add'](P['srli16']('q[s + 4]', 4), P['mullo'](P['srli16']('q[s]', 6), P['set1_32'](16)))};
+    const {V} m63 = {P["set1_32"](63)};
+    if (s < 4) return {P["and_"]("q[s + 4]", "m63")};
+    return {P["add"](P["srli16"]("q[s + 4]", 4), P["mullo"](P["srli16"]("q[s]", 6), P["set1_32"](16)))};
 }}"""
     if r.act == "q8_0":
         act_struct = "typedef struct { uint16_t d; int8_t qs[32]; } xblock;"
@@ -698,11 +749,20 @@ static inline {V} q4k_mn(const {V} *q, int s) {{
     act_bias = ""
     if corr == "weight":
         act_bias = f"\n    for (int64_t i = 0; i < {M} * nk * 8; i++) xw[i] ^= (int32_t)0x80808080;  /* x + 128 as u8 */"
-    sig = (f"void {entry}_packed(const void *pv, const void *X, float *Y, int64_t K, int64_t N, int64_t M, int64_t r0, int64_t r1)"
-           if gemm else f"void {entry}_packed(const void *pv, const void *X, float *Y, int64_t K, int64_t r0, int64_t r1)")
+    sig = (
+        f"void {entry}_packed(const void *pv, const void *X, float *Y, int64_t K, int64_t N, int64_t M, int64_t r0, int64_t r1)"
+        if gemm
+        else f"void {entry}_packed(const void *pv, const void *X, float *Y, int64_t K, int64_t r0, int64_t r1)"
+    )
     mdecl = "" if gemm else "    const int64_t M = 1, N = 0;\n"
-    fallback = (f"void {entry}(const void *W, const void *X, float *Y, int64_t K, int64_t N, int64_t M, int64_t n0, int64_t n1) {{\n"
-                "    (void)W; (void)X; (void)Y; (void)K; (void)N; (void)M; (void)n0; (void)n1; abort();\n}\n") if gemm else ""
+    fallback = (
+        (
+            f"void {entry}(const void *W, const void *X, float *Y, int64_t K, int64_t N, int64_t M, int64_t n0, int64_t n1) {{\n"
+            "    (void)W; (void)X; (void)Y; (void)K; (void)N; (void)M; (void)n0; (void)n1; abort();\n}\n"
+        )
+        if gemm
+        else ""
+    )
     attr = '__attribute__((target("avx512vbmi"))) ' if unpack == "perm" else ""
     if not tiled:
         loop = f"""    for (int64_t gr = gr0; gr < gr1; gr += {recs}) {{
@@ -716,8 +776,7 @@ static inline {V} q4k_mn(const {V} *q, int s) {{
     else:
         # row panel x K panel: the activation slice of one K panel stays in L1 while RP passes
         # of row groups stream through it; float partial sums wait in `part` between K panels
-        parks = "\n".join(f"                {P['store'](f'pt + {(lg * M + m) * L}', f'a{lg}_{m}')};"
-                           for lg in range(nlg) for m in range(M))
+        parks = "\n".join(f"                {P['store'](f'pt + {(lg * M + m) * L}', f'a{lg}_{m}')};" for lg in range(nlg) for m in range(M))
         stores_t = "\n".join("        " + ln for ln in stores.splitlines())
         loop = f"""    float part[{RP} * {nacc} * {L}] __attribute__((aligned(64)));
     for (int64_t gp = gr0; gp < gr1; gp += {RP * recs}) {{
@@ -752,7 +811,7 @@ static inline {V} q4k_mn(const {V} *q, int s) {{
     (void)sx; (void)sxp; (void)nbx;
     for (int64_t m = 0; m < {M}; m++) {{{act_prep}
     }}{act_bias}
-    const {V} m4 = {P['set1_8']('0x0F')}, m3 = {P['set1_8']('0x03')}, m1 = {P['set1_8']('0x01')};
+    const {V} m4 = {P["set1_8"]("0x0F")}, m3 = {P["set1_8"]("0x03")}, m1 = {P["set1_8"]("0x01")};
     (void)m4; (void)m3; (void)m1;
     {lut_decl}
     const size_t rgs = RG_STRIDE(pk->nrec_k);

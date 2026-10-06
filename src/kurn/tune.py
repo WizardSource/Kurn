@@ -1,9 +1,10 @@
 """Energy-aware autotuner.
 
 Every configuration in the search space is generated, compiled, numerically
-checked and timed by the harness. Configurations that fail the check are
-dropped. Results are ranked by an energy proxy, by speed, or by energy x delay,
-and the time/energy Pareto front is reported.
+checked and timed by the harness, in several interleaved rounds (ranked on the
+median; the leaders are re-measured until their order is stable, see `tune`).
+Configurations that fail the check are dropped. Results are ranked by an energy
+proxy, by speed, or by energy x delay, and the time/energy Pareto front is reported.
 
 Energy proxy (no RAPL needed): busy CPU-time x PROXY_W_PER_CORE, plus an
 optional platform/static power term charged per wall-clock second. Under a pure
@@ -40,8 +41,13 @@ def _positive_int(name, value, minimum=1):
 
 
 def _finite_number(name, value, minimum=0.0, strict=False):
-    if (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
-            or value < minimum or (strict and value == minimum)):
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value < minimum
+        or (strict and value == minimum)
+    ):
         op = ">" if strict else ">="
         raise SpecError(f"{name} must be finite and {op} {minimum}")
 
@@ -66,8 +72,14 @@ def measurement(row, static_w=0.0):
         edp = e * row["us"]
         if not math.isfinite(e) or e < 0 or not math.isfinite(edp) or edp < 0:
             return None
-        return {"us": row["us"], "cpu_us": row["cpu_us"], "energy_uJ": e, "edp": edp,
-                "GBps": row["GBps"], "relerr": row["relerr"]}
+        return {
+            "us": row["us"],
+            "cpu_us": row["cpu_us"],
+            "energy_uJ": e,
+            "edp": edp,
+            "GBps": row["GBps"],
+            "relerr": row["relerr"],
+        }
     except (KeyError, TypeError, ValueError, OverflowError):
         return None
 
@@ -95,15 +107,98 @@ def pareto_front(results):
     return front
 
 
-def tune(spec, space, regime="cold", objective="energy", static_w=0.0, secs=1.0, extra=(), out=None,
-         harness=None, log=print):  # fmt: skip
-    """Sweep `space` (dict key -> list of values) on top of `spec`. Returns (ranked results, pareto front)."""
+# Noise-robust ranking (`tune`): one short run per configuration ranks configurations by whatever else the machine was
+# doing at that moment. Instead every candidate is measured `rounds` times in interleaved rounds (the order rotates each
+# round, so slow drift hits every candidate alike) and ranked on the median. The top `keep` candidates are then re-measured
+# in extra interleaved rounds until their order holds for STABLE_ROUNDS consecutive rounds or `budget` seconds of extra
+# measuring are spent. A candidate's spread is the interquartile range / median of its samples; when the top two are closer than their
+# spread, or a top candidate's spread exceeds `max_spread`, the ranking is reported as not resolved, with a hint.
+STABLE_ROUNDS = 2
+MAX_EXTRA_ROUNDS = 12
+
+
+def _median(xs):
+    xs = sorted(xs)
+    n = len(xs)
+    return xs[n // 2] if n % 2 else 0.5 * (xs[n // 2 - 1] + xs[n // 2])
+
+
+def _summary(samples, static_w):
+    """Per-candidate medians of every metric, plus the spread of each objective."""
+    med = {k: _median([x[k] for x in samples]) for k in ("us", "cpu_us", "GBps", "GOPs", "relerr")}
+    e = [energy_uj(x, static_w) for x in samples]
+    edp = [ei * x["us"] for ei, x in zip(e, samples)]
+    out = {**med, "energy_uJ": _median(e), "edp": _median(edp), "rounds": len(samples)}
+    for key, vals in (("us", [x["us"] for x in samples]), ("energy_uJ", e), ("edp", edp)):
+        out[f"spread_{key}"] = _spread(vals)
+    return out
+
+
+def _spread(vals):
+    """Interquartile range / median (robust to a single disturbed measurement); 0 for one sample."""
+    if len(vals) < 2:
+        return 0.0
+    q1, _, q3 = statistics.quantiles(vals, n=4, method="inclusive")
+    m = _median(vals)
+    return (q3 - q1) / m if m else 0.0
+
+
+def rank_warnings(results, objective, max_spread=0.10):
+    """Human-readable warnings when the measured spread is too large to trust the ranking of the leaders."""
+    key = OBJECTIVES[objective]
+    warn = []
+    if len(results) >= 2:
+        a, b = results[0], results[1]
+        gap = (b[key] - a[key]) / a[key] if a[key] else 0.0
+        noise = max(a[f"spread_{key}"], b[f"spread_{key}"])
+        if gap < noise:
+            warn.append(f"top two not resolved: {gap:.1%} apart but their samples spread {noise:.1%}")
+    noisy = [r for r in results[:3] if r[f"spread_{key}"] > max_spread]
+    if noisy:
+        warn.append(
+            f"{len(noisy)} of the top {min(3, len(results))} spread more than {max_spread:.0%} "
+            f"(worst {max(r[f'spread_{key}'] for r in noisy):.1%})"
+        )  # fmt: skip
+    if warn:
+        warn.append(
+            "the machine is probably busy: rerun with longer runs (--secs 3) or more rounds (--rounds 5), "
+            "or on a quiet machine"
+        )  # fmt: skip
+    return warn
+
+
+def tune(
+    spec,
+    space,
+    regime="cold",
+    objective="energy",
+    static_w=0.0,
+    secs=1.0,
+    extra=(),
+    out=None,
+    harness=None,
+    log=print,
+    rounds=3,
+    keep=3,
+    budget=30.0,
+    max_spread=0.10,
+):  # fmt: skip
+    """Sweep `space` (dict key -> list of values) on top of `spec`, `rounds` interleaved measurements of `secs` each,
+    then refine the leaders (see above). Returns (results ranked by the median objective, pareto front); each result has
+    the medians, `rounds` and `spread_*`, and the first carries `warnings` (empty when the ranking is resolved)."""
+    import time
+
     if objective not in OBJECTIVES:
         raise SpecError(f"objective {objective!r}: expected one of {list(OBJECTIVES)}")
+    _positive_int("rounds", rounds)
+    _positive_int("keep", keep)
     _finite_number("static_w", static_w)
     _finite_number("secs", secs, strict=True)
+    _finite_number("budget", budget)
+    _finite_number("max_spread", max_spread)
+    key = OBJECTIVES[objective]
     keys = list(space)
-    results = []
+    cands = []
     for combo in itertools.product(*(space[k] for k in keys)):
         ov = dict(zip(keys, combo))
         try:
@@ -115,21 +210,68 @@ def tune(spec, space, regime="cold", objective="energy", static_w=0.0, secs=1.0,
             log(f"skip {ov}: threads={c['threads']} exceeds the {os.cpu_count()} CPUs here")
             continue
         try:
-            row = bench(build(c), c, regime, secs, extra, harness)
-        except (BuildError, HarnessError) as e:
+            cands.append({"ov": ov, "c": c, "so": build(c), "samples": []})
+        except BuildError as e:
             log(f"FAIL {ov}: {str(e).splitlines()[0]}")
-            continue
+
+    def measure(cand, rnd):
+        try:
+            row = bench(cand["so"], cand["c"], regime, secs, extra, harness)
+        except HarnessError as e:
+            log(f"FAIL {cand['ov']}: {str(e).splitlines()[0]}")
+            cand["dead"] = True
+            return
         m = measurement(row, static_w)
         if m is None:
-            log(f"FAIL {ov}: unusable timing or correctness row")
-            continue
-        e = m["energy_uJ"]
-        results.append({**ov, **m, "GOPs": row["GOPs"]})
-        log(f"{ov}  {row['us']:9.1f} us  {e:10.1f} uJ  {row['GBps']:7.1f} GB/s  relerr {row['relerr']:.1e}")
-    results.sort(key=lambda r: r[OBJECTIVES[objective]])
+            log(f"FAIL {cand['ov']}: unusable timing or correctness row")
+            cand["dead"] = True
+            return
+        cand["samples"].append({k: row[k] for k in ("us", "cpu_us", "GBps", "GOPs", "relerr")})
+        log(
+            f"r{rnd} {cand['ov']}  {row['us']:9.1f} us  {m['energy_uJ']:10.1f} uJ  "
+            f"{row['GBps']:7.1f} GB/s  relerr {row['relerr']:.1e}"
+        )
+
+    def live():
+        return [c for c in cands if not c.get("dead")]
+
+    for rnd in range(rounds):  # interleaved rounds, rotated order
+        pool = live()
+        for i in range(len(pool)):
+            measure(pool[(i + rnd) % len(pool)], rnd)
+
+    def ranked():
+        alive = [c for c in live() if c["samples"]]
+        for c in alive:
+            c["stats"] = _summary(c["samples"], static_w)
+        return sorted(alive, key=lambda c: c["stats"][key])
+
+    order = ranked()
+    if len(order) > 1 and keep > 1:  # refine the leaders until their order is stable or the budget is spent
+        t0, stable, extra_rounds = time.monotonic(), 0, 0
+        top = [id(c) for c in order[:keep]]
+        while stable < STABLE_ROUNDS and extra_rounds < MAX_EXTRA_ROUNDS and time.monotonic() - t0 < budget:
+            lead = order[: min(keep, len(order))]
+            for i in range(len(lead)):
+                measure(lead[(i + extra_rounds) % len(lead)], rounds + extra_rounds)
+            extra_rounds += 1
+            order = ranked()
+            now = [id(c) for c in order[:keep]]
+            stable = stable + 1 if now == top else 0
+            top = now
+        log(
+            f"refined the top {min(keep, len(order))}: {extra_rounds} extra round(s); order "
+            f"{'stable' if stable >= STABLE_ROUNDS else 'still changing (budget or round limit reached)'}"
+        )  # fmt: skip
+    results = [{**c["ov"], **c["stats"]} for c in order]
+    if results:
+        results[0]["warnings"] = rank_warnings(results, objective, max_spread)
+        for w in results[0]["warnings"]:
+            log(f"warning: {w}")
     if out and results:
+        cols = [k for k in results[0] if k != "warnings"]
         with open(out, "w", newline="") as fh:
-            w = csv.DictWriter(fh, fieldnames=list(results[0].keys()))
+            w = csv.DictWriter(fh, fieldnames=cols, extrasaction="ignore")
             w.writeheader()
             w.writerows(results)
     return results, pareto_front(results)
@@ -215,7 +357,9 @@ def sample_legal(spec, space, n, rng, max_tries=None):
     while len(out) < n and tries < max_tries:
         tries += 1
         ov = {}
-        order = [k for k in keys if k == "layout"] + rng.sample([k for k in keys if k != "layout"], len(keys) - ("layout" in keys))
+        order = [k for k in keys if k == "layout"] + rng.sample(
+            [k for k in keys if k != "layout"], len(keys) - ("layout" in keys)
+        )
         for k in order:
             ok = []
             for v in space[k]:
@@ -354,9 +498,27 @@ def _safe_measure(c, so, regime, secs, extra, harness, static_w, log=lambda _: N
     return m
 
 
-def search(spec, space=None, regime="hot", objective="energy", static_w=0.0, n0=81, eta=3, keep=3, secs0=0.05,
-           secs=0.4, refine=True, min_gain=0.02, max_moves=12, extra=(), harness=None, jobs=3, seed=0, log=print,
-           start=()):
+def search(
+    spec,
+    space=None,
+    regime="hot",
+    objective="energy",
+    static_w=0.0,
+    n0=81,
+    eta=3,
+    keep=3,
+    secs0=0.05,
+    secs=0.4,
+    refine=True,
+    min_gain=0.02,
+    max_moves=12,
+    extra=(),
+    harness=None,
+    jobs=3,
+    seed=0,
+    log=print,
+    start=(),
+):
     """Staged search (see above). Returns (ranked results, stats). `start` adds explicit
     override dicts to the initial sample (e.g. a baseline to compare against)."""
     import random
@@ -364,8 +526,13 @@ def search(spec, space=None, regime="hot", objective="energy", static_w=0.0, n0=
 
     if objective not in OBJECTIVES:
         raise SpecError(f"objective {objective!r}: expected one of {list(OBJECTIVES)}")
-    for name, value, minimum in (("n0", n0, 1), ("eta", eta, 2), ("keep", keep, 1),
-                                 ("jobs", jobs, 1), ("max_moves", max_moves, 0)):
+    for name, value, minimum in (
+        ("n0", n0, 1),
+        ("eta", eta, 2),
+        ("keep", keep, 1),
+        ("jobs", jobs, 1),
+        ("max_moves", max_moves, 0),
+    ):
         _positive_int(name, value, minimum)
     _finite_number("secs0", secs0, strict=True)
     _finite_number("secs", secs, strict=True)
@@ -389,12 +556,22 @@ def search(spec, space=None, regime="hot", objective="energy", static_w=0.0, n0=
                 cand.append((dict(ov), c))
         except SpecError as e:
             log(f"skip start {ov}: {e}")
-    stats = {"space_keys": {k: len(v) for k, v in space.items()}, "space_raw": space_size(space),
-             "active_keys": {k: len(v) for k, v in active.items()}, "space_active": space_size(active),
-             "legal_fraction": round(frac, 4), "legal_est": int(space_size(active) * frac), "sampled": len(cand),
-             "builds": 0, "measurements": 0, "rounds": []}
-    log(f"search space: {len(space)} keys, {stats['space_raw']:,} raw combinations; {len(active)} keys active "
-        f"({stats['space_active']:,} combinations, ~{frac:.1%} legal: ~{stats['legal_est']:,}); sampled {len(cand)} distinct")
+    stats = {
+        "space_keys": {k: len(v) for k, v in space.items()},
+        "space_raw": space_size(space),
+        "active_keys": {k: len(v) for k, v in active.items()},
+        "space_active": space_size(active),
+        "legal_fraction": round(frac, 4),
+        "legal_est": int(space_size(active) * frac),
+        "sampled": len(cand),
+        "builds": 0,
+        "measurements": 0,
+        "rounds": [],
+    }
+    log(
+        f"search space: {len(space)} keys, {stats['space_raw']:,} raw combinations; {len(active)} keys active "
+        f"({stats['space_active']:,} combinations, ~{frac:.1%} legal: ~{stats['legal_est']:,}); sampled {len(cand)} distinct"
+    )
     sos = _build_all([c for _, c in cand], jobs, log)
     stats["builds"] += len(cand)
     pool = [(ov, c, sos[i]) for i, (ov, c) in enumerate(cand) if i in sos]
@@ -428,12 +605,23 @@ def search(spec, space=None, regime="hot", objective="energy", static_w=0.0, n0=
     best.sort(key=lambda r: r[obj])
     refined = bool(refine and best)
     if refined:
-        best = _coordinate_descent(spec, space, best, regime, obj, secs, min_gain, max_moves, extra, harness, static_w,
-                                   jobs, log, stats)
+        best = _coordinate_descent(
+            spec, space, best, regime, obj, secs, min_gain, max_moves, extra, harness, static_w, jobs, log, stats
+        )
     stats["wall_s"] = round(time.time() - t0, 1)
-    res = [{**r["ov"], "us": r["us"], "cpu_us": r["cpu_us"], "energy_uJ": r["energy_uJ"], "edp": r["edp"],
-            "GBps": r["GBps"], "relerr": r["relerr"], "config": {k: r["c"][k] for k in r["c"] if k not in ("act_format",)}}
-           for r in best]
+    res = [
+        {
+            **r["ov"],
+            "us": r["us"],
+            "cpu_us": r["cpu_us"],
+            "energy_uJ": r["energy_uJ"],
+            "edp": r["edp"],
+            "GBps": r["GBps"],
+            "relerr": r["relerr"],
+            "config": {k: r["c"][k] for k in r["c"] if k not in ("act_format",)},
+        }
+        for r in best
+    ]
     # Refinement has already selected the confirmed incumbent.
     # Sorting stale alternatives here can undo that decision.
     if not refined:
@@ -466,8 +654,7 @@ def _confirm(a, b, regime, obj, secs, extra, harness, static_w, reps=3):
     return tuple(medians)
 
 
-def _coordinate_descent(spec, space, best, regime, obj, secs, min_gain, max_moves, extra, harness, static_w, jobs, log,
-                        stats):
+def _coordinate_descent(spec, space, best, regime, obj, secs, min_gain, max_moves, extra, harness, static_w, jobs, log, stats):
     inc = best[0]
     seen = {_source_key(r["c"]) for r in best}
     moves = 0
@@ -532,20 +719,42 @@ def cmd_search(a):
     spec, space0 = load(a.spec)
     single, lists = parse_overrides(a.overrides)
     spec = {**spec, **single}
-    space = search_space(spec["op"], spec["weights"], spec["target"], keys=a.keys.split(",") if a.keys else None,
-                         exclude=tuple(single) + tuple(k for k in spec if k not in ("op", "weights", "target")))
+    space = search_space(
+        spec["op"],
+        spec["weights"],
+        spec["target"],
+        keys=a.keys.split(",") if a.keys else None,
+        exclude=tuple(single) + tuple(k for k in spec if k not in ("op", "weights", "target")),
+    )
     space.update(space0)
     space.update(lists)
-    res, stats = search(spec, space, a.regime, a.objective, a.static_w, n0=a.n0, eta=a.eta, keep=a.keep, secs0=a.secs0,
-                        secs=a.secs, refine=not a.no_refine, extra=shlex.split(a.bench_args), harness=a.harness,
-                        jobs=a.jobs, seed=a.seed)
+    res, stats = search(
+        spec,
+        space,
+        a.regime,
+        a.objective,
+        a.static_w,
+        n0=a.n0,
+        eta=a.eta,
+        keep=a.keep,
+        secs0=a.secs0,
+        secs=a.secs,
+        refine=not a.no_refine,
+        extra=shlex.split(a.bench_args),
+        harness=a.harness,
+        jobs=a.jobs,
+        seed=a.seed,
+    )
     if not res:
         print("no configuration passed")
         return 1
     print(f"\nbest by {a.objective}:")
     for r in res[:5]:
-        print("  ", " ".join(f"{k}={r['config'][k]}" for k in space), f"  us={r['us']:.2f} energy_uJ={r['energy_uJ']:.1f}"
-              f" GBps={r['GBps']:.1f}")
+        print(
+            "  ",
+            " ".join(f"{k}={r['config'][k]}" for k in space),
+            f"  us={r['us']:.2f} energy_uJ={r['energy_uJ']:.1f} GBps={r['GBps']:.1f}",
+        )
     if a.out:
         with open(a.out, "w") as fh:
             json.dump({"spec": spec, "space": space, "stats": stats, "results": res}, fh, indent=1, default=str)
@@ -553,8 +762,11 @@ def cmd_search(a):
 
 
 def add_search_cli(sub):
-    p = sub.add_parser("search", help="staged search (sampling + successive halving + coordinate descent) over every "
-                                      "legal value of the codegen keys, for spaces too large for `tune`")
+    p = sub.add_parser(
+        "search",
+        help="staged search (sampling + successive halving + coordinate descent) over every "
+        "legal value of the codegen keys, for spaces too large for `tune`",
+    )
     p.add_argument("spec", help="path to a .kurn spec (op, weights, target; keys set here stay fixed)")
     p.add_argument("overrides", nargs="*", help="k=v fixes a key, k=v1,v2 restricts its values")
     p.add_argument("--keys", help="comma-separated keys to search (default: every codegen key)")

@@ -96,7 +96,7 @@ def test_complement_fills_holes(seed):
     whole = make_layout(a, c)
     img = sorted(whole(i) for i in range(whole.size()))
     assert len(set(img)) == len(img), "complement overlaps the layout"
-    assert img[: m] == list(range(m)) if whole.size() >= m else True
+    assert img[:m] == list(range(m)) if whole.size() >= m else True
 
 
 def test_complement_doc_examples():
@@ -236,14 +236,25 @@ def test_l32_preset_matches_lut_lowering():
                 assert (e * r.bits // 8, (e * r.bits) % 8) == (byte, bit)
 
 
-@pytest.mark.parametrize("bits,plane", [(4, "kstep"), (4, "khalf"), (4, "rows"), (2, "kstep"), (2, "khalf"), (2, "rows"),
-                                        (1, "atom"), (1, "kstep"), (8, "none")])
+@pytest.mark.parametrize(
+    "bits,plane", [(4, "kstep"), (4, "khalf"), (4, "rows"), (2, "kstep"), (2, "khalf"), (2, "rows"), (1, "atom"), (1, "kstep"), (8, "none")]
+)
 @pytest.mark.parametrize("rgroup", [1, 2])
 @pytest.mark.parametrize("place", ["head", "tail"])
 def test_record_layouts_are_injective_and_in_bounds(bits, plane, rgroup, place):
     r = generic.RECIPES["q4_K"]
-    lay = record_layout(bits, recipe_meta(r), lanes=16, plane=plane, kblock=256, period=256, rgroup=rgroup, place=place,
-                        corr_fields=(("wsum", "i16"),), align=64)
+    lay = record_layout(
+        bits,
+        recipe_meta(r),
+        lanes=16,
+        plane=plane,
+        kblock=256,
+        period=256,
+        rgroup=rgroup,
+        place=place,
+        corr_fields=(("wsum", "i16"),),
+        align=64,
+    )
     seen = set()
     epb = 8 // bits
     code_bytes = set()

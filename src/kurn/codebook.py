@@ -42,8 +42,7 @@ codeword-activation dot products, then each weight vector costs two table lookup
 import functools
 import os
 
-import numpy as np
-
+from ._numpy import np
 from .ext.compress import E8P_ABS2, E8P_BYTES, QK, e8p_abs_u64, e8p_blocks, lower_e8p_gemv, ref_e8p  # noqa: F401
 
 # ---------------------------------------------------------------- E8P codebook

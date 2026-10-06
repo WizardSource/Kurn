@@ -3,16 +3,263 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [Unreleased] - 0.3.0.dev3
+
+### Changed: the model engine's context is sized at run time
+- `engine.c` no longer has a 2048-token compile-time `MAX_CTX`: the KV cache, RoPE table and score rows are sized from
+  the request (gen: prompt + generated tokens, ppl: CTX, rounded up to 256); `KURN_CTX=n` asks for more and
+  `-DMAX_CTX=n` is now a minimum. Same results as a fixed-capacity build (Qwen3-1.7B, ppl at CTX 4096, F16 and k4c_q4
+  KV: identical). ppl mode no longer overruns the cache when CTX exceeds the old limit.
+
+### Added: cost-aware verify width in llama-server (`integration/llama.cpp/spec-width`)
+- `llama-server-spec-width.patch` (applied by `spec-width/apply.sh`): `--spec-width TABLE [--spec-width-mode cap]`
+  (or `KURN_SPEC_WIDTH`) runs `kurn-spec-width.h`'s policy per slot with a draft model: per-step cap, per-token stop,
+  truncation before verification, online acceptance learned across the slot's requests.
+- Qwen3-1.7B target / Qwen3-0.6B draft (a pair where speculation does not pay: the draft costs ~40% of a target step),
+  8 prompts x 256 tokens: no draft 55.5 tok/s, fixed k = 3 / 7 / 15 50.4 / 45.3 / 33.2, policy 54.7.
+
+### Added: k4c as a llama.cpp KV cache type (`integration/llama.cpp/k4c`)
+- `k4c/apply.sh` adds `GGML_TYPE_K4C` (per-channel 4-bit keys in 32-cell groups, read by kurn's attention):
+  `-ctk k4c -ctv q4_0|q8_0` (or `-ctk k4c_q4|k4c_q8`) in llama-cli / llama-server / llama-perplexity. Keys are cached
+  after RoPE (kernel `rope_dim 0`). Qwen3-1.7B, WikiText-2 ctx 2048, KL vs F16 KV: k4c_q4 0.016 (+0.10% PPL), k4c_q8
+  0.010; llama.cpp's Q4_0 KV 0.32 (+29%).
+- Group writes re-encode from exact (f16) values of recently written groups, so appends, rollbacks and clears give the
+  same bytes as a prefill; session state (prompt cache, slot save / restore) stores f16 rows and restores the same
+  codes. No K-shift. `k4c/test_k4c.c`, `tests/test_llama_k4c.py`.
+
+### Added: kurn attention as llama.cpp's `FLASH_ATTN_EXT` (`integration/llama.cpp`)
+- `apply.sh` generates kurn attention kernels (`gen_ggml_attn.py`: f32 / AMX-BF16 / AVX512-BF16 tile engines plus a
+  batch-invariant `exact` configuration, F16 / BF16 / Q8_0 KV, head dims 64 / 128 / 256 / 576-512) and makes
+  `ggml-kurn/kurn-attn.cpp` the first `FLASH_ATTN_EXT` implementation; ggml's kernel stays as the fallback (ALiBi,
+  softcap, sinks, other types or head dims, per-head masks). GQA, llama.cpp's KQ mask, KV streams, kurn's flash-decoding
+  splits and per-call K/V packing (`kattn_pack`) for the bf16 / AMX engines.
+- Qwen3-1.7B Q8_0, F16 KV, 8 threads, against ggml's FA in the same build: pp512 at depth 4096 1.81x (f32) / 2.62x
+  (AMX), tg64 at depth 4096 2.1x; WikiText-2 (ctx 2048) KL vs ggml's FA 0.0018, the same as ggml's non-FA path.
+- `GGML_KURN_FA_MODE=exact`: a token's attention output does not depend on the batch, the padded KV length or the
+  thread count (`tests/test_llama_attn.py`).
+
+### Added: cost-aware speculative verify width (`kurn specwidth`, `integration/llama.cpp/spec-width`)
+- Verify cost on the KURN buffer type is a staircase: one kernel per 2 / 4 / 8 columns (3 and 5-7 columns pay for 4
+  and 8), plus a group pass per further 8. `kurn specwidth kernels` measures it per kernel; `kurn-spec-calib` measures
+  the whole forward inside llama.cpp (Qwen3-8B Q8_0, 8 threads: M = 1 / 2 / 4 / 8 / 16 cost 1.00 / 1.53 / 1.86 / 2.19 /
+  3.04x of 74.8 ms; M = 3 costs as much as 4, M = 5-6 more than 8, M = 13-15 more than 16).
+- `WidthPolicy` (Python) / `kurn-spec-width.h` (C++ twin) pick the draft length that maximises expected accepted
+  tokens minus lambda x time from that table, with acceptance learned online per draft-confidence bin.
+  `KURN_SPEC_WIDTH=table llama-speculative-simple` uses it (patch: draft confidences + a keep-drafting callback in
+  draft-simple). Qwen3-8B / Qwen3-0.6B draft, 8 prompts, 256 tokens: see `benchmarks/v0.2/specwidth/results/`.
+- `kurn specwidth simulate` replays greedy acceptance traces (exact for greedy chain drafting) against fixed widths,
+  p_min cutoffs and the policy.
+
+### Added: Blackwell tiers (sm_100 B200/GB200, sm_120 RTX 50), compile-only plus emulator
+- GPU attention has `arch` tiers sm_80 / sm_100 / sm_120 with per-tier shared-memory limits (163 / 227 / 99 KB per block)
+  and default tiles. dk=256 on sm_120 now defaults to 32-token tiles (78 KB; the 64-token tile did not fit).
+  `kernel_for(kv, dk, arch)` dispatches, and `tier_for()` maps other GPUs.
+- Fatbins carry SASS for sm_80, sm_100 and sm_120 (nvcc >= 12.8) plus PTX. The kit builds all three archs and reports
+  which arch a run used, and whether that was native SASS or PTX JIT.
+- The existing `mma.sync` GEMM/GEMV kernels compile spill-free for sm_100 (398-config covering set, 40 defaults).
+
+### Added: MXFP4 and NVFP4 weights on the GPU (all archs, A100 included)
+- GEMV: dp4a over the 2 * E2M1 int8 codebook with Q8_0 activations. MXFP4 uses the E8M0 scale per 32; NVFP4 uses
+  UE4M3 per 16, two scales per 32-value unit. Split and native layouts, including 17-byte MXFP4 blocks with byte loads.
+- Tensor-core engine, both exact against the double reference:
+  - MXFP4: codes dequantized in registers, with the E8M0 scale stored as an exact bf16 record and applied after the MMA.
+  - NVFP4: codes times UE4M3/2 multiplied into the f16 fragment before the MMA. The product is exact in f16: at most
+    6 significant bits, 2^-10 .. 2688.
+- `gemv_threads.json` entries for both, ptxas-measured on sm_80/90/100/120. `tools/gemv_threads.py --formats` measures
+  and merges selected formats.
+
+### Added: FP8 (e4m3) KV attention on sm_100 / sm_120
+- `kv fp8` runs QK^T on FP8 `mma.sync` m16n8k32 with q per-row scaled. By default (`qsplit 1`) q is split into hi + lo
+  e4m3, for about 8 bits. PV runs in f16 with V converted e4m3 -> f16 (exact).
+- Emulator, end to end vs float64: 2e-3 with `qsplit 1`, up to 9.6e-2 with `qsplit 0` on the peaked test data. Every
+  check also runs against a reference with q rounded exactly as the kernel does: <= 4.2e-4.
+- Emulator: FP8 `mma.sync` and e4m3 conversions.
+
+### Added: GPU attention (`op attn`, `target cuda`), built for A100 (sm_80) and RTX 50 (sm_120)
+- Flash attention / flash-decoding with the CPU op's semantics: F16/BF16/Q8_0 KV, GQA, MLA (v aliases k), causal plus
+  optional fp16 mask, split-KV with an LSE merge kernel. `kga_args` (`kurn_gpu_attn.h`) has `kattn_args`'s layout.
+- A100 design: `cp.async` double-buffered KV tiles (4-byte copies for 34-byte Q8_0 blocks), f16 or bf16 `mma.sync`
+  m16n8k16 with `ldmatrix`, log2-domain online softmax with lazy rescale, auto split from the SM count.
+- Every build is a fatbin: sm_80 and sm_120 SASS plus compute_80 PTX. sm_120 allows 99 KB of shared memory per block,
+  so `kga_run` returns -4 when a tile doesn't fit the device.
+- Verified without a GPU: CPU warp emulator against a float64 reference and against the CPU op on identical arguments,
+  injected-bug tests, 0 spills on both archs for the 150-config covering set (CUDA 12.9). **Not run on a GPU yet.**
+- `kurn gpu attn ...`, `examples/gpu/attn_q8_0_decode_cuda.kurn`, a GPU harness (cold KV larger than L2, CUDA graphs,
+  NVML energy), and an attention stage in the gpu-check kit.
+
+### Changed: CPU warp emulator
+- bf16 `mma.sync` and 4-byte `cp.async`. Seeded schedules (`KEMU_SEED`) also hold back whole warps and land half of the
+  `cp.async` copies at issue, which exposes cross-warp races and refilling a stage that other warps still read.
+
+### Added: `tools/sm120_probe.py`
+- Which PTX features ptxas accepts for sm_80 / sm_90a / sm_100a / sm_120 / sm_120a / sm_120f.
+
+### Added: aligned activation layout for the dp4a GEMV (`xlayout split`), contributed by the user
+- `xlayout blocks|split` for the q8_0-activation formats (Q8_0, Q4_0, IQ4_NL, Q2_0, Q1_0). `split` reads the activations as an
+  aligned int8 plane [M][K] plus a float scale plane [M][K/32], with 16-byte vector loads instead of 16-bit loads from ggml's
+  34-byte blocks. The q8_K formats (Q4_K, TQ2_0, E8P) stay on `blocks`.
+- Ported from 0.3.0.dev0 onto dev2's restructured GEMV. The per-column activation pointers became dev2's 32-bit column offsets,
+  and the per-column scale pointers are derived from them (scale offset = plane offset / 32), so no registers were added.
+- `split` is the default for those formats: on the default kernels it cuts global loads 3-5x and hot-loop instructions
+  14-40% (SASS). `xlayout` is in the kit's GEMV tune space.
+
+### Fixed: spilling kernels in the search space
+- **GEMV.** The block-size rule allowed 512 threads (a 128-register cap) for every 2-7 column kernel and 1024 threads (a
+  64-register cap) for most 1-column ones, and `cols * unroll` up to 16 for Q1_0/Q2_0/Q4_0. Under those caps ptxas spills
+  Q1_0 at 4 columns, and split activations raise pressure further (16-byte loads hold four registers each). Adding the
+  `xlayout` key changed which random configs the covering sets sample, and that surfaced a Q1_0 4-column kernel with
+  `xlayout blocks` at 512 threads (32 bytes of spill). Some of the other spilling configs the old rule allowed are older
+  than `xlayout`.
+- The GEMV limit is now measured, not estimated. Uncapped register counts swing by +-90 with `tpr` alone, so no estimate
+  predicts where ptxas spills. `kurn/gpu/data/gemv_threads.json` holds, for every (weights, xlayout, sub, cols, unroll), the
+  largest `tpr * rpb * max(1, minb)` that compiles without spill or stack on sm_80/90/100. Each entry is the worst case
+  over every layout, mins, unpack, `tpr` (8-128) and `minb` (1, 2, 4); `minb` matters because ptxas schedules
+  `__launch_bounds__(128, 4)` differently from `(512, 1)`. `tools/gemv_threads.py` regenerates the table. The old rules
+  stay, so this only removes configs: 2,452 of 77,418 (3.2%), mostly Q1_0 (1,872), Q2_0 (354) and Q8_0 (166). Every
+  default keeps at least 4x headroom.
+- **GEMM.** Fresh covering seeds found engine tiles the register estimate let through. All of them had 64-row warp tiles
+  with 2+ n8 tiles and 2+ k-tiles per stage, and each thread staged 12+ 16-byte `cp.async` chunks per stage: Q4_0, Q2_0,
+  TQ2_0 and E8P, with 1-4 warps. This class sits at the 255-register ceiling and the estimate cannot separate its spills
+  from clean tiles, so it is now an explicit rule. The rule removes 2,484 of 88,668 tiles (2.8%), and every default and
+  matrix tile is unchanged.
+- Validation: ptxas covering sweeps on sm_80/90/100 over 40 seeds, about 8,800 GEMV and 11,200 GEMM configs, with 0 spills;
+  `kurn gpu ptxas --defaults --strict` is clean.
 
 ### Changed
 - Compile identical source/target requests once per parallel search batch while benchmarking every runtime configuration separately.
 
-### Fixed
+### Fixed: optimizer selection, plan reuse, and sampling
 - Cache repeated legality-probe validations locally without changing draw weights or the random stream.
 - Aggregate energy-delay products per repetition and reject incomplete or invalid measurements during tuning.
 - Preserve confirmed refinement winners, validate plan reuse, and publish compiler outputs atomically.
 - Bound search parameters and avoid redundant sampling work without merging runtime settings.
+
+## 0.3.0.dev2
+
+### Changed (first A100 run: correctness held, speed below the competition)
+- **`op gemm` is now a tensor-core engine for every batch size and all 8 formats.** It replaces the int8 GEMM, which reached at
+  most 5% of tensor-core peak and 0.11-0.41x of ggml-cuda.
+  - Arithmetic: f16 `mma.sync.m16n8k16` with f32 accumulation. Weights are repacked once into fragment order, and each lane's
+    16 bytes dequantize in registers to small integers that are exact in f16:
+    - Q4 via the 0x6400 magic number;
+    - IQ4_NL via a `prmt` lookup;
+    - Q8 via byte permutes;
+    - 2-bit and 1-bit via shifted masks and a power-of-two FMA;
+    - E8P via a shared-memory codebook with sign flips.
+  - Block scales are applied in f32 after the MMA.
+  - Data movement:
+    - weights and scales go through a multi-stage `cp.async` pipeline;
+    - activations sit in XOR-swizzled shared memory and are read with `ldmatrix.x4`;
+    - f32 activations are rounded to f16 inside the kernel (`xin=f32`, one launch per matmul, no quantization kernel) or
+      converted once and streamed (`xin=f16`).
+  - Tiles go up to 128x128 with 64x32 warp tiles.
+  - Split-K uses a deterministic serial fixup and is sized from the SM count by default.
+  - Exact against the f16-rounded activations; `kg_act()` tells harnesses which activation path a kernel uses.
+- **dp4a GEMV defaults:**
+  - the split layout with lane loads sized to 16 bytes and 4 units in flight (2 for Q8_0/Q4_K/TQ2_0);
+  - an unrolled main loop without per-unit bounds checks, so loads issue ahead of the math;
+  - 32-bit column offsets. The default Q4_K multi-column kernel no longer sits at 255 registers (138-168, no spills).
+- **Spilling configs are not legal.** A ptxas-calibrated register estimate and launch-bounds checks prune them; every covering
+  config compiles without spills or stack on sm_80/90/100. Kernels emit `__launch_bounds__(threads, >= 1)` (ptxas otherwise
+  targets 128 registers and spills).
+- **Benchmarks and kit:**
+  - the matrix races `default-*` and `tuned-*` KURN kernels per batch range;
+  - the kit tunes every format before the matrix;
+  - `report.md` shows default vs tuned side by side;
+  - `kurn gpu sass` reports the SASS instruction mix (tensor-core MMA, ldmatrix, cp.async, local memory, hot loop).
+- **Release:** `tools/make_release.sh` fails if `contrib/gpu-check` is missing.
+
+## 0.3.0.dev1
+
+Includes everything in 0.2.2 (CPU release: clang `--strict` helper pruning, optional numpy, toolchain probe, self-contained
+release), merged into the CUDA development line. The CUDA modules (`kurn.gpu`) do not need numpy.
+
+### Changed (measurement)
+- **`kurn roofline` is now a peak-read probe.** Before, `bench --bw` timed one pass of a loop that compiled to mixed
+  64/128/256-bit loads, with one stream per thread, and under-reported bandwidth: about 2x on a Xeon 8339HC, 25% on this VM.
+  - It now uses the widest vector loads (AVX-512, AVX2, NEON; else 64-bit) into 4 independent accumulators per thread, with
+    all threads pinned.
+  - Each pass is barrier-timed; the result is the best pass, with the median also shown. Without `--streams`, it measures 1, 2,
+    4 and 8 interleaved streams per thread and reports the best.
+  - This VM, 8 threads, same session: DRAM 140–144 GB/s (old default probe 103–108); L2 1.40–1.61 TB/s (old 0.75–1.09).
+- **`kurn tune` ranks on medians of interleaved rounds** (`--rounds`, default 3). It re-measures the leaders (`--keep`,
+  `--budget`) until their order is stable, reports each result's spread, and warns ("ranking: NOT resolved", suggesting
+  `--secs` / `--rounds`) when the spread is too large to rank. `--rounds 1 --keep 1` gives the old single-run behaviour.
+
+### Fixed (cross targets without a cross toolchain)
+- `kurn verify` no longer counts NEON configurations as failures when the AArch64 cross compiler is missing. Like the
+  assembler probe, it skips the target once, says why, and names the package to install
+  (`apt install gcc-aarch64-linux-gnu`, or set `KURN_CROSS_CC`).
+- If the cross compiler is present but qemu is missing, configurations are still compiled (so `--strict` warnings are caught)
+  and are reported as "compiled, not run" with the qemu hint (`apt install qemu-user`, or set `KURN_QEMU`). They are counted
+  separately from passes.
+- `run_mode` reasons now name the missing piece and how to install it.
+
+### Fixed (CUDA emulator portability, found by the 0.2.2 clang runs)
+- The CPU emulator now probes the host C++ compiler once (`kurn.gpu.toolchain.cxx_problem`). If it can't build a C++17
+  program, it reports why (typically clang++ on Ubuntu selecting a GCC installation without libstdc++ headers) and the
+  emulator checks are skipped rather than failing. `kurn gpu targets` shows the emulator status.
+- Emulator builds with clang++ no longer fail `-Werror` on `#pragma unroll` loops clang can't unroll at -O1
+  (`-Wno-pass-failed`, clang only).
+
+### Added: CUDA backend (`target cuda`, `kurn.gpu`), stages 0-2 of the GPU plan; no GPU measurements yet
+- **Code generation:** CUDA C++ for the following, every file implementing `kurn_gpu.h`:
+  - decode GEMV (dp4a) on Q8_0, Q4_0, IQ4_NL, Q4_K, Q2_0, TQ2_0, Q1_0 and E8P, in `native` and `split` layouts, with
+    multi-column small-batch variants;
+  - an int8 tensor-core GEMM (`mma.sync.m16n8k32`, sync / register double-buffer / 2- and 3-stage `cp.async` pipelines) for
+    Q8_0, Q4_0 and IQ4_NL;
+  - activation quantizers matching ggml's reference rounding;
+  - device repack kernels.
+- **CPU warp emulator** (`kurn_cuemu.h`): fibers with real barrier, warp-shuffle and `mma.sync` fragment semantics, deferred
+  `cp.async`, alignment and guard-page checks, randomized schedules. Every generated kernel runs on it against an exact C
+  reference (`kurn_gpu_ref.h`, tied to `kurn.formats`).
+- **nvcc/ptxas checks** for sm_80 / sm_90 / sm_100: registers, shared memory, spills and static occupancy. SASS is checked for
+  IMMA and LDGSTS.
+- **GPU harness** (`bench_gpu.cu`): measured HBM and tensor-core roofline, CUDA-graph timing with cold weights, NVML board
+  energy, cuBLAS FP16/INT8 baselines, and llama.cpp ggml-cuda MUL_MAT as an in-process competitor on identical bytes.
+- **Benchmark matrix:** formats × batch 1/4/16/64/256 on Llama-3-8B layer shapes, with interleaved rounds.
+- **Report:** a 2-sigma win rule, wins/ties/losses, and `dispatch.json`. `kernel_for()` falls back to the competitor's kernel
+  wherever KURN does not win.
+- **Tuning:** energy-ranked GPU tuning (NVML joules).
+- **Kit:** the hand-run kit `contrib/gpu-check/` (`run_gpu_check.sh`, `make_kit.sh`, optional Marlin script).
+- **Integration:** `kurn.hooks.TARGET_BACKENDS` routes `kurn check|gen|build|verify|tune` to a backend by the spec's target.
+- **CLI:** `kurn gpu ...` commands.
+
+## [0.2.2] - 2026-10-03
+
+Portability release, from a run of 0.2.1 on a second Linux machine. No kernel performance changes.
+
+### Fixed
+- `kurn verify --all --strict` with clang: the generators emitted every `static inline` helper (`f16f`, `bits8x4`, `ld64`,
+  `ld16`, ...) whether or not a kernel used it. Clang's `-Wunused-function` (GCC stays quiet) turned that into errors on
+  most AVX-VNNI and many AVX-512 configs. `generate()` now drops the helpers a kernel doesn't call.
+- Q4_K AVX-512 native-layout GEMV (the `act`/`accum`/`scales`/`correction` algorithm space and the v2 kernel) summed the
+  min-correction vector over the undefined upper half of `_mm512_castps256_ps512`. GCC happened to zero it. Clang didn't
+  at `rows=4`, which gave relative errors of 0.08-0.1. The kernel now zero-extends explicitly.
+- numpy was a hidden dependency: five modules (`codebook`, `entropy`, `latent`, `lowrank`, `mixed`) imported it at load time,
+  so 9 test files failed to collect without it. It is now the optional extra `kurn[compress]`, with `kurn[gguf]` for GGUF
+  input. The modules import numpy lazily, and their tests use `pytest.importorskip`.
+- A toolchain that can't build a target (binutils < 2.36 can't assemble AVX-VNNI) failed every config of that target. kurn
+  now probes each target once. It reports "toolchain can't assemble target X; set KURN_CC" and skips the target in
+  `kurn verify`, `kurn targets` and the tests. The harness falls back from `-march=native` to portable flags.
+- Two more clang-only build errors, found by running the full suite with `KURN_CC=clang`. First, the attention kernel's
+  shared helpers are now marked unused, because each engine uses only some of them (`kurn attn verify --strict`). Second,
+  the fused engine epilogue now passes `_mm512_roundscale_ps` a literal rounding mode, which clang requires.
+- Parallel builds of identical kernel sources could compile a half-written file. Sources are now written atomically.
+- Tests that import benchmark harnesses (`benchmarks/v0.2/e2e`) or the llama.cpp integration skip cleanly when those
+  directories are absent, instead of failing to load.
+
+### Added
+- `tools/offline-check/`: the one-command host check (verify, roofline, tune sweeps, AMX test), shipped in the package. It runs
+  on the enclosing tree and falls back to the source tree when offline.
+- `tools/make_release.sh`: builds the release zip from the committed tree. It checks that the archive holds every tracked
+  file, that the docs-path test passes, and that pytest collects with no errors inside the unpacked copy.
+- Tests: clang `-Werror` over every golden file and every legal config (`test_codegen_golden.py`), every path README.md and
+  CONTRIBUTING.md reference (`test_docs_paths.py`), and the toolchain probe (`test_toolchain_probe.py`).
+- CI: `kurn verify --all --strict` with clang, and a test job without numpy.
+
+### Changed
+- The code base is `ruff format`-clean, as CONTRIBUTING.md requires.
 
 ## [0.2.1] - 2026-10-03
 

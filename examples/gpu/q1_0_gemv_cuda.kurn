@@ -1,0 +1,7 @@
+# 1-bit (Bonsai Q1_0) decode GEMV on CUDA.
+kernel   q1_0_gemv_cuda
+op       gemv
+weights  q1_0
+target   cuda
+unpack   bits
+tune     layout=native,split unpack=bits,lut tpr=16,32 rpb=2,4,8 sub=1,2,4 unroll=1,2,4

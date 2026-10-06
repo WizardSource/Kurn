@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kurn"
-version = "0.2.1"
-description = "A small spec language and energy-aware autotuner for quantized CPU LLM inference kernels (ggml Q8_0/Q4_K; AVX2, AVX-VNNI, AVX-512 VNNI, AMX, NEON)"
+version = "0.3.0.dev3"
+description = "A tool that writes the math AI models run on: a spec language, generator and energy-aware autotuner for quantized LLM inference kernels (ggml formats; AVX2, AVX-VNNI, AVX-512 VNNI, AMX, NEON, CUDA)"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -26,7 +26,9 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=7", "ruff>=0.5"]
+compress = ["numpy>=1.21"]
+gguf = ["numpy>=1.21", "gguf"]
+dev = ["pytest>=7", "ruff>=0.5", "numpy>=1.21"]
 
 [project.scripts]
 kurn = "kurn.cli:main"
@@ -35,7 +37,7 @@ kurn = "kurn.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-kurn = ["data/*.c", "data/*.h", "model/*.c", "model/*.h", "runtime/*.c", "runtime/*.h"]
+kurn = ["data/*.c", "data/*.h", "model/*.c", "model/*.h", "runtime/*.c", "runtime/*.h", "gpu/data/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -54,3 +56,5 @@ known-local-folder = ["conftest", "test_codegen_golden"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/kurn/codegen.py" = ["E501"]  # C templates
+"src/kurn/gpu/codegen.py" = ["E501", "UP031"]  # CUDA templates
+"src/kurn/gpu/mma.py" = ["E501", "UP031"]  # CUDA templates

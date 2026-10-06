@@ -5,7 +5,6 @@ import ctypes
 import random
 import struct
 
-import numpy as np
 import pytest
 
 from kurn import codebook as cb
@@ -14,6 +13,8 @@ from kurn.spec import resolve
 from kurn.toolchain import build, data_path, run_mode
 
 from conftest import BLOCKS
+
+np = pytest.importorskip("numpy")
 
 
 def test_e8p_table_is_e8_coset_and_parity_sorted():

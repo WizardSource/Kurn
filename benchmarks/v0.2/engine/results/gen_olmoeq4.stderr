@@ -1,0 +1,96 @@
+== rep 0 v2
+load+run 12.8 s
+thread 0 wait attn 0.075 qk 0.147 ffn 0.308 out 0.010 runq 0.0737
+thread 1 wait attn 0.070 qk 0.151 ffn 0.280 out 0.010 runq 0.0630
+thread 2 wait attn 0.075 qk 0.147 ffn 0.287 out 0.015 runq 0.0668
+thread 3 wait attn 0.056 qk 0.169 ffn 0.259 out 0.013 runq 0.0855
+thread 4 wait attn 0.076 qk 0.146 ffn 0.276 out 0.014 runq 0.0552
+thread 5 wait attn 0.072 qk 0.151 ffn 0.263 out 0.013 runq 0.0858
+thread 6 wait attn 0.072 qk 0.162 ffn 0.279 out 0.013 runq 0.0779
+thread 7 wait attn 0.059 qk 0.163 ffn 0.241 out 0.011 runq 0.1053
+== rep 0 v2_nopin
+load+run 9.5 s
+== rep 0 lc_amx
+== rep 0 lc_plain
+== rep 0 lc_amx_pin
+== rep 0 lc_plain_pin
+== rep 1 v2
+load+run 4.4 s
+thread 0 wait attn 0.059 qk 0.165 ffn 0.302 out 0.008 runq 0.0925
+thread 1 wait attn 0.059 qk 0.187 ffn 0.278 out 0.006 runq 0.0597
+thread 2 wait attn 0.055 qk 0.188 ffn 0.280 out 0.011 runq 0.0784
+thread 3 wait attn 0.059 qk 0.191 ffn 0.282 out 0.009 runq 0.0408
+thread 4 wait attn 0.059 qk 0.195 ffn 0.288 out 0.008 runq 0.0476
+thread 5 wait attn 0.043 qk 0.199 ffn 0.273 out 0.006 runq 0.1107
+thread 6 wait attn 0.059 qk 0.169 ffn 0.276 out 0.010 runq 0.0935
+thread 7 wait attn 0.058 qk 0.187 ffn 0.266 out 0.007 runq 0.0980
+== rep 1 v2_nopin
+load+run 5.4 s
+== rep 1 lc_amx
+== rep 1 lc_plain
+== rep 1 lc_amx_pin
+== rep 1 lc_plain_pin
+== rep 2 v2
+load+run 4.1 s
+thread 0 wait attn 0.069 qk 0.189 ffn 0.301 out 0.010 runq 0.0632
+thread 1 wait attn 0.064 qk 0.208 ffn 0.286 out 0.010 runq 0.0473
+thread 2 wait attn 0.062 qk 0.150 ffn 0.286 out 0.010 runq 0.1148
+thread 3 wait attn 0.064 qk 0.190 ffn 0.296 out 0.013 runq 0.0394
+thread 4 wait attn 0.056 qk 0.186 ffn 0.286 out 0.010 runq 0.1123
+thread 5 wait attn 0.068 qk 0.168 ffn 0.280 out 0.008 runq 0.0656
+thread 6 wait attn 0.072 qk 0.176 ffn 0.270 out 0.013 runq 0.0776
+thread 7 wait attn 0.062 qk 0.193 ffn 0.272 out 0.009 runq 0.0755
+== rep 2 v2_nopin
+load+run 5.7 s
+== rep 2 lc_amx
+== rep 2 lc_plain
+== rep 2 lc_amx_pin
+== rep 2 lc_plain_pin
+== rep 0 v2
+load+run 10.4 s
+thread 0 wait attn 0.007 qk 0.021 ffn 0.263 out 0.001 runq 0.0003
+thread 1 wait attn 0.019 qk 0.045 ffn 0.244 out 0.010 runq 0.0004
+thread 2 wait attn 0.007 qk 0.018 ffn 0.248 out 0.001 runq 0.0003
+thread 3 wait attn 0.005 qk 0.015 ffn 0.241 out 0.000 runq 0.0009
+thread 4 wait attn 0.006 qk 0.015 ffn 0.243 out 0.002 runq 0.0005
+thread 5 wait attn 0.002 qk 0.013 ffn 0.240 out 0.001 runq 0.0005
+thread 6 wait attn 0.006 qk 0.015 ffn 0.230 out 0.001 runq 0.0009
+thread 7 wait attn 0.020 qk 0.042 ffn 0.210 out 0.010 runq 0.0010
+== rep 0 v2_nopin
+load+run 2.2 s
+== rep 0 lc_amx
+== rep 0 lc_plain
+== rep 0 lc_amx_pin
+== rep 0 lc_plain_pin
+== rep 1 v2
+load+run 2.6 s
+thread 0 wait attn 0.006 qk 0.011 ffn 0.298 out 0.003 runq 0.0004
+thread 1 wait attn 0.035 qk 0.050 ffn 0.187 out 0.019 runq 0.0000
+thread 2 wait attn 0.009 qk 0.013 ffn 0.292 out 0.003 runq 0.0003
+thread 3 wait attn 0.011 qk 0.020 ffn 0.283 out 0.002 runq 0.0013
+thread 4 wait attn 0.007 qk 0.013 ffn 0.278 out 0.005 runq 0.0003
+thread 5 wait attn 0.009 qk 0.015 ffn 0.279 out 0.003 runq 0.0001
+thread 6 wait attn 0.008 qk 0.014 ffn 0.274 out 0.001 runq 0.0000
+thread 7 wait attn 0.035 qk 0.046 ffn 0.154 out 0.019 runq 0.0001
+== rep 1 v2_nopin
+load+run 2.5 s
+== rep 1 lc_amx
+== rep 1 lc_plain
+== rep 1 lc_amx_pin
+== rep 1 lc_plain_pin
+== rep 2 v2
+load+run 2.5 s
+thread 0 wait attn 0.014 qk 0.024 ffn 0.302 out 0.001 runq 0.0001
+thread 1 wait attn 0.026 qk 0.042 ffn 0.222 out 0.007 runq 0.0000
+thread 2 wait attn 0.009 qk 0.020 ffn 0.295 out 0.001 runq 0.0002
+thread 3 wait attn 0.005 qk 0.011 ffn 0.295 out 0.003 runq 0.0013
+thread 4 wait attn 0.008 qk 0.015 ffn 0.260 out 0.003 runq 0.0006
+thread 5 wait attn 0.008 qk 0.013 ffn 0.291 out 0.002 runq 0.0004
+thread 6 wait attn 0.007 qk 0.014 ffn 0.284 out 0.002 runq 0.0015
+thread 7 wait attn 0.026 qk 0.039 ffn 0.182 out 0.007 runq 0.0001
+== rep 2 v2_nopin
+load+run 2.5 s
+== rep 2 lc_amx
+== rep 2 lc_plain
+== rep 2 lc_amx_pin
+== rep 2 lc_plain_pin

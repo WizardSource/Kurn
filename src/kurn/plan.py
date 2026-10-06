@@ -35,8 +35,26 @@ from .spec import CODEGEN_KEYS, RUNTIME_KEYS, SpecError, resolve
 from .toolchain import BuildError, build, cache_dir, cpu_flags, host_cc, run_mode
 from .tune import OBJECTIVES, _finite_number, _positive_int, measurement, search, summarize_measurements
 
-PLAN_FLAGS = ("avx2", "fma", "f16c", "avx_vnni", "avx512f", "avx512bw", "avx512vl", "avx512_vnni", "avx512_bf16",
-              "avx512_fp16", "avx512vbmi", "avx512_vbmi2", "amx_tile", "amx_int8", "amx_bf16", "asimd", "asimddp", "sve")
+PLAN_FLAGS = (
+    "avx2",
+    "fma",
+    "f16c",
+    "avx_vnni",
+    "avx512f",
+    "avx512bw",
+    "avx512vl",
+    "avx512_vnni",
+    "avx512_bf16",
+    "avx512_fp16",
+    "avx512vbmi",
+    "avx512_vbmi2",
+    "amx_tile",
+    "amx_int8",
+    "amx_bf16",
+    "asimd",
+    "asimddp",
+    "sve",
+)
 
 
 # --------------------------------------------------------------------------- fingerprint
@@ -238,12 +256,39 @@ def _bench_args(K, N, cols=None):
     return a
 
 
-def tune_entry(op, fmt, K, N, regime="cold", threads=None, target=None, objective="energy", n0=27, top=4, secs=0.3,
-               reps=3, jobs=3, cols=None, harness=None, log=print, seed=0, refine=True, static_w=0.0):
+def tune_entry(
+    op,
+    fmt,
+    K,
+    N,
+    regime="cold",
+    threads=None,
+    target=None,
+    objective="energy",
+    n0=27,
+    top=4,
+    secs=0.3,
+    reps=3,
+    jobs=3,
+    cols=None,
+    harness=None,
+    log=print,
+    seed=0,
+    refine=True,
+    static_w=0.0,
+):
     """Multi-fidelity tuning of one plan entry. Returns the entry dict."""
     t0 = time.time()
     threads = (os.cpu_count() or 1) if threads is None else threads
-    for name, value in (("threads", threads), ("K", K), ("N", N), ("n0", n0), ("top", top), ("reps", reps), ("jobs", jobs)):
+    for name, value in (
+        ("threads", threads),
+        ("K", K),
+        ("N", N),
+        ("n0", n0),
+        ("top", top),
+        ("reps", reps),
+        ("jobs", jobs),
+    ):
         _positive_int(name, value)
     _finite_number("secs", secs, strict=True)
     _finite_number("static_w", static_w)
@@ -258,9 +303,24 @@ def tune_entry(op, fmt, K, N, regime="cold", threads=None, target=None, objectiv
     obj = OBJECTIVES[objective]
     resolve({**spec, "threads": threads})  # reject invalid requests before any builds
     slice_n = max(16, ((N + 16 * threads - 1) // (16 * threads)) * 16)
-    res, stats = search({**spec, "threads": 1}, None, "hot", objective, n0=n0, keep=top, secs0=0.03, secs=0.15,
-                        refine=refine, max_moves=4, extra=_bench_args(K, slice_n, cols), harness=harness, jobs=jobs,
-                        seed=seed, log=lambda m: None, static_w=static_w)
+    res, stats = search(
+        {**spec, "threads": 1},
+        None,
+        "hot",
+        objective,
+        n0=n0,
+        keep=top,
+        secs0=0.03,
+        secs=0.15,
+        refine=refine,
+        max_moves=4,
+        extra=_bench_args(K, slice_n, cols),
+        harness=harness,
+        jobs=jobs,
+        seed=seed,
+        log=lambda m: None,
+        static_w=static_w,
+    )
     t1 = time.time()
     cands = {}
     try:
@@ -300,15 +360,25 @@ def tune_entry(op, fmt, K, N, regime="cold", threads=None, target=None, objectiv
     wc = cands[win]
     entry = {
         "config": {k: wc[k] for k in CODEGEN_KEYS + RUNTIME_KEYS},
-        "us": round(summ[win]["us"], 2), "GBps": round(summ[win]["GBps"], 1),
+        "us": round(summ[win]["us"], 2),
+        "GBps": round(summ[win]["GBps"], 1),
         "energy_uJ": round(summ[win]["energy_uJ"], 1),
-        "cpu_us": summ[win]["cpu_us"], "edp": summ[win]["edp"], "relerr": summ[win]["relerr"],
-        "static_w": static_w, "reps": reps,
+        "cpu_us": summ[win]["cpu_us"],
+        "edp": summ[win]["edp"],
+        "relerr": summ[win]["relerr"],
+        "static_w": static_w,
+        "reps": reps,
         "default_us": round(summ["default"]["us"], 2) if "default" in summ else None,
         "candidates": {n: round(s["us"], 2) for n, s in summ.items()},
-        "winner": win, "objective": objective,
-        "search": {"space_active": stats.get("space_active"), "legal_est": stats.get("legal_est"),
-                   "builds": stats["builds"], "measurements": stats["measurements"], "secs": round(t1 - t0, 1)},
+        "winner": win,
+        "objective": objective,
+        "search": {
+            "space_active": stats.get("space_active"),
+            "legal_est": stats.get("legal_est"),
+            "builds": stats["builds"],
+            "measurements": stats["measurements"],
+            "secs": round(t1 - t0, 1),
+        },
         "tune_s": round(time.time() - t0, 1),
         "tuned_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
@@ -337,10 +407,12 @@ def build_plan(model, threads=None, ops=("gemv",), regime="cold", force=False, p
     built = 0
     for k, (op, fmt, K, N, names) in todo.items():
         cached = p.entries.get(k, {})
-        compatible = (cached.get("objective") == kw.get("objective", "energy")
-                      and cached.get("static_w", 0.0) == kw.get("static_w", 0.0)
-                      and cached.get("reps", 0) >= kw.get("reps", 3)
-                      and (kw.get("target") is None or cached.get("config", {}).get("target") == kw["target"]))
+        compatible = (
+            cached.get("objective") == kw.get("objective", "energy")
+            and cached.get("static_w", 0.0) == kw.get("static_w", 0.0)
+            and cached.get("reps", 0) >= kw.get("reps", 3)
+            and (kw.get("target") is None or cached.get("config", {}).get("target") == kw["target"])
+        )
         if cached and compatible and not force:
             log(f"{k}: cached ({p.entries[k]['us']} us, {p.entries[k]['winner']})")
             continue
@@ -351,11 +423,18 @@ def build_plan(model, threads=None, ops=("gemv",), regime="cold", force=False, p
         p.entries[k] = e
         p.save()
         built += 1
-        log(f"  winner {e['winner']}: {e['us']} us ({e['GBps']} GB/s), default {e['default_us']} us, "
-            f"tuned in {e['tune_s']} s")
+        log(
+            f"  winner {e['winner']}: {e['us']} us ({e['GBps']} GB/s), default {e['default_us']} us, "
+            f"tuned in {e['tune_s']} s"
+        )
     st = os.stat(model)
-    p.data["models"][os.path.basename(model)] = {"size": st.st_size, "entries": sorted(todo), "threads": threads,
-                                                  "regime": regime, "ops": list(ops)}
+    p.data["models"][os.path.basename(model)] = {
+        "size": st.st_size,
+        "entries": sorted(todo),
+        "threads": threads,
+        "regime": regime,
+        "ops": list(ops),
+    }
     p.save()
     return p, {"entries": len(todo), "tuned": built, "wall_s": round(time.time() - t0, 1)}
 
@@ -374,12 +453,26 @@ def reuse_cost(model, regime="cold", threads=None, ops=("gemv",), path=None):
 def cmd_plan(a):
     if a.plan_cmd == "build":
         ops = tuple(a.ops.split(","))
-        p, st = build_plan(a.model, a.threads, ops, a.regime, a.force, n0=a.n0, top=a.top, jobs=a.jobs,
-                           objective=a.objective, harness=a.harness, static_w=a.static_w,
-                           reps=a.reps, seed=a.seed)
+        p, st = build_plan(
+            a.model,
+            a.threads,
+            ops,
+            a.regime,
+            a.force,
+            n0=a.n0,
+            top=a.top,
+            jobs=a.jobs,
+            objective=a.objective,
+            harness=a.harness,
+            static_w=a.static_w,
+            reps=a.reps,
+            seed=a.seed,
+        )
         rc = reuse_cost(a.model, a.regime, a.threads, ops)
-        print(f"plan {p.path}: {st['entries']} entries ({st['tuned']} tuned) in {st['wall_s']} s; "
-              f"reuse at load: {rc['tensors']} tensors -> {rc['kernels']} kernels in {rc['total_s']} s")
+        print(
+            f"plan {p.path}: {st['entries']} entries ({st['tuned']} tuned) in {st['wall_s']} s; "
+            f"reuse at load: {rc['tensors']} tensors -> {rc['kernels']} kernels in {rc['total_s']} s"
+        )
         return 0
     if a.plan_cmd == "lookup":
         c = lookup(a.op, a.format, a.K, a.N, a.regime, a.threads)
@@ -400,10 +493,15 @@ def cmd_plan(a):
     for k in keys:
         e = p.entries[k]
         cfg = e["config"]
-        desc = " ".join(f"{x}={cfg[x]}" for x in ("layout", "rows", "cols", "prefetch", "unpack", "correction", "scales",
-                                                   "accum") if x in cfg and cfg[x] not in ("auto",))
-        print(f"  {k:40s} {e['us']:9.2f} us {e['GBps']:7.1f} GB/s  (default {e['default_us']} us)  {desc}"
-              f"  [tuned {e['tune_s']} s]")
+        desc = " ".join(
+            f"{x}={cfg[x]}"
+            for x in ("layout", "rows", "cols", "prefetch", "unpack", "correction", "scales", "accum")
+            if x in cfg and cfg[x] not in ("auto",)
+        )
+        print(
+            f"  {k:40s} {e['us']:9.2f} us {e['GBps']:7.1f} GB/s  (default {e['default_us']} us)  {desc}"
+            f"  [tuned {e['tune_s']} s]"
+        )
     return 0
 
 

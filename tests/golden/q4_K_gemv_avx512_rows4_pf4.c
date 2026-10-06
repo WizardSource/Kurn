@@ -80,10 +80,10 @@ void kq4k_gemv(const void *W, const void *xv, float *y, int64_t K, int64_t r0, i
             row_sb(w2 + p, xs + p, &a2, &m2, &s2);
             row_sb(w3 + p, xs + p, &a3, &m3, &s3);
         }
-        y[r + 0] = _mm512_reduce_add_ps(a0) - _mm512_reduce_add_ps(_mm512_castps256_ps512(m0)) - s0;
-        y[r + 1] = _mm512_reduce_add_ps(a1) - _mm512_reduce_add_ps(_mm512_castps256_ps512(m1)) - s1;
-        y[r + 2] = _mm512_reduce_add_ps(a2) - _mm512_reduce_add_ps(_mm512_castps256_ps512(m2)) - s2;
-        y[r + 3] = _mm512_reduce_add_ps(a3) - _mm512_reduce_add_ps(_mm512_castps256_ps512(m3)) - s3;
+        y[r + 0] = _mm512_reduce_add_ps(a0) - _mm512_reduce_add_ps(_mm512_insertf32x8(_mm512_setzero_ps(), m0, 0)) - s0;
+        y[r + 1] = _mm512_reduce_add_ps(a1) - _mm512_reduce_add_ps(_mm512_insertf32x8(_mm512_setzero_ps(), m1, 0)) - s1;
+        y[r + 2] = _mm512_reduce_add_ps(a2) - _mm512_reduce_add_ps(_mm512_insertf32x8(_mm512_setzero_ps(), m2, 0)) - s2;
+        y[r + 3] = _mm512_reduce_add_ps(a3) - _mm512_reduce_add_ps(_mm512_insertf32x8(_mm512_setzero_ps(), m3, 0)) - s3;
     }
     for (; r < r1; r++) {
         const block_T *w0 = w + (r + 0) * nb;
@@ -93,6 +93,6 @@ void kq4k_gemv(const void *W, const void *xv, float *y, int64_t K, int64_t r0, i
             _mm_prefetch((const char *)(w0 + p + 4), _MM_HINT_T0);
             row_sb(w0 + p, xs + p, &a0, &m0, &s0);
         }
-        y[r + 0] = _mm512_reduce_add_ps(a0) - _mm512_reduce_add_ps(_mm512_castps256_ps512(m0)) - s0;
+        y[r + 0] = _mm512_reduce_add_ps(a0) - _mm512_reduce_add_ps(_mm512_insertf32x8(_mm512_setzero_ps(), m0, 0)) - s0;
     }
 }

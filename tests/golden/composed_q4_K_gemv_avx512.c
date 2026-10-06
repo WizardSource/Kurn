@@ -4,8 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <immintrin.h>
-static inline float f16f(uint16_t h) { return _cvtsh_ss(h); }
-
 typedef struct { uint16_t d; uint16_t dmin; uint8_t scales[12]; uint8_t qs[128]; } nblock;
 typedef struct { int64_t nrec_k, ngroups; uint8_t *buf; } packed_t;
 /* record layout: code 1280+((16,2),(4,2,4,8)):((8,512),(2,1,128,1024))  fields d(32,1,1):(2,64,640), dmin64+(32,1,1):(2,64,640), sc128+(32,8,1):(1,32,640), mnp384+(32,(2,4),1):(2,(1,64),640)  rec 4736 B */

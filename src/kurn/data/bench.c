@@ -7,7 +7,7 @@
 //   bench --impl lib.so --kernel q8gemv|q4kgemv|q8gemm [--regime hot|cold] [--threads T]
 //         [--K 4096] [--N n] [--M 128] [--secs 2] [--csv out.csv] [--label name]
 //         [--wait spin|sleep|<spins>] [--serial-us U] [--seed S] [--footprint MB]
-//   bench --bw [--threads T] [--streams S]     memory read bandwidth (roofline)
+//   bench --bw [--threads T] [--streams S]     peak memory read bandwidth (roofline); no --streams: best of 1, 2, 4, 8
 //
 // Linux only (futex, sched_setaffinity). Builds on x86-64 and AArch64.
 #define _GNU_SOURCE
@@ -641,49 +641,123 @@ static void report(const char *impl, long calls, double wall, double cpu, double
                 proxy_uj, pj_per_mac, rel, ok, drift);
 }
 
-// ---------------------------------------------------------------- bandwidth
+// ---------------------------------------------------------------- bandwidth (roofline)
+// Peak read bandwidth. Each pinned thread reads its slice as `S` interleaved sequential streams with the widest vector loads
+// this build has (AVX-512, AVX2, NEON, else 64-bit), 256 bytes per stream step into 4 independent accumulators. Every timed
+// group of passes is bracketed by barriers; the result is the best group (the peak), with the median alongside. Without
+// --streams, S = 1, 2, 4, 8 are all measured and the best is reported (one stream per thread under-fills some memory systems).
+#if defined(__AVX512F__)
+#include <immintrin.h>
+#define BW_ISA "avx512"
+typedef __m512i bw_acc;
+static inline void bw_chunk(const uint8_t *p, bw_acc *a) {
+    a[0] = _mm512_xor_si512(a[0], _mm512_load_si512((const void *)p));
+    a[1] = _mm512_xor_si512(a[1], _mm512_load_si512((const void *)(p + 64)));
+    a[2] = _mm512_xor_si512(a[2], _mm512_load_si512((const void *)(p + 128)));
+    a[3] = _mm512_xor_si512(a[3], _mm512_load_si512((const void *)(p + 192)));
+}
+static inline uint64_t bw_fold(const bw_acc *a) {
+    return (uint64_t)_mm512_reduce_add_epi64(_mm512_xor_si512(_mm512_xor_si512(a[0], a[1]), _mm512_xor_si512(a[2], a[3])));
+}
+#elif defined(__AVX2__)
+#include <immintrin.h>
+#define BW_ISA "avx2"
+typedef __m256i bw_acc;
+static inline void bw_chunk(const uint8_t *p, bw_acc *a) {
+    for (int i = 0; i < 8; i++) a[i & 3] = _mm256_xor_si256(a[i & 3], _mm256_load_si256((const __m256i *)(p + 32 * i)));
+}
+static inline uint64_t bw_fold(const bw_acc *a) {
+    uint64_t t[4];
+    _mm256_storeu_si256((__m256i *)t, _mm256_xor_si256(_mm256_xor_si256(a[0], a[1]), _mm256_xor_si256(a[2], a[3])));
+    return t[0] ^ t[1] ^ t[2] ^ t[3];
+}
+#elif defined(__ARM_NEON)
+#include <arm_neon.h>
+#define BW_ISA "neon"
+typedef uint8x16_t bw_acc;
+static inline void bw_chunk(const uint8_t *p, bw_acc *a) {
+    for (int i = 0; i < 16; i++) a[i & 3] = veorq_u8(a[i & 3], vld1q_u8(p + 16 * i));
+}
+static inline uint64_t bw_fold(const bw_acc *a) {
+    uint64x2_t x = vreinterpretq_u64_u8(veorq_u8(veorq_u8(a[0], a[1]), veorq_u8(a[2], a[3])));
+    return vgetq_lane_u64(x, 0) ^ vgetq_lane_u64(x, 1);
+}
+#else
+#define BW_ISA "scalar"
+typedef uint64_t bw_acc;
+static inline void bw_chunk(const uint8_t *p, bw_acc *a) {
+    const uint64_t *q = (const uint64_t *)p;
+    for (int i = 0; i < 32; i++) a[i & 3] ^= q[i];
+}
+static inline uint64_t bw_fold(const bw_acc *a) { return a[0] ^ a[1] ^ a[2] ^ a[3]; }
+#endif
+
+#define BW_MAX_GROUPS 64
 static uint8_t *bw_buf;
-static size_t bw_per;
-static int bw_streams = 1, bw_reps;
+static size_t bw_per, bw_stream_bytes;
+static int bw_streams = 0, bw_cur_streams, bw_groups, bw_group;
+static double bw_t0[BW_MAX_GROUPS], bw_t1[BW_MAX_GROUPS];
 static atomic_ulong bw_sink;
-// Each thread reads its slice as `bw_streams` interleaved sequential streams
-// (kernels that walk several row groups at once generate several streams).
 static void *bw_worker(void *arg) {
     int ith = (int)(intptr_t)arg;
     pin(ith);
-    const int S = bw_streams;
-    const size_t per_stream = bw_per / S / 256 * 256;
-    uint64_t acc[8] = {0};
-    for (int rep = 0; rep < bw_reps; rep++) {
+    const int S = bw_cur_streams;
+    const size_t ps = bw_stream_bytes;
+    const uint8_t *base = bw_buf + (size_t)ith * bw_per;
+    bw_acc a[4];
+    memset(a, 0, sizeof a);
+    for (int g = 0; g < bw_groups; g++) {
         barrier(G.threads);
-        for (size_t off = 0; off < per_stream; off += 256)
-            for (int st = 0; st < S; st++) {
-                const uint64_t *p = (const uint64_t *)(bw_buf + ith * bw_per + st * per_stream + off);
-                for (int j = 0; j < 32; j++) acc[j & 7] ^= p[j];
-            }
+        if (ith == 0) bw_t0[g] = now(CLOCK_MONOTONIC);
+        for (int r = 0; r < bw_group; r++)
+            for (size_t off = 0; off < ps; off += 256)
+                for (int st = 0; st < S; st++) bw_chunk(base + st * ps + off, a);
+        barrier(G.threads);
+        if (ith == 0) bw_t1[g] = now(CLOCK_MONOTONIC);
     }
-    uint64_t a = 0;
-    for (int j = 0; j < 8; j++) a ^= acc[j];
-    atomic_fetch_add(&bw_sink, a);
+    atomic_fetch_add(&bw_sink, bw_fold(a));
     return NULL;
 }
-static void run_bw(size_t total, int reps, const char *what, FILE *csv) {
+static int cmp_double(const void *x, const void *y) {
+    double a = *(const double *)x, b = *(const double *)y;
+    return (a > b) - (a < b);
+}
+// one stream count: returns the best group's GB/s, *median gets the median group
+static double bw_measure(int S, double *median) {
+    bw_cur_streams = S;
+    bw_stream_bytes = bw_per / S / 256 * 256;
+    atomic_store(&barrier_count, 0);
+    pthread_t th[MAX_THREADS];
+    for (int t = 0; t < G.threads; t++) pthread_create(&th[t], NULL, bw_worker, (void *)(intptr_t)t);
+    for (int t = 0; t < G.threads; t++) pthread_join(th[t], NULL);
+    double bytes = (double)bw_stream_bytes * S * G.threads * bw_group, gbs[BW_MAX_GROUPS];
+    for (int g = 0; g < bw_groups; g++) gbs[g] = bytes / (bw_t1[g] - bw_t0[g]) / 1e9;
+    qsort(gbs, bw_groups, sizeof gbs[0], cmp_double);
+    *median = gbs[bw_groups / 2];
+    return gbs[bw_groups - 1];
+}
+static void run_bw(size_t total, int groups, int group, const char *what, FILE *csv) {
     bw_per = (total / G.threads) & ~(size_t)4095;
     bw_buf = xalloc(bw_per * G.threads);
     memset(bw_buf, 1, bw_per * G.threads);
-    bw_reps = reps;
-    atomic_store(&barrier_count, 0);
-    pthread_t th[MAX_THREADS];
-    double c0 = cpu_time(), w0 = now(CLOCK_MONOTONIC);
-    for (int t = 0; t < G.threads; t++) pthread_create(&th[t], NULL, bw_worker, (void *)(intptr_t)t);
-    for (int t = 0; t < G.threads; t++) pthread_join(th[t], NULL);
+    bw_groups = groups < BW_MAX_GROUPS ? groups : BW_MAX_GROUPS;
+    bw_group = group;
+    const int sweep[] = {1, 2, 4, 8};
+    int n = bw_streams > 0 ? 1 : 4, best_s = 0;
+    double best = 0, best_med = 0, w0 = now(CLOCK_MONOTONIC), c0 = cpu_time();
+    for (int i = 0; i < n; i++) {
+        int S = bw_streams > 0 ? bw_streams : sweep[i];
+        double med, peak = bw_measure(S, &med);
+        printf("bw-sweep  %-5s T=%d streams=%d : best %.1f GB/s, median %.1f GB/s over %d groups\n", what, G.threads, S, peak, med,
+               bw_groups);
+        if (peak > best) best = peak, best_med = med, best_s = S;
+    }
     double wall = now(CLOCK_MONOTONIC) - w0, cpu = cpu_time() - c0;
-    double gbs = (double)(bw_per / bw_streams / 256 * 256) * bw_streams * G.threads * reps / wall / 1e9;
-    printf("bandwidth %-5s T=%d streams=%d bytes=%zu reps=%d : %.1f GB/s (cpu/wall %.2f)\n", what, G.threads, bw_streams,
-           bw_per * G.threads, reps, gbs, cpu / wall);
+    printf("bandwidth %-5s T=%d streams=%d bytes=%zu groups=%d : %.1f GB/s (best; median %.1f GB/s, %s loads, cpu/wall %.2f)\n",
+           what, G.threads, best_s, bw_per * G.threads, bw_groups, best, best_med, BW_ISA, cpu / wall);
     if (csv)
-        fprintf(csv, "bandwidth_%s,read,%s,%d,0,0,%d,%d,%.6f,%.6f,0,%.3f,0,0,0,0,ok,0\n", what, what, G.threads, bw_streams, reps,
-                wall, cpu, gbs);
+        fprintf(csv, "bandwidth_%s,read,%s,%d,0,0,%d,%d,%.6f,%.6f,0,%.3f,0,0,0,0,ok,0\n", what, what, G.threads, best_s, bw_groups,
+                wall, cpu, best);
     free(bw_buf);
 }
 
@@ -733,11 +807,11 @@ int main(int argc, char **argv) {
         else { fprintf(stderr, "unknown arg %s\n", a); return usage("bad arguments"); }
     }
     if (G.threads < 1 || G.threads > MAX_THREADS) return usage("--threads must be in 1..256");
-    if (bw_streams < 1) return usage("--streams must be >= 1");
+    if (bw_streams < 0) return usage("--streams must be >= 0 (0: measure 1, 2, 4 and 8 and report the best)");
     FILE *csv = G.csv ? fopen(G.csv, "a") : NULL;
     if (bw) {
-        run_bw((size_t)2 << 30, 6, "dram", csv);
-        run_bw((size_t)G.threads << 20, 4000, "l2", csv);
+        run_bw((size_t)2 << 30, 8, 1, "dram", csv);
+        run_bw((size_t)G.threads << 20, 20, 200, "l2", csv);
         if (csv) fclose(csv);
         return 0;
     }

@@ -84,8 +84,10 @@ def check(so, c, extra=None, harness=None):
     return bench(so, c, "hot", 0, extra, harness)
 
 
-def bandwidth(threads, streams=1, harness=None):
-    """Measured read bandwidth (GB/s) from DRAM and L2, via the harness `--bw` mode."""
+def bandwidth(threads, streams=0, harness=None, detail=False):
+    """Peak read bandwidth (GB/s) from DRAM and L2, via the harness `--bw` mode: widest vector loads, all `threads`
+    pinned, best of several barrier-timed groups; streams=0 measures 1, 2, 4 and 8 streams per thread and keeps the best.
+    Returns {"dram": GB/s, "l2": GB/s}; with detail=True also "<level>_median" and "<level>_streams"."""
     cmd = harness_command("scalar", harness) + ["--bw", "--threads", str(threads), "--streams", str(streams)]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
     if r.returncode:
@@ -93,5 +95,9 @@ def bandwidth(threads, streams=1, harness=None):
     out = {}
     for line in r.stdout.splitlines():
         if line.startswith("bandwidth"):
-            out[line.split()[1]] = float(line.split(":")[1].split()[0])
+            f = line.split()
+            out[f[1]] = float(line.split(":")[1].split()[0])
+            if detail:
+                out[f"{f[1]}_streams"] = int(next(x for x in f if x.startswith("streams=")).split("=")[1])
+                out[f"{f[1]}_median"] = float(line.split("median")[1].split()[0])
     return out

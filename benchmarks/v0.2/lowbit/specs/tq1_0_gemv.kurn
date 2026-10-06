@@ -1,0 +1,11 @@
+# Decode GEMV on TQ1_0 (ternary, 1.6875 bpw) weights. The base-3 LUT (lut=tern3) streams the
+# fewest bytes and wins from DRAM; the 2-bit i16 repack wins with cache-resident weights.
+kernel   tq1_0_gemv
+op       gemv
+weights  tq1_0
+target   avx512_vnni
+layout   lut
+lut      tern3
+rows     1
+threads  8
+tune     layout=lut,i16,addsub lut=auto,tern3,serial4,direct2 addsub=auto,sad rows=1,2 prefetch=0,8

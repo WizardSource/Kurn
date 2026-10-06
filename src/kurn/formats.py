@@ -96,6 +96,7 @@ def _ref_nibble32(values_of):
             vals = values_of(w)
             total += _f16(w, 0) * dx * sum(a * b for a, b in zip(vals, q8))
         return total
+
     return ref
 
 
@@ -164,16 +165,51 @@ FORMATS = {
             "qs chunk j (32 B) holds sub-block 2j in low and 2j+1 in high nibbles",
             _ref_q4_K,
         ),  # fmt: skip
-        Format("q4_0", 32, 18, "q8_0", (Field("d", "f16", 0), Field("qs", "u4", 2, 32)),
-               "value = d * (q - 8); low nibbles hold values 0..15, high nibbles 16..31", _ref_nibble32(_vals_q4_0)),  # fmt: skip
-        Format("iq4_nl", 32, 18, "q8_0", (Field("d", "f16", 0), Field("qs", "u4", 2, 32)),
-               "value = d * kvalues_iq4nl[q] (non-linear codebook)", _ref_nibble32(_vals_iq4_nl)),  # fmt: skip
-        Format("q2_0", 64, 18, "q8_0", (Field("d", "f16", 0), Field("qs", "u2", 2, 64)),
-               "value = d * (q - 1), 4 values per byte, LSB first (ternary Bonsai: q in 0..2)", _ref_q2_0),  # fmt: skip
-        Format("tq2_0", 256, 66, "q8_K", (Field("qs", "u2", 0, 256), Field("d", "f16", 64)),
-               "ternary: value = d * (q - 1); value v in byte (v/128)*32 + v%32, bits 2*((v%128)/32)", _ref_tq2_0),  # fmt: skip
-        Format("q1_0", 128, 18, "q8_0", (Field("d", "f16", 0), Field("qs", "u1", 2, 128)),
-               "1-bit (Bonsai): value = d * (bit ? +1 : -1), LSB first", _ref_q1_0),  # fmt: skip
+        Format(
+            "q4_0",
+            32,
+            18,
+            "q8_0",
+            (Field("d", "f16", 0), Field("qs", "u4", 2, 32)),
+            "value = d * (q - 8); low nibbles hold values 0..15, high nibbles 16..31",
+            _ref_nibble32(_vals_q4_0),
+        ),  # fmt: skip
+        Format(
+            "iq4_nl",
+            32,
+            18,
+            "q8_0",
+            (Field("d", "f16", 0), Field("qs", "u4", 2, 32)),
+            "value = d * kvalues_iq4nl[q] (non-linear codebook)",
+            _ref_nibble32(_vals_iq4_nl),
+        ),  # fmt: skip
+        Format(
+            "q2_0",
+            64,
+            18,
+            "q8_0",
+            (Field("d", "f16", 0), Field("qs", "u2", 2, 64)),
+            "value = d * (q - 1), 4 values per byte, LSB first (ternary Bonsai: q in 0..2)",
+            _ref_q2_0,
+        ),  # fmt: skip
+        Format(
+            "tq2_0",
+            256,
+            66,
+            "q8_K",
+            (Field("qs", "u2", 0, 256), Field("d", "f16", 64)),
+            "ternary: value = d * (q - 1); value v in byte (v/128)*32 + v%32, bits 2*((v%128)/32)",
+            _ref_tq2_0,
+        ),  # fmt: skip
+        Format(
+            "q1_0",
+            128,
+            18,
+            "q8_0",
+            (Field("d", "f16", 0), Field("qs", "u1", 2, 128)),
+            "1-bit (Bonsai): value = d * (bit ? +1 : -1), LSB first",
+            _ref_q1_0,
+        ),  # fmt: skip
         Format(
             "q8_K",
             256,

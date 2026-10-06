@@ -1,0 +1,14 @@
+# Q4_0 on the tensor-core engine, batched (prefill / large batch): 128x128 CTA tile, 64x32 warp tiles,
+# f16 activations converted once by kg_quant and streamed with a 3-stage cp.async pipeline.
+kernel   q4_0_gemm_cuda
+op       gemm
+weights  q4_0
+target   cuda
+bm       128
+bn       128
+wm       2
+wn       4
+bk       128
+stages   3
+xin      f16
+tune     bm=64,128 bn=64,128 wm=2,4 wn=2,4 bk=64,128 stages=2,3,4

@@ -1,0 +1,42 @@
+== rep 0 v1
+packed in 6.1 s
+== rep 0 v2
+load+run 4.1 s
+thread 0 wait attn 0.120 ffn 0.191 out 0.044
+thread 1 wait attn 0.110 ffn 0.190 out 0.043
+thread 2 wait attn 0.118 ffn 0.193 out 0.045
+thread 3 wait attn 0.115 ffn 0.194 out 0.040
+thread 4 wait attn 0.120 ffn 0.185 out 0.037
+thread 5 wait attn 0.116 ffn 0.202 out 0.044
+thread 6 wait attn 0.125 ffn 0.198 out 0.045
+thread 7 wait attn 0.120 ffn 0.195 out 0.044
+== rep 0 lc_amx
+== rep 0 lc_plain
+== rep 1 v1
+packed in 2.4 s
+== rep 1 v2
+load+run 5.4 s
+thread 0 wait attn 0.182 ffn 0.261 out 0.060
+thread 1 wait attn 0.163 ffn 0.238 out 0.045
+thread 2 wait attn 0.162 ffn 0.223 out 0.043
+thread 3 wait attn 0.175 ffn 0.252 out 0.053
+thread 4 wait attn 0.158 ffn 0.252 out 0.056
+thread 5 wait attn 0.161 ffn 0.242 out 0.053
+thread 6 wait attn 0.171 ffn 0.244 out 0.051
+thread 7 wait attn 0.176 ffn 0.246 out 0.050
+== rep 1 lc_amx
+== rep 1 lc_plain
+== rep 2 v1
+packed in 2.7 s
+== rep 2 v2
+load+run 5.3 s
+thread 0 wait attn 0.134 ffn 0.218 out 0.049
+thread 1 wait attn 0.127 ffn 0.221 out 0.040
+thread 2 wait attn 0.127 ffn 0.200 out 0.035
+thread 3 wait attn 0.129 ffn 0.212 out 0.045
+thread 4 wait attn 0.139 ffn 0.199 out 0.041
+thread 5 wait attn 0.131 ffn 0.220 out 0.044
+thread 6 wait attn 0.134 ffn 0.220 out 0.045
+thread 7 wait attn 0.134 ffn 0.227 out 0.046
+== rep 2 lc_amx
+== rep 2 lc_plain

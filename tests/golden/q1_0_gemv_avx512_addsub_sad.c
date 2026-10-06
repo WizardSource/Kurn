@@ -5,11 +5,6 @@
 #include <string.h>
 #include <immintrin.h>
 static inline float f16f(uint16_t h) { return _cvtsh_ss(h); }
-static inline __m512i lo16(__m512i v) { return _mm512_cvtepi16_epi32(_mm512_castsi512_si256(v)); }
-static inline __m512i hi16(__m512i v) { return _mm512_cvtepi16_epi32(_mm512_extracti64x4_epi64(v, 1)); }
-static inline __m512 fma16(__m512i s, __m512 d, __m512 dx, __m512 acc) {
-    return _mm512_fmadd_ps(_mm512_cvtepi32_ps(s), _mm512_mul_ps(d, dx), acc);
-}
 static inline __m256 fma8(__m512i s, __m256 d, __m256 dx, __m256 acc) {
     return _mm256_fmadd_ps(_mm512_cvtepi64_ps(s), _mm256_mul_ps(d, dx), acc);
 }

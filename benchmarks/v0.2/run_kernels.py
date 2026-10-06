@@ -8,6 +8,7 @@
   run_kernels.py cliff       cache-cliff sweep: effective GB/s vs total weight footprint (8T, static rows)
 Every configuration is checked against the exact reference by the harness; failures abort.
 """
+
 import csv
 import os
 import sys

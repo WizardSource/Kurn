@@ -1,0 +1,215 @@
+diff --git a/common/arg.cpp b/common/arg.cpp
+index fd8479568..75fb131f8 100644
+--- a/common/arg.cpp
++++ b/common/arg.cpp
+@@ -4152,6 +4152,24 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
+             params.speculative.draft.n_max = value;
+         }
+     ).set_spec().set_examples({LLAMA_EXAMPLE_SPECULATIVE, LLAMA_EXAMPLE_LOOKUP, LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}).set_env("LLAMA_ARG_SPEC_DRAFT_N_MAX"));
++    add_opt(common_arg(
++        {"--spec-width"}, "FNAME",
++        "kurn cost-aware verify width: draft length per step from this cost table (kurn-spec-calib) and the online\n"
++        "acceptance rate, up to --spec-draft-n-max (draft-simple; default: env KURN_SPEC_WIDTH)",
++        [](common_params & params, const std::string & value) {
++            params.speculative.draft.kurn_width = value;
++        }
++    ).set_spec().set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_SPEC_WIDTH"));
++    add_opt(common_arg(
++        {"--spec-width-mode"}, "policy|cap",
++        "policy: stop and truncate drafts by expected tokens per time (default); cap: acceptance-rate cap only",
++        [](common_params & params, const std::string & value) {
++            if (value != "policy" && value != "cap") {
++                throw std::invalid_argument("expected policy or cap");
++            }
++            params.speculative.draft.kurn_width_cap = value == "cap";
++        }
++    ).set_spec().set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_SPEC_WIDTH_MODE"));
+     add_opt(common_arg(
+         {"--spec-draft-n-min"}, "N",
+         string_format("minimum number of draft tokens to use for speculative decoding (default: %d)", params.speculative.draft.n_min),
+diff --git a/common/common.h b/common/common.h
+index f4b72d90a..7e8c8f8aa 100644
+--- a/common/common.h
++++ b/common/common.h
+@@ -326,6 +326,8 @@ struct common_params_model {
+ // draft-model-based speculative decoding parameters
+ struct common_params_speculative_draft {
+     int32_t n_max = 3; // maximum number of tokens to draft during speculative decoding
++    std::string kurn_width;        // kurn cost-aware verify width: cost table from kurn-spec-calib (llama-server)
++    bool        kurn_width_cap = false; // only the acceptance-rate cap of the width policy
+     int32_t n_min = 0; // minimum number of draft tokens to use for speculative decoding
+ 
+     float p_split = 0.1f; // speculative decoding split probability
+diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
+index 4da504e2e..eae050504 100644
+--- a/tools/server/server-context.cpp
++++ b/tools/server/server-context.cpp
+@@ -15,6 +15,7 @@
+ #include "log.h"
+ #include "sampling.h"
+ #include "speculative.h"
++#include "kurn-spec-width.h"
+ #include "mtmd.h"
+ #include "mtmd-helper.h"
+ 
+@@ -347,6 +348,14 @@ struct server_slot {
+     // not in server_slot_stats to avoid copying to every task result
+     std::vector<uint64_t> n_accepted_per_pos;
+ 
++    // kurn cost-aware verify width (--spec-width): one policy per slot, learning across the slot's tasks
++    std::unique_ptr<kurn::width_policy> kurn_width;
++    bool               kurn_width_cap = false;
++    std::vector<float> kurn_draft_p;   // draft confidence (top-1 probability) of each drafted token
++    std::map<int, int> kurn_n_width;   // verify width -> steps, this task
++    int                kurn_n_truncated = 0;
++    int64_t            kurn_t_step0 = 0;
++
+     std::function<void(int /* id_slot */)>   callback_on_release;
+     std::function<void(const server_slot &)> callback_on_reset; // called before reset()
+ 
+@@ -372,6 +381,8 @@ struct server_slot {
+             spec_i_batch.clear();
+             spec_ckpt.clear();
+         }
++        kurn_n_width.clear();
++        kurn_n_truncated = 0;
+         generated_tokens.clear();
+         generated_token_probs.clear();
+         json_schema = json();
+@@ -688,6 +699,15 @@ struct server_slot {
+                     "     acc per pos = (%s)\n", acceptance_rates_per_pos.c_str());
+         }
+ 
++        if (kurn_width && !kurn_n_width.empty()) {
++            std::string s;
++            for (const auto & [w, n] : kurn_n_width) {
++                s += " " + std::to_string(w) + ":" + std::to_string(n);
++            }
++            SLT_INF(*this, "kurn spec width: verify widths (M:steps) =%s, truncated %d drafts, alpha %.3f, lambda %.4f tok/ms\n",
++                    s.c_str(), kurn_n_truncated, kurn_width->alpha(), kurn_width->lam());
++        }
++
+         common_speculative_print_stats(spec);
+     }
+ 
+@@ -919,6 +939,8 @@ private:
+ 
+     common_speculative_init_result_ptr spec_init;
+ 
++    kurn::verify_cost_table kurn_width_table;  // empty without --spec-width
++
+     common_context_seq_rm_type ctx_tgt_seq_rm_type = COMMON_CONTEXT_SEQ_RM_TYPE_NO;
+     common_context_seq_rm_type ctx_dft_seq_rm_type = COMMON_CONTEXT_SEQ_RM_TYPE_NO;
+ 
+@@ -1310,6 +1332,25 @@ private:
+             slots.emplace_back();
+         }
+ 
++        // kurn cost-aware verify width (--spec-width FILE or KURN_SPEC_WIDTH=FILE)
++        {
++            std::string path = params_base.speculative.draft.kurn_width;
++            if (path.empty() && getenv("KURN_SPEC_WIDTH")) {
++                path = getenv("KURN_SPEC_WIDTH");
++                params_base.speculative.draft.kurn_width_cap |= getenv("KURN_SPEC_WIDTH_MODE") && !strcmp(getenv("KURN_SPEC_WIDTH_MODE"), "cap");
++            }
++            if (!path.empty()) {
++                std::string err;
++                if (!kurn_width_table.load(path.c_str(), &err)) {
++                    SRV_ERR("kurn spec width: %s\n", err.c_str());
++                    return false;
++                }
++                SRV_INF("kurn spec width: %s, k <= %d, mode %s\n", path.c_str(),
++                        std::min<int>(params_base.speculative.draft.n_max, kurn_width_table.m_max() - 1),
++                        params_base.speculative.draft.kurn_width_cap ? "cap" : "policy");
++            }
++        }
++
+         // try speculative decoding
+         if (ctx_tgt_seq_rm_type != COMMON_CONTEXT_SEQ_RM_TYPE_NO) {
+             try {
+@@ -1352,6 +1393,12 @@ private:
+             slot.mctx                   = mctx;
+             slot.prompt.tokens.has_mtmd = mctx != nullptr;
+ 
++            if (kurn_width_table.m_max() > 0 && spec) {
++                slot.kurn_width = std::make_unique<kurn::width_policy>();
++                slot.kurn_width->init(kurn_width_table, std::min<int>(params_base.speculative.draft.n_max, kurn_width_table.m_max() - 1));
++                slot.kurn_width_cap = params_base.speculative.draft.kurn_width_cap;
++            }
++
+             SLT_TRC(slot, "new slot, n_ctx = %d\n", slot.n_ctx);
+ 
+             slot.callback_on_release = [this](int id_slot) {
+@@ -3145,9 +3192,18 @@ private:
+ 
+                         const bool spec_reject = slot.use_spec_rejection();
+ 
++                        int n_max = n_draft_max;
++                        if (slot.kurn_width) {
++                            n_max = std::min(n_max, slot.kurn_width_cap ? slot.kurn_width->n_cap() : slot.kurn_width->k_max());
++                            slot.kurn_t_step0 = ggml_time_us();
++                        }
++                        if (n_max <= 0) {
++                            return;  // the width policy chose not to speculate this step
++                        }
++
+                         common_speculative_get_draft_params(spec.get(), slot.id) = {
+                             /* .drafting = */ true,
+-                            /* .n_max    = */ n_draft_max,
++                            /* .n_max    = */ n_max,
+                             /* .pos0     = */ slot.prompt.tokens.pos_next(),
+                             /* .id_last  = */ slot.sampled,
+                             /* .prompt   = */ &slot.spec_prompt,
+@@ -3157,6 +3213,16 @@ private:
+                             /* .seed     = */ slot.task->params.sampling.seed,
+                         };
+ 
++                        if (slot.kurn_width) {
++                            auto & dp = common_speculative_get_draft_params(spec.get(), slot.id);
++                            slot.kurn_draft_p.clear();
++                            dp.result_p = &slot.kurn_draft_p;
++                            if (!slot.kurn_width_cap) {
++                                kurn::width_policy * w = slot.kurn_width.get();
++                                dp.keep_drafting = [w](const std::vector<float> & p) { return w->keep_drafting(p); };
++                            }
++                        }
++
+                         drafting.push_back(&slot);
+                     }
+                 }
+@@ -3175,6 +3241,22 @@ private:
+             auto & draft = slot.spec_draft;
+             auto & ckpt  = slot.spec_ckpt;
+ 
++            if (slot.kurn_width) {
++                // drafters without confidences report -1 (unknown) for each token
++                slot.kurn_draft_p.resize(draft.size(), -1.0f);
++                if (!slot.kurn_width_cap) {
++                    const size_t k = (size_t) slot.kurn_width->truncate(slot.kurn_draft_p);
++                    if (k < draft.size()) {
++                        slot.kurn_n_truncated++;
++                        draft.resize(k);
++                        slot.kurn_draft_p.resize(k);
++                        if (!slot.spec_draft_q.empty()) {
++                            slot.spec_draft_q.resize(k);
++                        }
++                    }
++                }
++            }
++
+             slot.stats.n_draft_tokens += draft.size();
+ 
+             // TODO: avoid restoring the draft context and re-evaluating the drafted tokens when not needed [TAG_SPEC_AVOID_DRAFT_REEVAL]
+@@ -4115,6 +4197,12 @@ private:
+ 
+                 GGML_ASSERT(accepted.size() >= 1);
+ 
++                if (slot.kurn_width && !slot.spec_is_replay) {
++                    slot.kurn_n_width[(int) n_draft + 1]++;
++                    slot.kurn_width->observe(slot.kurn_draft_p, (int) accepted.size() - 1,
++                                             (ggml_time_us() - slot.kurn_t_step0) / 1000.0, (int) accepted.size());
++                }
++
+                 const uint32_t n_rollback = slot.spec_draft.size() + 1 - accepted.size();
+ 
+                 const bool use_ckpt_tgt =

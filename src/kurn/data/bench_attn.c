@@ -28,6 +28,9 @@
 typedef size_t (*ws_fn)(const kattn_args *, int);
 typedef void (*attn_fn)(const kattn_args *, void *, int, int);
 typedef int64_t (*cfg_fn)(int *, int *, int *);
+typedef size_t (*packb_fn)(const kattn_args *, int64_t);
+typedef void (*pack_fn)(const kattn_args *, void *, int64_t, int64_t, int64_t, int, int);
+typedef void (*packed_fn)(const kattn_args *, const void *, int64_t, void *, int, int);
 
 static double now(void) {
     struct timespec t;
@@ -67,13 +70,34 @@ static float from_bf16(uint16_t h) {
 }
 
 static int KV, DK, DV;
-static int64_t row_bytes(int d) { return KV == KATTN_KV_Q8_0 ? d / 32 * 34 : 2 * (int64_t)d; }
+#define ROW_Q4_0 100 /* V rows of KATTN_KV_K4C_Q4 */
+static int is_k4c(void) { return KV == KATTN_KV_K4C_Q4 || KV == KATTN_KV_K4C_Q8; }
+/* row format of V (and of K for the row formats) */
+static int row_fmt(void) { return KV == KATTN_KV_K4C_Q4 ? ROW_Q4_0 : KV == KATTN_KV_K4C_Q8 ? KATTN_KV_Q8_0 : KV; }
+static int64_t row_bytes(int d) {
+    const int f = row_fmt();
+    return f == KATTN_KV_Q8_0 ? d / 32 * 34 : f == ROW_Q4_0 ? d / 32 * 18 : 2 * (int64_t)d;
+}
 
 static void encode_row(const float *x, int d, uint8_t *dst) {
-    if (KV == KATTN_KV_F16) {
+    const int f = row_fmt();
+    if (f == KATTN_KV_F16) {
         for (int i = 0; i < d; i++) ((uint16_t *)dst)[i] = _cvtss_sh(x[i], 0);
-    } else if (KV == KATTN_KV_BF16) {
+    } else if (f == KATTN_KV_BF16) {
         for (int i = 0; i < d; i++) ((uint16_t *)dst)[i] = to_bf16(x[i]);
+    } else if (f == ROW_Q4_0) { /* ggml quantize_row_q4_0_ref */
+        for (int b = 0; b < d / 32; b++) {
+            float amax = 0, mx = 0;
+            for (int i = 0; i < 32; i++)
+                if (amax < fabsf(x[32 * b + i])) { amax = fabsf(x[32 * b + i]); mx = x[32 * b + i]; }
+            const float dd = mx / -8, id = dd ? 1.0f / dd : 0.0f;
+            uint8_t *blk = dst + 18 * b;
+            *(uint16_t *)blk = _cvtss_sh(dd, 0);
+            for (int i = 0; i < 16; i++) {
+                const int lo = (int8_t)(x[32 * b + i] * id + 8.5f), hi = (int8_t)(x[32 * b + 16 + i] * id + 8.5f);
+                blk[2 + i] = (uint8_t)((lo < 15 ? lo : 15) | ((hi < 15 ? hi : 15) << 4));
+            }
+        }
     } else {
         for (int b = 0; b < d / 32; b++) {
             float amax = 0;
@@ -87,15 +111,84 @@ static void encode_row(const float *x, int d, uint8_t *dst) {
 }
 
 static void decode_row(const uint8_t *src, int d, double *out) {
-    if (KV == KATTN_KV_F16) {
+    const int f = row_fmt();
+    if (f == KATTN_KV_F16) {
         for (int i = 0; i < d; i++) out[i] = _cvtsh_ss(((const uint16_t *)src)[i]);
-    } else if (KV == KATTN_KV_BF16) {
+    } else if (f == KATTN_KV_BF16) {
         for (int i = 0; i < d; i++) out[i] = from_bf16(((const uint16_t *)src)[i]);
+    } else if (f == ROW_Q4_0) {
+        for (int b = 0; b < d / 32; b++) {
+            const double dd = _cvtsh_ss(*(const uint16_t *)(src + 18 * b));
+            for (int i = 0; i < 16; i++) {
+                out[32 * b + i] = dd * ((src[18 * b + 2 + i] & 15) - 8);
+                out[32 * b + 16 + i] = dd * ((src[18 * b + 2 + i] >> 4) - 8);
+            }
+        }
     } else {
         for (int b = 0; b < d / 32; b++) {
             const double dd = _cvtsh_ss(*(const uint16_t *)(src + 34 * b));
             for (int i = 0; i < 32; i++) out[32 * b + i] = dd * ((const int8_t *)(src + 34 * b + 2))[i];
         }
+    }
+}
+
+/* ------------------------------------------------------------------ pre-RoPE 4-bit per-channel K */
+static int64_t k4c_tok_bytes(void) { return KATTN_K4C_BLOCK_BYTES(DK) / KATTN_K4C_GROUP; }
+
+/* K [nkv][nhkv][DK] pre-RoPE -> group blocks [nkv / 32][nhkv] + f16 tail rows [32][nhkv][DK] */
+static void k4c_encode(const float *K, int64_t nkv, int nhkv, uint8_t *blocks, uint16_t *tail) {
+    const int64_t nfull = nkv / KATTN_K4C_GROUP * KATTN_K4C_GROUP;
+    for (int64_t b = 0; b < nfull / KATTN_K4C_GROUP; b++)
+        for (int g = 0; g < nhkv; g++) {
+            uint8_t *blk = blocks + (b * nhkv + g) * KATTN_K4C_BLOCK_BYTES(DK);
+            uint16_t *sc = (uint16_t *)blk, *mn = sc + DK;
+            uint8_t *qs = blk + 4 * DK;
+            memset(qs, 0, 16 * (size_t)DK);
+            for (int c = 0; c < DK; c++) {
+                float lo = INFINITY, hi = -INFINITY;
+                for (int t = 0; t < KATTN_K4C_GROUP; t++) {
+                    const float x = K[((b * KATTN_K4C_GROUP + t) * nhkv + g) * DK + c];
+                    lo = fminf(lo, x);
+                    hi = fmaxf(hi, x);
+                }
+                sc[c] = _cvtss_sh((hi - lo) / 15.0f, 0);
+                mn[c] = _cvtss_sh(lo, 0);
+                const float s = _cvtsh_ss(sc[c]), m = _cvtsh_ss(mn[c]);
+                for (int t = 0; t < KATTN_K4C_GROUP; t++) {
+                    const float x = K[((b * KATTN_K4C_GROUP + t) * nhkv + g) * DK + c];
+                    long q = s > 0 ? lrintf((x - m) / s) : 0;
+                    q = q < 0 ? 0 : q > 15 ? 15 : q;
+                    qs[t * (DK / 2) + (c / 32) * 16 + (c % 16)] |= (uint8_t)(q << ((c % 32) >= 16 ? 4 : 0));
+                }
+            }
+        }
+    for (int64_t j = nfull; j < nkv; j++)
+        for (int g = 0; g < nhkv; g++)
+            for (int c = 0; c < DK; c++) tail[((j % KATTN_K4C_GROUP) * nhkv + g) * DK + c] = _cvtss_sh(K[(j * nhkv + g) * DK + c], 0);
+}
+
+/* dequantized, rotated K row j of head g (the reference the kernel must reproduce) */
+static void k4c_decode(const kattn_args *a, int64_t j, int g, double *out) {
+    const int64_t nfull = a->n_kv / KATTN_K4C_GROUP * KATTN_K4C_GROUP;
+    if (j < nfull) {
+        const uint8_t *blk = (const uint8_t *)a->k + (j / KATTN_K4C_GROUP) * a->k_s_tok + g * a->k_s_head;
+        const uint16_t *sc = (const uint16_t *)blk, *mn = sc + DK;
+        const uint8_t *qs = blk + 4 * DK + (j % KATTN_K4C_GROUP) * (DK / 2);
+        for (int c = 0; c < DK; c++) {
+            const int q = (qs[(c / 32) * 16 + (c % 16)] >> ((c % 32) >= 16 ? 4 : 0)) & 15;
+            out[c] = (double)q * _cvtsh_ss(sc[c]) + _cvtsh_ss(mn[c]);
+        }
+    } else {
+        const uint16_t *tr = (const uint16_t *)((const uint8_t *)a->k_tail + (j % KATTN_K4C_GROUP) * a->kt_s_tok + g * a->kt_s_head);
+        for (int c = 0; c < DK; c++) out[c] = _cvtsh_ss(tr[c]);
+    }
+    const int rd = a->rope_dim;
+    for (int i = 0; i < rd / 2; i++) {
+        const double th = (double)(a->k_pos0 + j) * a->rope_freq[i], c = cos(th), s = sin(th);
+        const int i0 = a->rope_mode == KATTN_ROPE_NEOX ? i : 2 * i, i1 = a->rope_mode == KATTN_ROPE_NEOX ? i + rd / 2 : 2 * i + 1;
+        const double x0 = out[i0], x1 = out[i1];
+        out[i0] = x0 * c - x1 * s;
+        out[i1] = x0 * s + x1 * c;
     }
 }
 
@@ -128,6 +221,15 @@ static void *worker(void *arg) {
         atomic_fetch_add_explicit(&arrived, 1, memory_order_acq_rel);
     }
 }
+
+/* --packed: kattn_pack / kattn_packed through the same pool (the layer's buffer is found by args index) */
+static kattn_args *AA;
+static void **KVP;
+static int64_t CAP, PJ0, PJ1;
+static pack_fn PACK;
+static packed_fn PACKED;
+static void pack_wrap(const kattn_args *a, void *ws, int ith, int nth) { (void)ws; PACK(a, KVP[a - AA], CAP, PJ0, PJ1, ith, nth); }
+static void packed_wrap(const kattn_args *a, void *ws, int ith, int nth) { PACKED(a, KVP[a - AA], CAP, ws, ith, nth); }
 
 static void run_call(kattn_args *a) {
     CUR = a;
@@ -257,6 +359,9 @@ int main(int argc, char **argv) {
     const int nh = (int)arg_i(argc, argv, "--heads", 16), nhkv = (int)arg_i(argc, argv, "--kv-heads", 8);
     const int causal = (int)arg_i(argc, argv, "--causal", 1), use_mask = has(argc, argv, "--mask");
     const int mla = has(argc, argv, "--mla");
+    /* --k-bias B: add +-B to the last 3 channels of each half of every K row (per kv head, constant over
+     * tokens), like the post-RoPE k_proj bias of Qwen2/2.5 (up to ~300-430 in layer 0) */
+    const float kbias = (float)atof(arg_s(argc, argv, "--k-bias", "0"));
     const double secs = atof(arg_s(argc, argv, "--secs", "1"));
     const double tol = atof(arg_s(argc, argv, "--tol", "1e-2"));
     const char *regime = arg_s(argc, argv, "--regime", "hot");
@@ -265,8 +370,19 @@ int main(int argc, char **argv) {
     rng_s ^= (uint64_t)arg_i(argc, argv, "--seed", 1) * 0x2545F4914F6CDD1Dull;
     if (nh % nhkv || (mla && DV > DK)) { fprintf(stderr, "bad head config\n"); return 2; }
 
-    const int64_t rk = row_bytes(DK), rv = mla ? 0 : row_bytes(DV);
+    const int k4c = is_k4c();
+    if (k4c && mla) { fprintf(stderr, "pre-RoPE K formats do not support --mla\n"); return 2; }
+    const int rope_dim = (int)arg_i(argc, argv, "--rope-dim", -1) < 0 ? DK : (int)arg_i(argc, argv, "--rope-dim", -1);
+    const int rope_mode = (int)arg_i(argc, argv, "--rope-mode", KATTN_ROPE_NEOX);
+    const double rope_base = atof(arg_s(argc, argv, "--rope-base", "1000000"));
+    const int64_t kpos0 = arg_i(argc, argv, "--kpos0", 0);
+    float *rope_freq = malloc(sizeof(float) * (DK / 2 + 16));
+    for (int i = 0; i < DK / 2 + 16; i++) rope_freq[i] = i < rope_dim / 2 ? (float)pow(rope_base, -2.0 * i / rope_dim) : 0.0f;
+    const int64_t rk = k4c ? k4c_tok_bytes() : row_bytes(DK), rv = mla ? 0 : row_bytes(DV);
     const size_t kv_layer = (size_t)nkv * nhkv * (rk + rv);
+    const size_t kblk_bytes = (size_t)(nkv / KATTN_K4C_GROUP) * nhkv * KATTN_K4C_BLOCK_BYTES(DK) + 64;
+    const size_t ktail_bytes = (size_t)KATTN_K4C_GROUP * nhkv * DK * 2;
+    uint16_t **kt = calloc(64, sizeof *kt);
     int nl = 1;
     if (!strcmp(regime, "cold")) {
         const double target = atof(arg_s(argc, argv, "--cold-bytes", "7e8"));
@@ -280,12 +396,36 @@ int main(int argc, char **argv) {
     uint8_t **kb = calloc(nl, sizeof *kb), **vb = calloc(nl, sizeof *vb);
     float *tmp = malloc(sizeof(float) * (DK > DV ? DK : DV));
     for (size_t i = 0; i < qn; i++) q[i] = 3.0f * nrand();
-    for (int L = 0; L < nl; L++) {
+    for (int L = 0; L < nl && k4c; L++) {
+        kb[L] = aligned_alloc(64, (kblk_bytes + 63) / 64 * 64);
+        kt[L] = aligned_alloc(64, (ktail_bytes + 63) / 64 * 64);
+        vb[L] = aligned_alloc(64, ((size_t)nkv * nhkv * rv + 63) / 64 * 64);
+        if (L == 0) {
+            float *Kf = malloc(sizeof(float) * nkv * nhkv * DK);
+            for (int64_t i = 0; i < nkv * nhkv * DK; i++) Kf[i] = nrand();
+            k4c_encode(Kf, nkv, nhkv, kb[0], kt[0]);
+            free(Kf);
+            for (int64_t j = 0; j < nkv * nhkv; j++) {
+                for (int i = 0; i < DV; i++) tmp[i] = nrand();
+                encode_row(tmp, DV, vb[0] + j * rv);
+            }
+        } else {
+            memcpy(kb[L], kb[0], kblk_bytes);
+            memcpy(kt[L], kt[0], ktail_bytes);
+            memcpy(vb[L], vb[0], (size_t)nkv * nhkv * rv);
+        }
+    }
+    for (int L = 0; L < nl && !k4c; L++) {
         kb[L] = aligned_alloc(64, ((size_t)nkv * nhkv * rk + 63) / 64 * 64);
         vb[L] = mla ? kb[L] : aligned_alloc(64, ((size_t)nkv * nhkv * rv + 63) / 64 * 64);
         if (L == 0) {
             for (int64_t j = 0; j < nkv * nhkv; j++) {
                 for (int i = 0; i < DK; i++) tmp[i] = nrand();
+                if (kbias != 0.0f)
+                    for (int c = 0; c < 6; c++) {
+                        const int i = mla ? DK - 1 - c : (c < 3 ? DK / 2 : DK) - 1 - c % 3; /* MLA: rope dims only, not v */
+                        tmp[i] += ((((j % nhkv) * 7 + c * 3) >> 1) & 1 ? -kbias : kbias);
+                    }
                 encode_row(tmp, DK, kb[0] + j * rk);
                 if (!mla) {
                     for (int i = 0; i < DV; i++) tmp[i] = nrand();
@@ -312,6 +452,17 @@ int main(int argc, char **argv) {
                         vb[L], mla ? nhkv * rk : nhkv * rv, mla ? rk : rv,
                         mask, mask_s,
                         out, (int64_t)nh * DV, DV};
+        if (k4c) {
+            a.k_s_tok = (int64_t)nhkv * KATTN_K4C_BLOCK_BYTES(DK);
+            a.k_s_head = KATTN_K4C_BLOCK_BYTES(DK);
+            a.k_tail = kt[L];
+            a.kt_s_tok = (int64_t)nhkv * DK * 2;
+            a.kt_s_head = (int64_t)DK * 2;
+            a.rope_freq = rope_freq;
+            a.k_pos0 = kpos0;
+            a.rope_dim = rope_dim;
+            a.rope_mode = rope_mode;
+        }
         A[L] = a;
     }
     const size_t wsz = WSF(&A[0], NTH);
@@ -320,6 +471,39 @@ int main(int argc, char **argv) {
     pthread_t th[256];
     pin(0);
     for (int i = 1; i < NTH; i++) pthread_create(&th[i], NULL, worker, (void *)(intptr_t)i);
+
+    if (has(argc, argv, "--packed")) {
+        packb_fn PB = (packb_fn)dlsym(lib, "kattn_pack_bytes");
+        PACK = (pack_fn)dlsym(lib, "kattn_pack");
+        PACKED = (packed_fn)dlsym(lib, "kattn_packed");
+        const size_t pb = PB ? PB(&A[0], nkv) : 0;
+        if (!PACK || !PACKED || !pb) { fprintf(stderr, "%s: no packed KV support\n", impl); return 2; }
+        const int64_t split = arg_i(argc, argv, "--packed-split", 0);
+        AA = A;
+        CAP = nkv;
+        KVP = calloc(nl, sizeof *KVP);
+        ATTN = pack_wrap;
+        double tpack = 0;
+        for (int L = 0; L < nl; L++) {
+            KVP[L] = aligned_alloc(64, (pb + 63) / 64 * 64);
+            memset(KVP[L], 0, (pb + 63) / 64 * 64);
+            const double t0 = now();
+            if (split > 0 && split < nkv) {
+                PJ0 = 0; PJ1 = split; run_call(&A[L]);
+                PJ0 = split; PJ1 = nkv; run_call(&A[L]);
+            } else {
+                PJ0 = 0; PJ1 = nkv; run_call(&A[L]);
+            }
+            if (L == 0) tpack = now() - t0;
+        }
+        /* cost of one decode-step append (repacks the token's 16-token group) */
+        int reps = 0;
+        const double t1 = now();
+        do { PJ0 = nkv - 1; PJ1 = nkv; run_call(&A[0]); reps++; } while (now() - t1 < 0.05);
+        fprintf(stderr, "KATTN_PACK bytes %zu full_pack_us %.1f per_token_us %.4f append1_us %.2f\n", pb, tpack * 1e6,
+                tpack * 1e6 / nkv, (now() - t1) * 1e6 / reps);
+        ATTN = packed_wrap;
+    }
 
     /* correctness on layer 0 */
     for (size_t i = 0; i < on; i++) out[i] = NAN;
@@ -337,7 +521,8 @@ int main(int argc, char **argv) {
         }
         for (int g = 0; g < nhkv; g++) {
             for (int64_t j = 0; j < nkv; j++) {
-                decode_row(kb[0] + (j * nhkv + g) * rk, DK, kd + j * DK);
+                if (k4c) k4c_decode(&A[0], j, g, kd + j * DK);
+                else decode_row(kb[0] + (j * nhkv + g) * rk, DK, kd + j * DK);
                 if (mla) for (int i = 0; i < DV; i++) vd[j * DV + i] = kd[j * DK + i];
                 else decode_row(vb[0] + (j * nhkv + g) * rv, DV, vd + j * DV);
             }
@@ -399,7 +584,7 @@ int main(int argc, char **argv) {
     const double flop = 2.0 * pairs * (DK + DV) * nh;
     const double bytes = kv_seen * nhkv * (rk + rv) + 4.0 * (qn + on);
     const double us = t / calls * 1e6;
-    const char *kvn[] = {"f16", "bf16", "q8_0"};
+    const char *kvn[] = {"f16", "bf16", "q8_0", "k4c_q4", "k4c_q8"};
     char row[1024];
     snprintf(row, sizeof row, "kurn,attn_%s_d%d,%s,%d,%lld,%lld,%d,%d,%lld,%.6f,%.6f,%.3f,%.2f,%.2f,%.3f,%.3e,%s,%.6f,%d,%d",
              kvn[KV], DK, regime, NTH, (long long)nq, (long long)nkv, nh, nhkv, (long long)calls, t, cpu, us,

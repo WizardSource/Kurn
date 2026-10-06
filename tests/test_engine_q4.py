@@ -8,11 +8,12 @@ import shutil
 import tempfile
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 from kurn import spec, toolchain
 from kurn.epilogue import engine_kernels
+
+np = pytest.importorskip("numpy")
 
 gguf = pytest.importorskip("gguf")
 
@@ -30,8 +31,9 @@ atexit.register(shutil.rmtree, _OUT, True)
 @pytest.fixture(scope="module", params=[(8, "packed", 0), (4, 64, 8), (1, "packed", 8)], ids=lambda p: f"rows{p[0]}_align{p[1]}_pf{p[2]}")
 def lib(request):
     rows, align, pf = request.param
-    c = spec.resolve({"op": "gemv", "weights": "q8_0", "target": "avx512_vnni", "layout": "vnni16", "rows": rows, "align": align,
-                      "prefetch": pf})
+    c = spec.resolve(
+        {"op": "gemv", "weights": "q8_0", "target": "avx512_vnni", "layout": "vnni16", "rows": rows, "align": align, "prefetch": pf}
+    )
     src = engine_kernels(c, fmts=("q8_0", "q4_0"))
     so = toolchain.compile_source(src, "avx512_vnni", out_dir=_OUT, stem="kq4e", extra_flags=["-I", str(MODEL_DIR)])
     L = ctypes.CDLL(so)

@@ -1,0 +1,15 @@
+# Q8_0 on the tensor-core engine at decode batch sizes (1-8): one n8 tile, rows split over 4 warps,
+# f32 activations rounded to f16 inside the kernel (one launch per matmul), split-K chosen from the SM count.
+kernel   q8_0_gemm_cuda
+op       gemm
+weights  q8_0
+target   cuda
+bm       64
+bn       8
+wm       4
+wn       1
+bk       128
+stages   4
+splitk   0
+xin      f32
+tune     bm=32,64,128 wm=1,2,4 bk=64,128,256 stages=3,4,5

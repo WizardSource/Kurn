@@ -1,0 +1,10 @@
+# Decode GEMV on Q1_0 (1-bit, 1.125 bpw) weights: exact int16 LUT, 4 or 5 weights per index.
+kernel   q1_0_gemv
+op       gemv
+weights  q1_0
+target   avx512_vnni
+layout   lut
+lut      direct4
+rows     1
+threads  8
+tune     layout=lut,i16,addsub lut=auto,direct4,direct5,direct6m addsub=auto,mask rows=1,2 prefetch=0,8

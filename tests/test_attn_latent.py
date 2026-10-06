@@ -8,6 +8,8 @@ from kurn import latent
 
 np = pytest.importorskip("numpy")
 
+np = pytest.importorskip("numpy")
+
 
 def _mha(q_nope, q_pe, c, k_pe, w_uk, w_uv, scale):
     k_nope = np.einsum("hnc,jc->jhn", w_uk, c)

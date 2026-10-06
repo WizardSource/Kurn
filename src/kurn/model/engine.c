@@ -22,7 +22,11 @@
 // Decode output also reports runq_share: the fraction of thread time spent runnable but descheduled.
 // Env: KURN_WAIT=spin|futex:N|yield:N (or per sync kind: attn=...,qk=...,ffn=...,out=...),
 //      KURN_THP=0 (no huge pages), KURN_PIN=0 (threads not pinned 1:1 to cores), KURN_PFWAIT=bytes (prefetch-in-wait budget, default 0), PPL_CHUNKS=n (default 4), KURN_PROF=1 (per-thread waits to stderr),
-//      KURN_DUMP_LOGITS=file (gen: float32 logits of every step, prompt included), KURN_PERF_CTL=fifo (below).
+//      KURN_DUMP_LOGITS=file (gen: float32 logits of every step, prompt included), KURN_PERF_CTL=fifo (below),
+//      KURN_KV=f16|q8_0|q4_0|k4c_q4|k4c_q8|vqk_q4|vqk_q8 (KV cache format, below; vqk_* also KURN_VQ=codebooks),
+//      KURN_KLD=ref:file|cmp:file (ppl: KL vs a reference run), KURN_DUMP_KQ=prefix (calibration dump, below).
+//      KURN_CTX=n (context capacity at least n; by default it is sized from the request: prompt + generated tokens,
+//      or CTX, rounded up to 256; -DMAX_CTX=n sets a minimum).
 #define _GNU_SOURCE
 #include "model_config.h"
 #include "kq8e.h"
@@ -49,7 +53,15 @@
 #endif
 
 #define MAXT 64
-#define MAX_CTX 2048
+// Context capacity (KV cache, RoPE table, score rows) is a runtime value set in main() before anything is sized by it.
+#ifdef MAX_CTX
+#define KURN_CTX_MIN MAX_CTX
+#undef MAX_CTX
+#else
+#define KURN_CTX_MIN 256
+#endif
+static int64_t G_max_ctx = KURN_CTX_MIN;
+#define MAX_CTX G_max_ctx
 #define QB(K) ((K) / 32)
 #define D HEAD_DIM
 #define NG(n) (((n) + 15) / 16)
@@ -329,7 +341,7 @@ typedef struct {
     _Alignas(64) float att[N_HEAD * D];
     _Alignas(64) float gu[2 * N_FF];
     _Alignas(64) float act[N_FF];
-    float sc[MAX_CTX];
+    float *sc;  // [MAX_CTX] scores
     float rope[D];
     kq8e_act ax, aa, af;
 } work_t;
@@ -425,6 +437,213 @@ static void attention(int ith, work_t *w, int l, int pos) {
     }
 }
 
+// ---------------------------------------------------------------- quantized KV cache (KURN_KV)
+// KURN_KV=q8_0|q4_0 store post-RoPE K and V as ggml rows (llama.cpp -ctk/-ctv semantics);
+// k4c_q4|k4c_q8 store K before RoPE, 4-bit per channel in 32-token groups (f16 scale and min per
+// channel; the group being filled stays f16, as in kurn_attn.h) and V as Q4_0 / Q8_0. K is
+// rotated when read with the same rope_cache values the f16 path applies. Every format writes
+// the current token and reads it back, so attention sees exactly what the cache holds.
+enum { KVF_F16, KVF_Q8_0, KVF_Q4_0, KVF_K4C_Q4, KVF_K4C_Q8, KVF_VQK_Q4, KVF_VQK_Q8, KVF_N };
+static const char *KVF_NAME[KVF_N] = {"f16", "q8_0", "q4_0", "k4c_q4", "k4c_q8", "vqk_q4", "vqk_q8"};
+static int KVF;
+static uint8_t *KQ, *VQ;  // K rows or k4c group blocks; V rows
+static uint16_t *KT;      // k4c: f16 pre-RoPE rows of the group being filled, [layer][kv head][32][D]
+static float *RT;         // rope_cache(t) for every position, [MAX_CTX][D]
+static float *SCQ[MAXT];  // per thread scores, [G_QPK][MAX_CTX]
+static FILE *G_kld;
+static void kld_step(double lse);
+#define K4C_G 32
+#define K4C_BLK (20 * D)
+// vqk_*: TaSQ-style vector-quantized pre-RoPE K (KURN_VQ=codebook file from
+// benchmarks/v0.2/kvformat/calibrate_vq.py): k is weighted per channel (sqrt of the query second
+// moment of its RoPE pair), divided by its per-head RMS (stored f16), permuted so that groups of 8
+// channels (whole RoPE pairs, covariance-aware) are contiguous, and each group stored as the index of
+// the nearest of 1024 codewords. Groups of 32 tokens are encoded when complete (f16 tail before).
+#define VQ_G 8
+#define VQ_K 1024
+#define VQ_NG (D / VQ_G)
+typedef struct { float wsq[D]; int32_t perm[D]; float cb[VQ_NG][VQ_K][VQ_G]; float cn[VQ_NG][VQ_K]; } vq_head_t;
+static vq_head_t *VQB;  // [N_LAYER][N_KV]
+#define VQ_TOK (VQ_NG * 2 + 2)  // bytes per token in the engine (uint16 indices + f16 scale; 10-bit packing would be 22)
+static inline int kvf_vq(void) { return KVF == KVF_VQK_Q4 || KVF == KVF_VQK_Q8; }
+static inline int kvf_v_q4(void) { return KVF == KVF_Q4_0 || KVF == KVF_K4C_Q4 || KVF == KVF_VQK_Q4; }
+static inline size_t kq_row(void) { return KVF == KVF_Q8_0 ? D / 32 * 34 : D / 32 * 18; }
+static inline size_t vq_row(void) { return kvf_v_q4() ? D / 32 * 18 : D / 32 * 34; }
+static inline uint8_t *kq_at(int l, int h, int pos) {
+    if (kvf_vq()) return KQ + (((size_t)l * N_KV + h) * MAX_CTX + pos) * VQ_TOK;
+    if (KVF >= KVF_K4C_Q4) return KQ + (((size_t)l * N_KV + h) * (MAX_CTX / K4C_G) + pos / K4C_G) * K4C_BLK;
+    return KQ + (((size_t)l * N_KV + h) * MAX_CTX + pos) * kq_row();
+}
+static inline uint8_t *vq_at(int l, int h, int pos) { return VQ + (((size_t)l * N_KV + h) * MAX_CTX + pos) * vq_row(); }
+static inline uint16_t *kt_at(int l, int h, int pos) { return KT + (((size_t)l * N_KV + h) * K4C_G + pos % K4C_G) * D; }
+
+static void q4_0_row(const float *x, uint8_t *dst) {  // ggml quantize_row_q4_0_ref
+    for (int b = 0; b < D / 32; b++) {
+        float amax = 0, mx = 0;
+        for (int i = 0; i < 32; i++) if (amax < fabsf(x[32 * b + i])) { amax = fabsf(x[32 * b + i]); mx = x[32 * b + i]; }
+        const float d = mx / -8, id = d ? 1.0f / d : 0.0f;
+        uint8_t *blk = dst + 18 * b;
+        *(uint16_t *)blk = _cvtss_sh(d, 0);
+        for (int i = 0; i < 16; i++) {
+            const int lo = (int8_t)(x[32 * b + i] * id + 8.5f), hi = (int8_t)(x[32 * b + 16 + i] * id + 8.5f);
+            blk[2 + i] = (uint8_t)((lo < 15 ? lo : 15) | ((hi < 15 ? hi : 15) << 4));
+        }
+    }
+}
+static void row_put(const float *x, uint8_t *dst, int q4) { if (q4) q4_0_row(x, dst); else kq8e_quantize(x, dst, D); }
+static void row_get(const uint8_t *src, float *out, int q4) {
+    for (int b = 0; b < D / 32; b++) {
+        if (q4) {
+            const float d = _cvtsh_ss(*(const uint16_t *)(src + 18 * b));
+            for (int i = 0; i < 16; i++) {
+                out[32 * b + i] = d * ((src[18 * b + 2 + i] & 15) - 8);
+                out[32 * b + 16 + i] = d * ((src[18 * b + 2 + i] >> 4) - 8);
+            }
+        } else {
+            const float d = _cvtsh_ss(*(const uint16_t *)(src + 34 * b));
+            for (int i = 0; i < 32; i++) out[32 * b + i] = d * ((const int8_t *)(src + 34 * b + 2))[i];
+        }
+    }
+}
+static void vq_put(int l, int h, int t, const float *k) {
+    const vq_head_t *b = VQB + (size_t)l * N_KV + h;
+    float x[D], ss = 0;
+    for (int c = 0; c < D; c++) { x[c] = b->wsq[c] * k[c]; ss += x[c] * x[c]; }
+    const uint16_t sh = _cvtss_sh(sqrtf(ss / D), 0);
+    const float s = _cvtsh_ss(sh), is = s > 0 ? 1.0f / s : 0.0f;
+    uint16_t *z = (uint16_t *)kq_at(l, h, t);
+    for (int g = 0; g < VQ_NG; g++) {
+        float v[VQ_G];
+        for (int i = 0; i < VQ_G; i++) v[i] = x[b->perm[g * VQ_G + i]] * is;
+        int best = 0;
+        float bd = INFINITY;
+        for (int j = 0; j < VQ_K; j++) {
+            float d = b->cn[g][j];
+            for (int i = 0; i < VQ_G; i++) d -= 2.0f * b->cb[g][j][i] * v[i];
+            if (d < bd) { bd = d; best = j; }
+        }
+        z[g] = (uint16_t)best;
+    }
+    z[VQ_NG] = sh;
+}
+static void vq_get(int l, int h, int t, float *out) {
+    const vq_head_t *b = VQB + (size_t)l * N_KV + h;
+    const uint16_t *z = (const uint16_t *)kq_at(l, h, t);
+    const float s = _cvtsh_ss(z[VQ_NG]);
+    for (int g = 0; g < VQ_NG; g++)
+        for (int i = 0; i < VQ_G; i++) {
+            const int c = b->perm[g * VQ_G + i];
+            out[c] = s * b->cb[g][z[g]][i] / b->wsq[c];
+        }
+}
+
+// quantize the complete group of tokens [32 g, 32 g + 32) from its f16 tail rows
+static void k4c_seal(int l, int h, int pos) {
+    if (kvf_vq()) {
+        float k[D];
+        for (int t = 0; t < K4C_G; t++) {
+            for (int c = 0; c < D; c++) k[c] = _cvtsh_ss(kt_at(l, h, t)[c]);
+            vq_put(l, h, pos - K4C_G + 1 + t, k);
+        }
+        return;
+    }
+    uint8_t *blk = kq_at(l, h, pos);
+    uint16_t *sc = (uint16_t *)blk, *mn = sc + D;
+    uint8_t *qs = blk + 4 * D;
+    memset(qs, 0, 16 * D);
+    for (int c = 0; c < D; c++) {
+        float lo = INFINITY, hi = -INFINITY;
+        for (int t = 0; t < K4C_G; t++) { const float x = _cvtsh_ss(kt_at(l, h, t)[c]); lo = fminf(lo, x); hi = fmaxf(hi, x); }
+        sc[c] = _cvtss_sh((hi - lo) / 15.0f, 0);
+        mn[c] = _cvtss_sh(lo, 0);
+        const float s = _cvtsh_ss(sc[c]), m = _cvtsh_ss(mn[c]);
+        for (int t = 0; t < K4C_G; t++) {
+            long q = s > 0 ? lrintf((_cvtsh_ss(kt_at(l, h, t)[c]) - m) / s) : 0;
+            q = q < 0 ? 0 : q > 15 ? 15 : q;
+            qs[t * (D / 2) + (c / 32) * 16 + (c % 16)] |= (uint8_t)(q << ((c % 32) >= 16 ? 4 : 0));
+        }
+    }
+}
+// K of position t as attention sees it (post-RoPE), with pos + 1 tokens in the cache
+static void k_get(int l, int h, int t, int pos, float *out) {
+    if (KVF < KVF_K4C_Q4) { row_get(kq_at(l, h, t), out, KVF == KVF_Q4_0); return; }
+    if (kvf_vq() && t < (pos + 1) / K4C_G * K4C_G) {
+        vq_get(l, h, t, out);
+    } else if (t < (pos + 1) / K4C_G * K4C_G) {
+        const uint8_t *blk = kq_at(l, h, t);
+        const uint16_t *sc = (const uint16_t *)blk, *mn = sc + D;
+        const uint8_t *qs = blk + 4 * D + (t % K4C_G) * (D / 2);
+        for (int c = 0; c < D; c++) out[c] = (float)((qs[(c / 32) * 16 + (c % 16)] >> ((c % 32) >= 16 ? 4 : 0)) & 15) * _cvtsh_ss(sc[c]) + _cvtsh_ss(mn[c]);
+    } else {
+        const uint16_t *tr = kt_at(l, h, t);
+        for (int c = 0; c < D; c++) out[c] = _cvtsh_ss(tr[c]);
+    }
+    rope_neox(out, RT + (size_t)t * D);
+}
+
+static void attention_q(int ith, work_t *w, int l, int pos) {
+    sched_t *s = &S[ith];
+    float *q = w->qkv, *k = q + s->nq_rows, *v = k + (s->kh1 - s->kh0) * D;
+    const float scale = 1.0f / sqrtf((float)D);
+    float *sc = SCQ[ith];
+    _Alignas(64) float kr[D], vr[D];
+    for (int kh = s->kh0; kh < s->kh1; kh++) {
+        float *kk = k + (kh - s->kh0) * D, *vv = v + (kh - s->kh0) * D;
+        if (KVF >= KVF_K4C_Q4) {
+            for (int i = 0; i < D; i++) kt_at(l, kh, pos)[i] = _cvtss_sh(kk[i], 0);
+            if (pos % K4C_G == K4C_G - 1) k4c_seal(l, kh, pos);
+        } else {
+            rope_neox(kk, w->rope);
+            row_put(kk, kq_at(l, kh, pos), KVF == KVF_Q4_0);
+        }
+        row_put(vv, vq_at(l, kh, pos), kvf_v_q4());
+        const int h0 = kh * G_QPK > s->qh0 ? kh * G_QPK : s->qh0, h1 = (kh + 1) * G_QPK < s->qh1 ? (kh + 1) * G_QPK : s->qh1;
+        for (int h = h0; h < h1; h++) rope_neox(q + (h - s->qh0) * D, w->rope);
+        for (int t = 0; t <= pos; t++) {
+            k_get(l, kh, t, pos, kr);
+            for (int h = h0; h < h1; h++) sc[(size_t)(h - h0) * MAX_CTX + t] = dot_f32(q + (h - s->qh0) * D, kr, D) * scale;
+        }
+        float inv[G_QPK];
+        for (int h = h0; h < h1; h++) {
+            float *sh = sc + (size_t)(h - h0) * MAX_CTX, mx = -INFINITY, den = 0;
+            for (int t = 0; t <= pos; t++) mx = sh[t] > mx ? sh[t] : mx;
+            for (int t = 0; t <= pos; t++) { sh[t] = expf(sh[t] - mx); den += sh[t]; }
+            inv[h - h0] = 1.0f / den;
+            memset(w->att + (h - s->qh0) * D, 0, sizeof(float) * D);
+        }
+        for (int t = 0; t <= pos; t++) {
+            row_get(vq_at(l, kh, t), vr, kvf_v_q4());
+            for (int h = h0; h < h1; h++) {
+                const float p = sc[(size_t)(h - h0) * MAX_CTX + t] * inv[h - h0];
+                float *ao = w->att + (h - s->qh0) * D;
+                for (int i = 0; i < D; i++) ao[i] += p * vr[i];
+            }
+        }
+    }
+}
+
+// KURN_DUMP_KQ=prefix: calibration data for KV quantizers. Thread t appends, per step and layer,
+// the pre-RoPE K rows of its kv heads as f16 to prefix.t (kh0..kh1, D each) and accumulates the
+// per-channel second moment of its pre-RoPE queries per kv head, written to prefix.qq.t at exit as
+// float64 [N_LAYER][kh1 - kh0][D] followed by the number of steps.
+static FILE *G_dkq[MAXT];
+static double *G_qq[MAXT];
+static long G_qq_n[MAXT];
+static void dump_kq(int ith, work_t *w, int l) {
+    sched_t *s = &S[ith];
+    const float *q = w->qkv, *k = q + s->nq_rows;
+    uint16_t row[D];
+    for (int kh = s->kh0; kh < s->kh1; kh++) {
+        for (int i = 0; i < D; i++) row[i] = _cvtss_sh(k[(kh - s->kh0) * D + i], 0);
+        if (fwrite(row, sizeof row, 1, G_dkq[ith]) != 1) { perror("dump kq"); exit(1); }
+        double *acc = G_qq[ith] + ((size_t)l * (s->kh1 - s->kh0) + (kh - s->kh0)) * D;
+        for (int h = kh * G_QPK; h < (kh + 1) * G_QPK; h++)
+            if (h >= s->qh0 && h < s->qh1)
+                for (int i = 0; i < D; i++) acc[i] += (double)q[(h - s->qh0) * D + i] * q[(h - s->qh0) * D + i];
+    }
+    if (l == 0) G_qq_n[ith]++;
+}
+
 // one token on thread ith; `ep` is this thread's running epoch (identical on every thread)
 static int step(int ith, int tok, int pos, int *ep) {
     sched_t *s = &S[ith];
@@ -463,7 +682,9 @@ static int step(int ith, int tok, int pos, int *ep) {
 #endif
             (void)nkr;
         }
-        attention(ith, w, l, pos);
+        if (G_dkq[ith]) dump_kq(ith, w, l);
+        if (KVF) attention_q(ith, w, l, pos);
+        else attention(ith, w, l, pos);
         float *pt = part(buf, ith);
         if (s->nq_rows) {
             kq8e_quantize(w->att, w->aq, s->nq_rows);
@@ -584,6 +805,7 @@ static void run(int ith) {
     pack_thread(ith);
     WK[ith] = aligned_alloc(64, ALIGN64(sizeof(work_t)));
     memset(WK[ith], 0, sizeof(work_t));
+    WK[ith]->sc = aligned_alloc(64, ALIGN64(sizeof(float) * MAX_CTX));
     pthread_barrier_wait(&START);
     if (ith == 0 && G_drop_cache) {  // the packed copy is all we stream; let the file's page cache go
         madvise(G_file, G_file_sz, MADV_DONTNEED);
@@ -629,6 +851,7 @@ static void run(int ith) {
                     for (int v = 0; v < N_VOCAB; v++) den += exp(LOGITS[v] - mx);
                     G_nll += -(LOGITS[G_toks[c * G_ctx + i + 1]] - mx - log(den));
                     G_cnt++;
+                    if (G_kld) kld_step(mx + log(den));
                 }
             }
         pthread_barrier_wait(&START);
@@ -636,6 +859,46 @@ static void run(int ith) {
     }
 }
 static void *worker(void *arg) { run((int)(intptr_t)arg); return NULL; }
+
+// KURN_KLD=ref:PATH (ppl mode) writes the top-32 log-probs of every scored token; cmp:PATH reads
+// them back and reports KL(ref || this run) over the top 32 plus one bucket for the rest (a lower
+// bound of the full-vocabulary KL) and how often the argmax matches the reference's.
+#define KLD_TOP 32
+static int G_kld_cmp;
+static double G_kl;
+static long G_kl_n, G_top1;
+static void kld_step(double lse) {
+    int32_t id[KLD_TOP];
+    float lp[KLD_TOP];
+    if (!G_kld_cmp) {
+        int n = 0;
+        for (int v = 0; v < N_VOCAB; v++) {
+            const float x = LOGITS[v];
+            if (n == KLD_TOP && x <= lp[n - 1]) continue;
+            int i = n < KLD_TOP ? n++ : n - 1;
+            while (i > 0 && lp[i - 1] < x) { lp[i] = lp[i - 1]; id[i] = id[i - 1]; i--; }
+            lp[i] = x; id[i] = v;
+        }
+        for (int i = 0; i < KLD_TOP; i++) lp[i] = (float)(lp[i] - lse);
+        if (fwrite(id, sizeof id, 1, G_kld) != 1 || fwrite(lp, sizeof lp, 1, G_kld) != 1) { perror("kld write"); exit(1); }
+        return;
+    }
+    if (fread(id, sizeof id, 1, G_kld) != 1 || fread(lp, sizeof lp, 1, G_kld) != 1) { fprintf(stderr, "kld: reference too short\n"); exit(1); }
+    double ps = 0, qs = 0, kl = 0;
+    for (int i = 0; i < KLD_TOP; i++) {
+        const double p = exp(lp[i]), lq = LOGITS[id[i]] - lse;
+        kl += p * (lp[i] - lq);
+        ps += p;
+        qs += exp(lq);
+    }
+    const double rp = fmax(1 - ps, 1e-12), rq = fmax(1 - qs, 1e-12);
+    kl += rp * log(rp / rq);
+    int best = 0;
+    for (int v = 1; v < N_VOCAB; v++) if (LOGITS[v] > LOGITS[best]) best = v;
+    G_kl += kl;
+    G_top1 += best == id[0];
+    G_kl_n++;
+}
 
 static void parse_wait(void) {
     const char *e = getenv("KURN_WAIT");
@@ -657,6 +920,16 @@ int main(int argc, char **argv) {
     if (argc < 6) { fprintf(stderr, "usage: %s model.gguf gen|ppl THREADS N_GEN|CTX tokens\n", argv[0]); return 2; }
     T = atoi(argv[3]);
     if (T < 1 || T > MAXT) return 2;
+    {  // context capacity: what the request needs (gen: prompt + generated tokens, ppl: CTX), or KURN_CTX if larger
+        int64_t need = atol(argv[4]);
+        if (!strcmp(argv[2], "gen"))
+            for (const char *p = argv[5]; *p; p++) need += *p == ',';
+        need += !strcmp(argv[2], "gen");
+        if (getenv("KURN_CTX") && atol(getenv("KURN_CTX")) > need) need = atol(getenv("KURN_CTX"));
+        if (need < 1 || need > (1 << 24)) { fprintf(stderr, "context %ld out of range\n", (long)need); return 2; }
+        G_max_ctx = (need + 255) / 256 * 256;
+        if (G_max_ctx < KURN_CTX_MIN) G_max_ctx = KURN_CTX_MIN;
+    }
     parse_wait();
     if (getenv("KURN_THP") && !strcmp(getenv("KURN_THP"), "0")) USE_THP = 0;
     if (getenv("KURN_PFWAIT")) PF_MAX = atol(getenv("KURN_PFWAIT"));
@@ -679,6 +952,60 @@ int main(int argc, char **argv) {
     for (int b = 0; b < 2; b++) P[b] = aligned_alloc(64, sizeof(float) * N_EMBD * T);
     KC = big_alloc(sizeof(uint16_t) * (size_t)N_LAYER * N_KV * MAX_CTX * D);
     VC = big_alloc(sizeof(uint16_t) * (size_t)N_LAYER * N_KV * MAX_CTX * D);
+    if (getenv("KURN_KV")) {
+        KVF = -1;
+        for (int f = 0; f < KVF_N; f++) if (!strcmp(getenv("KURN_KV"), KVF_NAME[f])) KVF = f;
+        if (KVF < 0) { fprintf(stderr, "KURN_KV=%s: expected f16, q8_0, q4_0, k4c_q4, k4c_q8, vqk_q4 or vqk_q8\n", getenv("KURN_KV")); return 2; }
+        if (KVF && T > N_KV) { fprintf(stderr, "KURN_KV=%s needs THREADS <= %d (one owner per kv head)\n", KVF_NAME[KVF], N_KV); return 2; }
+        if (KVF && (MAX_CTX % K4C_G || D % 32)) { fprintf(stderr, "KURN_KV needs MAX_CTX %% 32 == 0 and head_dim %% 32 == 0\n"); return 2; }
+    }
+    if (kvf_vq()) {
+        const char *p = getenv("KURN_VQ");
+        FILE *f = p ? fopen(p, "rb") : NULL;
+        int32_t hdr[6];
+        if (!f || fread(hdr, sizeof hdr, 1, f) != 1 || hdr[0] != 0x4B565131 || hdr[1] != N_LAYER || hdr[2] != N_KV || hdr[3] != D || hdr[4] != VQ_G || hdr[5] != VQ_K) {
+            fprintf(stderr, "KURN_KV=%s needs KURN_VQ=codebook file for this model (calibrate_vq.py)\n", KVF_NAME[KVF]);
+            return 2;
+        }
+        VQB = big_alloc(sizeof(vq_head_t) * N_LAYER * N_KV);
+        for (int i = 0; i < N_LAYER * N_KV; i++) {
+            vq_head_t *b = VQB + i;
+            if (fread(b->wsq, sizeof b->wsq, 1, f) != 1 || fread(b->perm, sizeof b->perm, 1, f) != 1 || fread(b->cb, sizeof b->cb, 1, f) != 1) {
+                fprintf(stderr, "%s: truncated\n", p);
+                return 2;
+            }
+            for (int g = 0; g < VQ_NG; g++)
+                for (int j = 0; j < VQ_K; j++) {
+                    float n = 0;
+                    for (int c = 0; c < VQ_G; c++) n += b->cb[g][j][c] * b->cb[g][j][c];
+                    b->cn[g][j] = n;
+                }
+        }
+        fclose(f);
+    }
+    if (KVF) {
+        const size_t kbytes = kvf_vq() ? (size_t)MAX_CTX * VQ_TOK : KVF >= KVF_K4C_Q4 ? (size_t)MAX_CTX / K4C_G * K4C_BLK : (size_t)MAX_CTX * kq_row();
+        KQ = big_alloc((size_t)N_LAYER * N_KV * kbytes);
+        VQ = big_alloc((size_t)N_LAYER * N_KV * MAX_CTX * vq_row());
+        KT = big_alloc(sizeof(uint16_t) * (size_t)N_LAYER * N_KV * K4C_G * D);
+        RT = big_alloc(sizeof(float) * (size_t)MAX_CTX * D);
+        for (int t = 0; t < MAX_CTX; t++) rope_cache(t, RT + (size_t)t * D);
+        for (int t = 0; t < T; t++) SCQ[t] = aligned_alloc(64, ALIGN64(sizeof(float) * G_QPK * MAX_CTX));
+    }
+    if (getenv("KURN_DUMP_KQ")) {
+        if (T > N_KV) { fprintf(stderr, "KURN_DUMP_KQ needs THREADS <= %d\n", N_KV); return 2; }
+        for (int t = 0; t < T; t++) {
+            char p[4096];
+            snprintf(p, sizeof p, "%s.%d", getenv("KURN_DUMP_KQ"), t);
+            if (!(G_dkq[t] = fopen(p, "wb"))) { perror(p); return 1; }
+            G_qq[t] = calloc((size_t)N_LAYER * (S[t].kh1 - S[t].kh0) * D, sizeof(double));
+        }
+    }
+    if (getenv("KURN_KLD")) {
+        const char *e = getenv("KURN_KLD");
+        G_kld_cmp = !strncmp(e, "cmp:", 4);
+        if ((!G_kld_cmp && strncmp(e, "ref:", 4)) || !(G_kld = fopen(e + 4, G_kld_cmp ? "rb" : "wb"))) { fprintf(stderr, "KURN_KLD=ref:PATH|cmp:PATH\n"); return 2; }
+    }
     LOGITS = aligned_alloc(64, sizeof(float) * ((size_t)NG(N_VOCAB) * 16 + 64));
     if (!strcmp(argv[2], "gen")) {
         G_ngen = atoi(argv[4]);
@@ -704,6 +1031,16 @@ int main(int argc, char **argv) {
     for (int t = 1; t < T; t++) pthread_join(th[t], NULL);
     fprintf(stderr, "load+run %.1f s\n", now() - t0);
     if (G_dump) fclose(G_dump);
+    if (G_kld) fclose(G_kld);
+    for (int t = 0; t < T && G_dkq[t]; t++) {
+        fclose(G_dkq[t]);
+        char p[4096];
+        snprintf(p, sizeof p, "%s.qq.%d", getenv("KURN_DUMP_KQ"), t);
+        FILE *f = fopen(p, "wb");
+        const double n = (double)G_qq_n[t];
+        if (!f || fwrite(G_qq[t], sizeof(double), (size_t)N_LAYER * (S[t].kh1 - S[t].kh0) * D, f) == 0 || fwrite(&n, sizeof n, 1, f) != 1) perror(p);
+        if (f) fclose(f);
+    }
 
     const double wall = G_w1 - G_w0, cpu = G_c1 - G_c0, cyc = (double)(G_rdtsc1 - G_rdtsc0);
     uint64_t wk[K_N] = {0}, nk[K_N] = {0}, wsum = 0, nsum = 0;
@@ -734,6 +1071,9 @@ int main(int argc, char **argv) {
     } else {
         printf("ppl %.4f over %ld tokens; %.2f tok/s, cpu_s/tok %.4f barriers_per_tok %.1f wait_share %.3f\n", exp(G_nll / G_cnt), G_cnt,
                G_ngen / wall, cpu / G_ngen, (double)nsum / T / G_ngen, wsum / (cyc * T));
+        if (KVF || G_kld) printf("kv %s ctx %d", KVF_NAME[KVF], G_ctx);
+        if (G_kld && G_kld_cmp) printf(" kld_top32 %.6f top1_agree %.4f over %ld", G_kl / G_kl_n, (double)G_top1 / G_kl_n, G_kl_n);
+        if (KVF || G_kld) printf("\n");
     }
     return 0;
 }

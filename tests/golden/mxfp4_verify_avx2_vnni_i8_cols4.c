@@ -46,9 +46,7 @@ void *kmxfp4_vfy_prepare(const void *W, int64_t K, int64_t N) {
 static const uint8_t LUT[16] __attribute__((aligned(64))) = {128, 129, 130, 131, 132, 134, 136, 140, 128, 127, 126, 125, 124, 122, 120, 116};
 
 static inline int32_t ld32(const uint8_t *p) { int32_t v; memcpy(&v, p, 4); return v; }
-static inline int64_t ld64(const uint8_t *p) { int64_t v; memcpy(&v, p, 8); return v; }
 static inline uint16_t ld16(const uint8_t *p) { uint16_t v; memcpy(&v, p, 2); return v; }
-static inline float ldf(const uint8_t *p) { float v; memcpy(&v, p, 4); return v; }
 static inline int32_t sum_i8(const uint8_t *q, int n) {  /* sum of n = 16 or 32 int8 */
     __m128i s;
     if (n == 32) {

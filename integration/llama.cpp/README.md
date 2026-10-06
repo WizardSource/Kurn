@@ -1,4 +1,4 @@
-# llama.cpp integration: the KURN extra buffer type
+# llama.cpp integration: the KURN extra buffer type and kurn attention
 
 `ggml-kurn/kurn-buft.cpp` adds a ggml-cpu *extra buffer type* named `KURN`, the same mechanism as ggml's own `AMX`
 and `CPU_REPACK` buffers. At model load, every weight whose type has a kurn kernel is repacked once into kurn's
@@ -83,6 +83,104 @@ TEST_BUFT=AMX ./t quick q8_0                         # same checks against anoth
 `tests/test_llama_integration.py` runs format discovery, the packing glue and GEMV / verify kernels against a Python
 reference, and the checker's smoke mode when a patched llama.cpp is found (`KURN_LLAMA_CPP`, default
 `~/src/llama-kurn`); it skips cleanly otherwise.
+
+## Attention: kurn as `FLASH_ATTN_EXT`
+
+`apply.sh` also makes kurn's attention kernel (`kurn.attention`, `data/attn_kernel.c`) the first implementation of
+ggml-cpu's `FLASH_ATTN_EXT`: `ggml-kurn/kurn-attn.cpp` is called at the top of `ggml_compute_forward_flash_attn_ext`
+and ggml's own kernel runs for every node it does not take. `gen_ggml_attn.py` generates the kernels (one renamed
+instance per configuration, compiled only when the build has the ISA it needs) and `kattn_dispatch.h`.
+
+| | kurn takes | falls back to ggml |
+|---|---|---|
+| KV | K and V both F16, BF16 or Q8_0, rows contiguous (`-fa on` cache layout) | other or mixed types, transposed V |
+| heads | dk = dv = 64, 128, 256; dk 576 / dv 512 (MLA, V a view of K); any GQA ratio | other head dims |
+| mask | F16 mask shared by all heads (llama.cpp's KQ mask, causal / SWA / multi-sequence) | per-head masks |
+| other | streams (`ne[3]`, llama.cpp's per-sequence KV streams), dim-3 broadcast | ALiBi, logit softcap, attention sinks |
+
+The mask carries causality, so kurn runs with `causal = 0`; KV tiles that the mask hides for every row of a tile are
+skipped. Decode (n_q x G <= 8) uses kurn's f32 row engine with automatic KV splits (flash-decoding); larger batches
+use the tile engine. Prefill-sized calls of the bf16 / AMX engines pack K/V once per call (`kattn_pack`) and read
+every query tile from that copy (`kattn_packed`) instead of re-packing each KV tile for every query tile.
+
+Two modes:
+
+- **fast** (default): tile engine `f32` (default), `amx` (AMX-BF16, `GGML_KURN_AMX=1`, see the AMX caveat; the kernel
+  times each tile block and recomputes blocks that spanned a preemption) or `bf16` (AVX512-BF16).
+- **exact** (`GGML_KURN_FA_MODE=exact`): the f32 tile engine for every batch size and a single KV split. A token's
+  attention output then does not depend on how many tokens are computed with it, the (padded) KV length or the thread
+  count; together with the buffer type's batch-invariant matmuls, a speculative verify batch reproduces one-token
+  decoding bit for bit. Decode is slower than fast mode at long context (the tile engine computes 32 query rows).
+
+| variable | effect |
+|---|---|
+| `GGML_KURN_FA=0` (or `GGML_KURN=0`) | ggml's flash attention only |
+| `GGML_KURN_FA_MODE=fast\|exact` | see above (default fast) |
+| `GGML_KURN_FA_ENGINE=f32\|amx\|bf16` | tile engine of fast mode (default f32, amx with `GGML_KURN_AMX=1`) |
+| `GGML_KURN_FA_PACK=0` | no per-call K/V packing (bf16 / AMX engines) |
+| `GGML_KURN_VERBOSE=1` | log the configuration, every new node shape with its kernel or fallback reason, and node counts at exit |
+
+Checks: `test-backend-ops -o FLASH_ATTN_EXT -b CPU` compares the CPU backend against itself in reference mode, where
+kurn steps aside, so every supported case is kurn against ggml's vec kernel (all 5,314 cases pass in every mode and
+engine; 545 of them run on kurn). `tests/test_llama_attn.py` checks the generator, runs the renamed kernels through
+kurn's harness, checks that `exact` is batch-invariant, and runs a test-backend-ops subset when a built checkout is
+found (`KURN_LLAMA_CPP`).
+
+## k4c KV cache (`k4c/`)
+
+`k4c/apply.sh LLAMA_DIR` (after `apply.sh`) adds `GGML_TYPE_K4C`, kurn's k4c key format, as a llama.cpp K cache type:
+`-ctk k4c -ctv q4_0` is kurn's `k4c_q4`, `-ctv q8_0` its `k4c_q8` (`-ctk k4c_q4` / `-ctk k4c_q8` set both). Keys are
+quantized to 4 bits per channel over groups of 32 cache cells (f16 scale and min per channel and group, 5 bits per value
+on average); kurn's attention reads the groups directly (`kurn-attn.cpp`, kernels `kattn_*_k4c_q4/q8_*`).
+
+- **After RoPE.** llama.cpp caches rotated keys, so the kernels run with `rope_dim 0`; kurn's own engine stores keys
+  before RoPE. On Qwen3-1.7B the per-channel 4-bit keys are still accurate (WikiText-2, ctx 2048, KL vs F16 KV with
+  ggml's FA: k4c_q4 0.016 at +0.10% perplexity, k4c_q8 0.010; llama.cpp's own Q4_0 KV 0.32 at +29%, 1.15 at +107%
+  without its Hadamard rotation).
+- **Writes** (`ggml-k4c.c`, SET_ROWS into a K4C cache): each touched group is re-encoded from the exact values of its
+  valid rows, kept as f16 in a bounded table (`GGML_K4C_EXACT_MB`, default 256) for recently written groups. A group
+  filled one token at a time, rolled back (rejected drafts) or partly cleared holds the same bytes as the same rows
+  written at once; freed cells are cleared, so stale keys never widen a group's range. Older groups that left the table
+  are re-encoded from their 4-bit values if they are ever rewritten.
+- **Session state** (prompt cache, `--slot-save-path` save / restore, `llama_state_seq_*`): K4C keys are written as f16
+  rows and re-quantized into whatever cells they are restored to; with the f16 table this restores the same codes. With
+  `GGML_KURN_FA_MODE=exact`, llama-server's cached, restored and recomputed continuations are bit-identical.
+- **Not supported:** K-shift (context shift, `--cache-reuse`: `get_can_shift()` is false), the non-FA path, V types
+  other than Q4_0 / Q8_0, MLA models, cache sizes that are not a multiple of 32, non-CPU buffers.
+
+`k4c/test_k4c.c` checks writes in llama.cpp's patterns (prefill ending inside a group, appends, rollback, out-of-order
+rows, clears), byte-identical groups for prefill vs appends + rollback, FA on K4C against ggml on the dequantized keys,
+and batch invariance in exact mode; `tests/test_llama_k4c.py` runs it against a built checkout.
+
+## Speculative decoding: cost-aware verify width (`spec-width/`)
+
+Verify cost on this buffer type is a staircase: 3 columns cost as much as 4 and 5-7 as much as 8 (one kernel per
+2 / 4 / 8 columns), and every 8 more columns add a group pass. `spec-width/` sizes the draft to it:
+
+- `kurn-spec-calib` (same flags as `llama-speculative-simple`; `KURN_CALIB_OUT=prefix`) measures the whole-forward
+  cost table (`verify M ms`: target, M tokens with logits for all; `draft M ms`) and a greedy acceptance trace.
+  `kurn specwidth show prefix.cost` prints it; `kurn specwidth simulate prefix.cost *.trace` replays traces against
+  fixed widths and the policy.
+- `kurn-spec-width.h` (header-only, the twin of `kurn.specwidth.WidthPolicy`) picks the draft length that maximises
+  expected accepted tokens minus lambda x time (lambda = running tokens/ms), with acceptance learned online per
+  draft-confidence bin. `KURN_SPEC_WIDTH=prefix.cost llama-speculative-simple ... --spec-draft-n-max 15` caps,
+  stops and truncates every draft through it (`KURN_SPEC_WIDTH_MODE=cap`: rate-only cap). The patch adds draft
+  confidences and a keep-drafting callback to draft-simple; without `KURN_SPEC_WIDTH` behaviour is unchanged.
+
+- **llama-server** (`llama-server-spec-width.patch`): `--spec-width TABLE` (or `KURN_SPEC_WIDTH=TABLE`) with a draft
+  model (`-md DRAFT --spec-type draft-simple --spec-draft-n-max 15`) gives every slot its own policy, which keeps
+  learning across the slot's requests: the draft length is capped per step, drafting stops per token, and drafts are
+  truncated before verification (`--spec-width-mode cap`: rate-only cap). A step the policy declines runs without a
+  draft. Each finished request logs `kurn spec width: verify widths (M:steps) = ...`.
+
+```sh
+kurn/integration/llama.cpp/spec-width/apply.sh ~/src/llama-kurn   # after apply.sh; idempotent
+cmake --build build -j --target llama-server llama-speculative-simple kurn-spec-calib
+llama-server -m TARGET.gguf -md DRAFT.gguf --spec-type draft-simple --spec-draft-n-max 15 --spec-width target.cost
+```
+
+With `GGML_KURN_FA_MODE=exact` (kurn attention, see above) speculative output equals the no-draft output: Qwen3-1.7B /
+Qwen3-0.6B draft in llama-server, 8 prompts x 4 draft configs, 0 of 32 runs differ (ggml's FA: 22, kurn fast mode: 21).
 
 ## AMX caveat
 

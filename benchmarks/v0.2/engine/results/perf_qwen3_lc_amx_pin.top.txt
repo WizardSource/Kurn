@@ -1,0 +1,40 @@
+    73.74%  libggml-cpu.so.0.25.3   [.] (anonymous namespace)::tinygemm_kernel_vnni<block_q8_0, block_q8_0, float, 1, 64, 32>::apply(int, void const*, void const*, float*, int)
+    11.68%  libgomp.so.1.0.0        [.] 0x00000000000258a2
+     2.69%  libgomp.so.1.0.0        [.] 0x00000000000258af
+     2.24%  libggml-cpu.so.0.25.3   [.] ggml_compute_forward_flash_attn_ext
+     1.92%  libgomp.so.1.0.0        [.] 0x00000000000256c2
+     1.75%  libgomp.so.1.0.0        [.] 0x00000000000258a6
+     1.52%  libggml-cpu.so.0.25.3   [.] ggml_vec_dot_f16
+     0.59%  libgomp.so.1.0.0        [.] 0x00000000000259ef
+     0.32%  libgomp.so.1.0.0        [.] 0x00000000000258ab
+     0.31%  libgomp.so.1.0.0        [.] 0x00000000000258a0
+     0.30%  libgomp.so.1.0.0        [.] 0x00000000000256c6
+     0.27%  lcdrive                 [.] main
+     0.26%  libggml-cpu.so.0.25.3   [.] ggml_compute_forward_rms_norm_mul_fused
+     0.21%  libggml-cpu.so.0.25.3   [.] void ggml_compute_forward_rope_flt<float>(ggml_compute_params const*, ggml_tensor*, bool)
+     0.20%  libggml-cpu.so.0.25.3   [.] ggml_graph_compute_thread.isra.0
+     0.18%  libgomp.so.1.0.0        [.] 0x00000000000256cd
+     0.10%  libm.so.6               [.] 0x000000000007dcd1
+     0.10%  libggml-cpu.so.0.25.3   [.] quantize_row_q8_0
+     0.09%  libm.so.6               [.] 0x000000000007dc9d
+     0.08%  libggml-cpu.so.0.25.3   [.] ggml_vec_swiglu_f32
+     0.08%  libggml-cpu.so.0.25.3   [.] ggml::cpu::amx::extra_buffer_type::get_tensor_traits(ggml_tensor const*)
+     0.08%  libggml-cpu.so.0.25.3   [.] ggml_backend_amx_mul_mat(ggml_compute_params const*, ggml_tensor*)
+     0.07%  libggml-cpu.so.0.25.3   [.] ggml_cpu_fp32_to_fp16
+     0.07%  libm.so.6               [.] 0x000000000007dccd
+     0.06%  libgomp.so.1.0.0        [.] 0x00000000000256c0
+     0.06%  libgomp.so.1.0.0        [.] 0x00000000000256cb
+     0.05%  libm.so.6               [.] 0x000000000007dc4c
+     0.05%  libm.so.6               [.] 0x000000000007dcc9
+     0.05%  libc.so.6               [.] 0x00000000001a16d2
+     0.04%  libm.so.6               [.] 0x000000000007dc85
+     0.04%  libggml-cpu.so.0.25.3   [.] ggml_compute_forward_add_non_quantized
+     0.03%  libggml-cpu.so.0.25.3   [.] ggml_threadpool_chunk_add
+     0.03%  libm.so.6               [.] 0x000000000007dc8a
+     0.03%  libm.so.6               [.] 0x000000000007dca9
+     0.03%  libggml-cpu.so.0.25.3   [.] ggml_compute_forward_glu
+     0.02%  libc.so.6               [.] syscall
+     0.02%  libgomp.so.1.0.0        [.] 0x0000000000025975
+     0.02%  libgomp.so.1.0.0        [.] 0x00000000000259e7
+     0.02%  libggml-cpu.so.0.25.3   [.] expf@plt
+     0.02%  libm.so.6               [.] 0x000000000007dc48

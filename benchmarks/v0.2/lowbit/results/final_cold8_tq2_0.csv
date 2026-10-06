@@ -1,0 +1,7 @@
+format,regime,threads,impl,K,N,reps,us,us_min,us_max,cpu_us,energy_uJ,Gweights_s,GBps_ggml_bytes,packed_bpw,GBps_packed,pct_roofline,max_drift_s,relerr,config
+tq2_0,cold,8,kurn i16:mask/int,4096,4096,3,58.566,58.389,58.581,468.369,2561.98,286.47,73.85,2.0625,73.85,57.4,0.0,2.568e-07,layout=i16 rows=4 prefetch=0 unpack=mask correction=act scales=unpacked accum=int
+tq2_0,cold,8,kurn lut:serial5,4096,4096,3,80.3,79.507,84.12,642.161,3512.62,208.93,53.87,2.5625,66.92,52.0,0.0,2.568e-07,layout=lut lut=serial5 rows=2 prefetch=8
+tq2_0,cold,8,kurn addsub:sad,4096,4096,3,88.877,88.491,94.654,710.764,3887.88,188.77,48.67,2.5625,60.47,47.0,0.0,2.568e-07,layout=addsub addsub=sad rows=2 prefetch=0
+tq2_0,cold,8,kurn lut:serial6m,4096,4096,3,90.597,88.089,98.637,724.089,3960.77,185.19,47.74,3.0625,70.89,55.1,0.0,2.568e-07,layout=lut lut=serial6m rows=2 prefetch=0
+tq2_0,cold,8,ggml vec_dot,4096,4096,3,95.717,95.141,106.248,765.493,4187.25,175.28,45.19,2.0625,45.19,35.1,0.0,0.0,
+tq2_0,cold,8,kurn lut:serial4,4096,4096,3,96.978,96.548,98.221,775.545,4242.23,173.0,44.6,2.0625,44.6,34.7,0.0,2.568e-07,layout=lut lut=serial4 rows=1 prefetch=0

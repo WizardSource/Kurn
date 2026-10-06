@@ -1,0 +1,102 @@
+== rep 0 v2
+load+run 4.0 s
+thread 0 wait attn 0.151 ffn 0.231 out 0.039
+thread 1 wait attn 0.126 ffn 0.204 out 0.026
+thread 2 wait attn 0.144 ffn 0.226 out 0.036
+thread 3 wait attn 0.155 ffn 0.225 out 0.033
+thread 4 wait attn 0.154 ffn 0.238 out 0.046
+thread 5 wait attn 0.157 ffn 0.220 out 0.029
+thread 6 wait attn 0.147 ffn 0.245 out 0.036
+thread 7 wait attn 0.155 ffn 0.227 out 0.036
+== rep 0 v2_futex0
+load+run 14.8 s
+thread 0 wait attn 0.414 ffn 0.428 out 0.016
+thread 1 wait attn 0.432 ffn 0.404 out 0.017
+thread 2 wait attn 0.409 ffn 0.432 out 0.017
+thread 3 wait attn 0.411 ffn 0.434 out 0.013
+thread 4 wait attn 0.406 ffn 0.434 out 0.018
+thread 5 wait attn 0.401 ffn 0.440 out 0.016
+thread 6 wait attn 0.411 ffn 0.431 out 0.017
+thread 7 wait attn 0.421 ffn 0.421 out 0.014
+== rep 0 v2_futex4k
+load+run 5.3 s
+thread 0 wait attn 0.265 ffn 0.289 out 0.035
+thread 1 wait attn 0.280 ffn 0.268 out 0.032
+thread 2 wait attn 0.270 ffn 0.282 out 0.032
+thread 3 wait attn 0.272 ffn 0.275 out 0.034
+thread 4 wait attn 0.255 ffn 0.289 out 0.040
+thread 5 wait attn 0.255 ffn 0.298 out 0.030
+thread 6 wait attn 0.274 ffn 0.275 out 0.033
+thread 7 wait attn 0.264 ffn 0.266 out 0.022
+== rep 0 v2_yield
+load+run 31.6 s
+== rep 0 v2_outfutex
+load+run 4.4 s
+== rep 1 v2
+load+run 4.1 s
+thread 0 wait attn 0.149 ffn 0.222 out 0.046
+thread 1 wait attn 0.153 ffn 0.230 out 0.050
+thread 2 wait attn 0.146 ffn 0.224 out 0.052
+thread 3 wait attn 0.126 ffn 0.188 out 0.044
+thread 4 wait attn 0.160 ffn 0.205 out 0.050
+thread 5 wait attn 0.153 ffn 0.230 out 0.052
+thread 6 wait attn 0.154 ffn 0.238 out 0.058
+thread 7 wait attn 0.144 ffn 0.211 out 0.052
+== rep 1 v2_futex0
+load+run 16.6 s
+thread 0 wait attn 0.416 ffn 0.438 out 0.016
+thread 1 wait attn 0.427 ffn 0.426 out 0.013
+thread 2 wait attn 0.426 ffn 0.428 out 0.016
+thread 3 wait attn 0.423 ffn 0.432 out 0.015
+thread 4 wait attn 0.419 ffn 0.436 out 0.016
+thread 5 wait attn 0.412 ffn 0.444 out 0.015
+thread 6 wait attn 0.407 ffn 0.448 out 0.016
+thread 7 wait attn 0.442 ffn 0.413 out 0.014
+== rep 1 v2_futex4k
+load+run 6.7 s
+thread 0 wait attn 0.339 ffn 0.281 out 0.039
+thread 1 wait attn 0.299 ffn 0.307 out 0.037
+thread 2 wait attn 0.339 ffn 0.290 out 0.028
+thread 3 wait attn 0.323 ffn 0.300 out 0.033
+thread 4 wait attn 0.312 ffn 0.310 out 0.036
+thread 5 wait attn 0.336 ffn 0.291 out 0.027
+thread 6 wait attn 0.336 ffn 0.289 out 0.026
+thread 7 wait attn 0.350 ffn 0.276 out 0.025
+== rep 1 v2_yield
+load+run 31.9 s
+== rep 1 v2_outfutex
+load+run 4.0 s
+== rep 2 v2
+load+run 4.7 s
+thread 0 wait attn 0.188 ffn 0.270 out 0.051
+thread 1 wait attn 0.175 ffn 0.235 out 0.052
+thread 2 wait attn 0.185 ffn 0.258 out 0.052
+thread 3 wait attn 0.171 ffn 0.263 out 0.045
+thread 4 wait attn 0.193 ffn 0.251 out 0.048
+thread 5 wait attn 0.187 ffn 0.268 out 0.056
+thread 6 wait attn 0.174 ffn 0.280 out 0.060
+thread 7 wait attn 0.190 ffn 0.250 out 0.044
+== rep 2 v2_futex0
+load+run 11.5 s
+thread 0 wait attn 0.405 ffn 0.388 out 0.016
+thread 1 wait attn 0.410 ffn 0.380 out 0.011
+thread 2 wait attn 0.417 ffn 0.376 out 0.013
+thread 3 wait attn 0.395 ffn 0.401 out 0.014
+thread 4 wait attn 0.377 ffn 0.418 out 0.014
+thread 5 wait attn 0.405 ffn 0.388 out 0.014
+thread 6 wait attn 0.399 ffn 0.394 out 0.016
+thread 7 wait attn 0.403 ffn 0.391 out 0.013
+== rep 2 v2_futex4k
+load+run 7.2 s
+thread 0 wait attn 0.338 ffn 0.321 out 0.023
+thread 1 wait attn 0.316 ffn 0.337 out 0.021
+thread 2 wait attn 0.327 ffn 0.325 out 0.021
+thread 3 wait attn 0.342 ffn 0.310 out 0.021
+thread 4 wait attn 0.340 ffn 0.313 out 0.023
+thread 5 wait attn 0.334 ffn 0.317 out 0.021
+thread 6 wait attn 0.343 ffn 0.314 out 0.025
+thread 7 wait attn 0.332 ffn 0.318 out 0.021
+== rep 2 v2_yield
+load+run 31.8 s
+== rep 2 v2_outfutex
+load+run 4.9 s

@@ -36,8 +36,10 @@ from . import generic
 from .formats import Field, Format
 
 # --------------------------------------------------------------------------- formats
-TQ1_0_CODE = ("((((unsigned)(uint8_t)((unsigned)(v < 160 ? b->qs[v % 32] : v < 240 ? b->qs[32 + (v - 160) % 16] : b->qh[(v - 240) % 4])"
-              " * (unsigned)\"\\001\\003\\011\\033\\121\"[v < 160 ? v / 32 : v < 240 ? (v - 160) / 16 : (v - 240) / 4])) * 3u) >> 8)")
+TQ1_0_CODE = (
+    "((((unsigned)(uint8_t)((unsigned)(v < 160 ? b->qs[v % 32] : v < 240 ? b->qs[32 + (v - 160) % 16] : b->qh[(v - 240) % 4])"
+    ' * (unsigned)"\\001\\003\\011\\033\\121"[v < 160 ? v / 32 : v < 240 ? (v - 160) / 16 : (v - 240) / 4])) * 3u) >> 8)'
+)
 
 TQ1_0_RECIPE = generic.Recipe(
     "tq1_0", 256, 54, "q8_K", 2, "uint8_t qs[48]; uint8_t qh[4]; uint16_t d;", TQ1_0_CODE, 256,
@@ -142,7 +144,7 @@ def lut_variant(name):
     """`serial6m` -> ("serial", 6, 1)."""
     mirror = int(name.endswith("m"))
     core = name[:-1] if mirror else name
-    return core.rstrip("0123456789"), int(core[len(core.rstrip("0123456789")):]), mirror
+    return core.rstrip("0123456789"), int(core[len(core.rstrip("0123456789")) :]), mirror
 
 
 def _lut_possible(op, f, t):
@@ -472,8 +474,10 @@ def _lut_kernel(p, entry, G, PF):
         L.append(f"{ind}const uint8_t *rec{gg} = pk->buf + ((size_t)(g + {gg}) * pk->nrec_k + p) * REC_BYTES;")
         if PF:
             L.append(f"{ind}_mm_prefetch((const char *)(rec{gg} + {PF} * REC_BYTES), _MM_HINT_T0);")
-        L.append(f"{ind}const __m512 dlo{gg} = _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)rec{gg})), "
-                 f"dhi{gg} = _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)(rec{gg} + 32)));")
+        L.append(
+            f"{ind}const __m512 dlo{gg} = _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)rec{gg})), "
+            f"dhi{gg} = _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)(rec{gg} + 32)));"
+        )
         if q8k:
             L.append(f"{ind}__m512i ilo{gg} = _mm512_setzero_si512(), ihi{gg} = _mm512_setzero_si512();")
             for pl in range(p.planes):
@@ -496,7 +500,7 @@ def _lut_kernel(p, entry, G, PF):
                 if nf == 4:
                     L.append(f"{ind}      const __m512i R2 = _mm512_mullo_epi16(R, k27);")
                     L.append(f"{ind}      s{gg}_0 = _mm512_add_epi16(s{gg}_0, {lookup('_mm512_mulhi_epu16(R2, k27)', 4 * w + 2)});")
-                    i3 = lookup('_mm512_mulhi_epu16(_mm512_mullo_epi16(R2, k27), k3)', 4 * w + 3)
+                    i3 = lookup("_mm512_mulhi_epu16(_mm512_mullo_epi16(R2, k27), k3)", 4 * w + 3)
                     L.append(f"{ind}      s{gg}_0 = _mm512_add_epi16(s{gg}_0, {i3});")
                 L.append(f"{ind}      (void)R; }}")
     else:
@@ -560,8 +564,9 @@ def _lut_kernel(p, entry, G, PF):
             L.append(f"{ind}      ahi{gg} = fma16(hi16(sv), dhi{gg}, dx, ahi{gg}); }}")
         L.append(f"{ind}}}")
     decl = " ".join(f"__m512 alo{gg} = _mm512_setzero_ps(), ahi{gg} = _mm512_setzero_ps();" for gg in range(G))
-    stores = "\n".join(f"        storev(Y, (g + {gg}) * 32, r0, r1, alo{gg}); storev(Y, (g + {gg}) * 32 + 16, r0, r1, ahi{gg});"
-                       for gg in range(G))
+    stores = "\n".join(
+        f"        storev(Y, (g + {gg}) * 32, r0, r1, alo{gg}); storev(Y, (g + {gg}) * 32 + 16, r0, r1, ahi{gg});" for gg in range(G)
+    )
     return f"""
 void {entry}_lut_rows(const void *pv, const void *tabs, float *Y, int64_t K, int64_t r0, int64_t r1) {{
     const packed_t *pk = (const packed_t *)pv;
@@ -598,11 +603,20 @@ def lower_lut(target, c):
     p = LutPlan(c)
     entry, G, PF = c["entry"], c["rows"], c["prefetch"]
     head = _prepare_head(p.r, p.rec, 64, 0) + f"#define UNIT_BYTES {p.unit_bytes}\n{WVEC}\n{_act_c(p.act)}\n"
-    doc = (f"/* lut={c['lut']} ({p.op}): {p.nch} chunks per {p.unit}-value unit, "
-           f"{p.se}-entry int16 tables, {p.wpu} index words per row per unit "
-           f"({16 * p.wpu / p.unit + 16 / p.r.period:.4f} bpw incl. scales) */\n")
-    return (_prelude(f"lut {p.bits} g{p.g} {p.op}") + doc + head + STOREV + _lut_prepare(p, entry, G) + _lut_builder(p, entry)
-            + _lut_kernel(p, entry, G, PF))
+    doc = (
+        f"/* lut={c['lut']} ({p.op}): {p.nch} chunks per {p.unit}-value unit, "
+        f"{p.se}-entry int16 tables, {p.wpu} index words per row per unit "
+        f"({16 * p.wpu / p.unit + 16 / p.r.period:.4f} bpw incl. scales) */\n"
+    )
+    return (
+        _prelude(f"lut {p.bits} g{p.g} {p.op}")
+        + doc
+        + head
+        + STOREV
+        + _lut_prepare(p, entry, G)
+        + _lut_builder(p, entry)
+        + _lut_kernel(p, entry, G, PF)
+    )
 
 
 # --------------------------------------------------------------------------- layout addsub (no multiplies)
@@ -683,8 +697,10 @@ def lower_addsub(target, c):
             L.append(f"{ind}const uint8_t *rec{gg} = pk->buf + ((size_t)(g + {gg}) * pk->nrec_k + p) * REC_BYTES;")
             if PF:
                 L.append(f"{ind}_mm_prefetch((const char *)(rec{gg} + {PF} * REC_BYTES), _MM_HINT_T0);")
-            L.append(f"{ind}const __m512 dlo{gg} = _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)rec{gg})), "
-                     f"dhi{gg} = _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)(rec{gg} + 32)));")
+            L.append(
+                f"{ind}const __m512 dlo{gg} = _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)rec{gg})), "
+                f"dhi{gg} = _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)(rec{gg} + 32)));"
+            )
             for pl in range(planes):
                 L.append(f"{ind}__m512i a{gg}_{pl} = _mm512_setzero_si512();")
         L.append(f"{ind}for (int kg = 0; kg < {groups}; kg++) {{")
@@ -721,8 +737,9 @@ def lower_addsub(target, c):
                 L.append(f"{ind}  const __m512 dx = _mm512_set1_ps(dxs[p * {groups}]);")
                 L.append(f"{ind}  alo{gg} = fma16(ilo, dlo{gg}, dx, alo{gg}); ahi{gg} = fma16(ihi, dhi{gg}, dx, ahi{gg}); }}")
         decl = " ".join(f"__m512 alo{gg} = _mm512_setzero_ps(), ahi{gg} = _mm512_setzero_ps();" for gg in range(G))
-        stores = "\n".join(f"        storev(Y, (g + {gg}) * 32, r0, r1, alo{gg}); storev(Y, (g + {gg}) * 32 + 16, r0, r1, ahi{gg});"
-                           for gg in range(G))
+        stores = "\n".join(
+            f"        storev(Y, (g + {gg}) * 32, r0, r1, alo{gg}); storev(Y, (g + {gg}) * 32 + 16, r0, r1, ahi{gg});" for gg in range(G)
+        )
         xprep = "int16_t xw[32768];\n    for (int64_t i = 0; i < K; i++) xw[i] = xq[i];"
     else:
         # sad: 4 row vectors of 8 rows (u64 lanes) per 32-row group; s = sum over selected (x + 128)
@@ -748,7 +765,7 @@ def lower_addsub(target, c):
                         terms.append(f"_mm512_sad_epu8(_mm512_maskz_mov_epi8({m}, x{o}), zero)")
                 pl_sums = []
                 for pl in range(planes):
-                    ts = terms[4 * pl:4 * pl + 4]
+                    ts = terms[4 * pl : 4 * pl + 4]
                     pl_sums.append(f"_mm512_add_epi64(_mm512_add_epi64({ts[0]}, {ts[1]}), _mm512_add_epi64({ts[2]}, {ts[3]}))")
                 if planes == 2:
                     comb = f"_mm512_add_epi64(_mm512_slli_epi64({pl_sums[1]}, 1), {pl_sums[0]})"
@@ -801,8 +818,14 @@ void {entry}_packed(const void *pv, const void *X, float *Y, int64_t K, int64_t 
 }}
 """
     doc = f"/* addsub={mode}: multiplication-free; {planes} bit plane(s) per weight, {unit_bytes} B per 32 rows x 32 values */\n"
-    return (_prelude(f"addsub {mode}") + doc + head + (STOREV if mode == "mask" else STOREV8)
-            + _addsub_prepare(r, entry, G, mode, planes, groups, rec) + body)
+    return (
+        _prelude(f"addsub {mode}")
+        + doc
+        + head
+        + (STOREV if mode == "mask" else STOREV8)
+        + _addsub_prepare(r, entry, G, mode, planes, groups, rec)
+        + body
+    )
 
 
 # --------------------------------------------------------------------------- q2_K
@@ -887,13 +910,17 @@ def lower_q2k(target, c):
     L.append(f"{ind}}}")
     for g in range(G):
         L.append(f"{ind}{{ const __m512 dx = _mm512_set1_ps(dxs[p]);")
-        L.append(f"{ind}  const __m512 d = _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)rec{g})), "
-                 f"dm = _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)(rec{g} + 32)));")
+        L.append(
+            f"{ind}  const __m512 d = _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)rec{g})), "
+            f"dm = _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)(rec{g} + 32)));"
+        )
         L.append(f"{ind}  a{g} = _mm512_fmadd_ps(_mm512_cvtepi32_ps(ia{g}), _mm512_mul_ps(d, dx), a{g});")
         L.append(f"{ind}  a{g} = _mm512_fnmadd_ps(_mm512_cvtepi32_ps(ma{g}), _mm512_mul_ps(dm, dx), a{g}); }}")
     decl = " ".join(f"__m512 a{g} = _mm512_setzero_ps();" for g in range(G))
     stores = "\n".join(f"        storev(Y, (g + {g}) * 16, r0, r1, a{g});" for g in range(G))
-    return _prelude("q2_K k16") + f"""
+    return (
+        _prelude("q2_K k16")
+        + f"""
 typedef struct {{ {Q2K_STRUCT} }} nblock;
 typedef struct {{ float d; int8_t qs[256]; int16_t bsums[16]; }} xblock;
 typedef struct {{ int64_t nrec_k, ngroups; uint8_t *buf; }} packed_t;
@@ -952,6 +979,7 @@ void {entry}_packed(const void *pv, const void *X, float *Y, int64_t K, int64_t 
     }}
 }}
 """
+    )
 
 
 def lower_q2k_kernel(target, c):

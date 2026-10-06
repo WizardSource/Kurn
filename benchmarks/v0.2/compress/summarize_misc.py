@@ -1,5 +1,5 @@
 """Medians (min-max) over reps of the misc_bench.sh logs (entropy_*.log, lut.log, lowrank.log).
-    summarize_misc.py results/"""
+summarize_misc.py results/"""
 
 import os
 import re

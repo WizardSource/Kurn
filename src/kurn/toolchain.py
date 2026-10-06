@@ -1,7 +1,10 @@
 """Host detection, compilers and the build cache.
 
 Environment overrides:
-    KURN_CC          C compiler for host targets (default: $CC, then gcc, cc, clang)
+    KURN_CC          C compiler for host targets (default: $CC, then gcc, cc, clang). Each target is probed once per
+                     process; a target the compiler or assembler cannot build (e.g. AVX-VNNI with binutils < 2.36) is
+                     reported as "toolchain can't assemble target X; set KURN_CC" and skipped. KURN_CC=clang
+                     uses clang's integrated assembler.
     KURN_CROSS_CC    AArch64 cross compiler for `neon` on x86 hosts
                      (default: aarch64-linux-gnu-gcc, then `zig cc -target aarch64-linux-gnu`)
     KURN_QEMU        command prefix to run AArch64 binaries on x86 hosts
@@ -87,13 +90,84 @@ def cross_cc(arch):
     return None
 
 
-def cc_for(target):
+class ToolchainError(BuildError):
+    """The compiler or assembler cannot build a target at all (e.g. binutils < 2.36 has no AVX-VNNI)."""
+
+
+_CROSS_PKG = {"aarch64": "gcc-aarch64-linux-gnu", "x86_64": "gcc-x86-64-linux-gnu"}
+
+
+def cross_missing(target):
+    arch = target_arch(target)
+    return (f"target {target} needs an {arch} cross compiler and none was found; install one (Debian/Ubuntu: "
+            f"apt install {_CROSS_PKG.get(arch, 'a cross gcc')}; or zig) or set KURN_CROSS_CC")  # fmt: skip
+
+
+def qemu_missing(target):
+    arch, host = target_arch(target), host_arch()
+    return (f"no qemu-{arch} to run {arch} code on this {host} host; install it (Debian/Ubuntu: apt install qemu-user; "
+            f"the /usr/{arch}-linux-gnu sysroot comes with {_CROSS_PKG.get(arch, 'the cross gcc')}) or set KURN_QEMU")  # fmt: skip
+
+
+def _cc_for(target):
     arch = target_arch(target)
     if arch == host_arch():
         return host_cc()
     cc = cross_cc(arch)
     if not cc:
-        raise BuildError(f"target {target} needs an {arch} compiler; install one or set KURN_CROSS_CC")
+        raise ToolchainError(cross_missing(target))
+    return cc
+
+
+# One function per target that makes the compiler emit the target's characteristic instructions.
+_PROBES = {
+    "scalar": "int probe(int x) { return x + 1; }",
+    "avx2": "__m256 probe(const float *a, const unsigned short *h) {\n"
+    "    return _mm256_fmadd_ps(_mm256_loadu_ps(a), _mm256_cvtph_ps(_mm_loadu_si128((const __m128i *)h)), _mm256_loadu_ps(a + 8));\n}",
+    "avx2_vnni": "void probe(__m256i *a) { a[0] = _mm256_dpbusd_avx_epi32(a[0], a[1], a[2]); }",
+    "avx512_vnni": "void probe(__m512i *a) { a[0] = _mm512_dpbusd_epi32(a[0], a[1], a[2]); }",
+    "amx": "void probe(const void *cfg, const void *a, void *c) {\n"
+    "    _tile_loadconfig(cfg); _tile_loadd(1, a, 64); _tile_loadd(2, a, 64);\n"
+    "    _tile_dpbssd(0, 1, 2); _tile_stored(0, c, 64); _tile_release();\n}",
+    "neon": "void probe(int32x4_t *acc, const int8x16_t *a, const float16_t *h, float32x4_t *f) {\n"
+    "    acc[0] = vdotq_s32(acc[0], a[0], a[1]); f[0] = vcvt_f32_f16(vld1_f16(h));\n}",
+}
+
+
+@functools.cache
+def toolchain_problem(target):
+    """None if the toolchain can compile and assemble `target`, else a one-line reason."""
+    try:
+        cc = _cc_for(target)
+    except BuildError as e:
+        return str(e)
+    t = TARGETS[target]
+    src = "#include <stdint.h>\n" + (f"#include <{t.header}>\n" if t.header else "") + _PROBES.get(target, _PROBES["scalar"]) + "\n"
+    flags = flags_for(target)
+    if os.path.basename(cc[0]) == "zig":
+        flags = [f"-mcpu={f[6:].replace('-', '_')}" if f.startswith("-mcpu=") else f for f in flags]
+    with tempfile.TemporaryDirectory(prefix="kurn-probe-") as d:
+        path = os.path.join(d, "probe.c")
+        with open(path, "w") as fh:
+            fh.write(src)
+        try:
+            r = subprocess.run([*cc, *flags, "-c", path, "-o", os.path.join(d, "probe.o")], capture_output=True, text=True)
+        except OSError as e:
+            return f"toolchain can't assemble target {target}; set KURN_CC ({shlex.join(cc)}: {e})"
+    if r.returncode == 0:
+        return None
+    lines = [ln.strip() for ln in r.stderr.splitlines() if ln.strip()]
+    first = next((ln for ln in lines if "rror" in ln), lines[0] if lines else f"exit code {r.returncode}")
+    var = "KURN_CC" if target_arch(target) == host_arch() else "KURN_CROSS_CC"
+    return f"toolchain can't assemble target {target}; set {var} to a newer gcc or clang ({shlex.join(cc)}: {first[:300]})"
+
+
+def cc_for(target):
+    """Compiler for a target. Raises ToolchainError when it cannot assemble the target's instructions."""
+    cc = _cc_for(target)
+    why = toolchain_problem(target)
+    if why:
+        raise ToolchainError(why)
     return cc
 
 
@@ -119,13 +193,22 @@ def run_mode(target):
     arch = target_arch(target)
     host = host_arch()
     if TARGETS[target].arch == "any" and host != "x86_64":
-        return "native", ""
-    if arch == host:
+        mode = "native"
+    elif arch == host:
         missing = sorted(TARGETS[target].requires - cpu_flags())
-        return ("native", "") if not missing else (None, f"host CPU lacks {', '.join(missing)}")
-    if arch == "aarch64" and qemu(arch) and cross_cc(arch):
-        return "qemu", ""
-    return None, f"{arch} target on a {host} host (no qemu-{arch} + cross compiler)"
+        if missing:
+            return None, f"host CPU lacks {', '.join(missing)}"
+        mode = "native"
+    elif arch == "aarch64":
+        if not cross_cc(arch):
+            return None, cross_missing(target)
+        if not qemu(arch):
+            return None, qemu_missing(target)
+        mode = "qemu"
+    else:
+        return None, f"{arch} target on a {host} host: no way to run it here"
+    why = toolchain_problem(target)
+    return (None, why) if why else (mode, "")
 
 
 def _sha(*parts):
@@ -206,7 +289,13 @@ def build_harness(arch=None):
     os.makedirs(d, exist_ok=True)
     out = os.path.join(d, f"bench_{arch}_{h}")
     if not os.path.exists(out):
-        _compile([*cc, *flags, "-I", os.path.dirname(data_path("kurn.h")), data_path("bench.c"), "-lpthread", "-ldl", "-lm"], out)
+        tail = ["-I", os.path.dirname(data_path("kurn.h")), data_path("bench.c"), "-lpthread", "-ldl", "-lm"]
+        try:
+            _compile([*cc, *flags, *tail], out)
+        except BuildError:
+            if "-march=native" not in flags:
+                raise
+            _compile([*cc, "-O3", *tail], out)  # -march=native can pick instructions an old assembler rejects
     return out
 
 

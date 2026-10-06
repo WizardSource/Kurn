@@ -1,0 +1,10 @@
+q8_0: layout=i16 rows=2 prefetch=0 unpack=none correction=act scales=unpacked accum=float
+q4_K: layout=i16 rows=2 prefetch=0 unpack=mask correction=act scales=unpacked accum=float
+q4_0: layout=i16 rows=2 prefetch=0 unpack=mask correction=act scales=unpacked accum=float
+iq4_nl: layout=i16 rows=2 prefetch=0 unpack=lut correction=act scales=unpacked accum=float
+q2_0: layout=i16 rows=2 prefetch=0 unpack=mask correction=act scales=unpacked accum=float
+tq2_0: layout=i16 rows=2 prefetch=0 unpack=mask correction=act scales=unpacked accum=float
+q1_0: layout=i16 rows=2 prefetch=0 unpack=mask correction=act scales=unpacked accum=float
+mxfp4: layout=i16 rows=2 prefetch=0 unpack=lut correction=act scales=unpacked accum=float
+nvfp4: layout=i16 rows=2 prefetch=0 unpack=lut correction=act scales=unpacked accum=float
+kurn buffer type applied to /home/user/src/llama-kurn; rebuild with: cmake --build build -j

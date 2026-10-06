@@ -4,8 +4,8 @@ kurn check   SPEC [k=v ...]                      validate; print the resolved co
 kurn gen     SPEC [k=v ...] [-o out.c] [--embed PREFIX]
 kurn build   SPEC [k=v ...] [--out-dir DIR]      emit + compile a shared library; prints its path
 kurn verify  SPEC [k=v ...] [--space | --all]    numerical check against the reference
-kurn tune    SPEC [k=v,v ...] [--regime cold] [--objective energy|speed|edp] [--static-w W]
-kurn roofline [--threads T] [--streams S]        measured read bandwidth
+kurn tune    SPEC [k=v,v ...] [--regime cold] [--objective energy|speed|edp] [--static-w W] [--secs S] [--rounds R]
+kurn roofline [--threads T] [--streams S]        measured peak read bandwidth (DRAM and L2)
 kurn targets                                     what this host can build and run
 """
 
@@ -19,7 +19,7 @@ from . import __version__
 from .harness import HarnessError, bandwidth, check
 from .kernels import embed, generate
 from .spec import CODEGEN_KEYS, TARGETS, SpecError, iter_space, legal_configs, load, parse_overrides, resolve, validate_space
-from .toolchain import BuildError, build, cc_for, run_mode
+from .toolchain import BuildError, ToolchainError, build, cc_for, run_mode
 from .tune import OBJECTIVES, tune
 
 
@@ -69,12 +69,12 @@ def _verify_one(c, strict):
     so = build(c, extra_flags=("-Wall", "-Wextra", "-Wshadow", "-Werror") if strict else ())
     mode, why = run_mode(c["target"])
     if mode is None:
-        print(f"built  {label}  (not run: {why})")
-        return True
+        print(f"built  {label}  (compiled, not run: {why})")
+        return "built", why
     row = check(so, c)
     ok = row["check"] == "ok"
     print(f"{'ok    ' if ok else 'FAIL  '} {label}  relerr={row['relerr']:.1e}{'  [qemu]' if mode == 'qemu' else ''}")
-    return ok
+    return ("ok" if ok else "fail"), ""
 
 
 def cmd_verify(a):
@@ -91,14 +91,32 @@ def cmd_verify(a):
                     configs.append(c)
         else:
             configs = [resolve(spec, ov)]
-    fails = 0
+    fails, skipped, notrun = 0, {}, {}
     for c in configs:
+        t = c["target"]
+        if t in skipped:
+            skipped[t] += 1
+            continue
         try:
-            fails += not _verify_one(c, a.strict)
+            status, why = _verify_one(c, a.strict)
+        except ToolchainError as e:  # no compiler/assembler for this target: report once, skip the rest
+            skipped[t] = 1
+            print(f"skip   target {t}: {e}")
+            continue
         except (BuildError, HarnessError) as e:
             fails += 1
-            print(f"FAIL   {c['weights']} {c['op']} {c['target']}: {e}")
-    print(f"{len(configs)} configurations, {fails} failures")
+            print(f"FAIL   {c['weights']} {c['op']} {t}: {e}")
+            continue
+        fails += status == "fail"
+        if status == "built":
+            notrun.setdefault(t, [0, why])[0] += 1
+    tail = ""
+    if skipped:
+        tail += f", {sum(skipped.values())} skipped (no usable toolchain for {', '.join(skipped)}; reasons above)"
+    if notrun:
+        tail += f", {sum(n for n, _ in notrun.values())} compiled but not run (" + "; ".join(
+            f"{t}: {why}" for t, (_, why) in notrun.items()) + ")"  # fmt: skip
+    print(f"{len(configs)} configurations, {fails} failures{tail}")
     return 1 if fails else 0
 
 
@@ -107,32 +125,38 @@ def cmd_tune(a):
     space = {**space, **{k: [v] for k, v in ov.items()}, **lists}
     if not space:
         raise SpecError("nothing to tune: add a `tune` line to the spec or pass key=v1,v2 overrides")
-    res, front = tune(spec, space, a.regime, a.objective, a.static_w, a.secs, shlex.split(a.bench_args), a.out,
-                      a.harness)  # fmt: skip
+    res, front = tune(spec, space, a.regime, a.objective, a.static_w, a.secs, shlex.split(a.bench_args), a.out, a.harness,
+                      rounds=a.rounds, keep=a.keep, budget=a.budget, max_spread=a.max_spread)  # fmt: skip
     if not res:
         print("no configuration passed")
         return 1
     show = ("us", "cpu_us", "energy_uJ", "GBps", "GOPs")
-    fmt = lambda r: (
-        " ".join(f"{k}={v}" for k, v in r.items() if k in space)
-        + "  "
-        + "  ".join(  # noqa: E731
-            f"{k}={r[k]:.1f}" for k in show
-        )
-    )
-    print(f"\nbest by {a.objective}:")
+    obj = OBJECTIVES[a.objective]
+
+    def fmt(r):
+        keys = " ".join(f"{k}={v}" for k, v in r.items() if k in space)
+        vals = "  ".join(f"{k}={r[k]:.1f}" for k in show)
+        return f"{keys}  {vals}  (median of {r['rounds']}, spread {r['spread_' + obj]:.1%})"
+
+    print(f"\nbest by {a.objective} (median of interleaved rounds):")
     for r in res[:5]:
         print("  ", fmt(r))
     print("pareto front (time vs energy):")
     for r in front:
         print("  ", fmt(r))
+    warnings = res[0].get("warnings") or []
+    print(
+        "ranking: " + ("NOT resolved -- " + "; ".join(warnings) if warnings else "resolved (leaders' order stable, spread within limits)")
+    )
     return 0
 
 
 def cmd_roofline(a):
-    bw = bandwidth(a.threads, a.streams)
-    for k, v in bw.items():
-        print(f"{k}: {v:.1f} GB/s (threads={a.threads}, streams={a.streams})")
+    bw = bandwidth(a.threads, a.streams, detail=True)
+    for k in ("dram", "l2"):
+        if k in bw:
+            print(f"{k}: {bw[k]:.1f} GB/s (threads={a.threads}, streams={bw[k + '_streams']}; peak of the best group, "
+                  f"median {bw[k + '_median']:.1f} GB/s)")  # fmt: skip
 
 
 def cmd_targets(a):
@@ -142,6 +166,8 @@ def cmd_targets(a):
             try:
                 cc_for(t)
                 b = "yes"
+            except ToolchainError:
+                b = "no"  # run_mode gives the reason
             except BuildError:
                 b = "no"
             mode, why = run_mode(t)
@@ -192,14 +218,18 @@ def main(argv=None):
                    help="hot: weights cache-resident; cold: stream >1.2 GB from DRAM (default)")  # fmt: skip
     p.add_argument("--objective", default="energy", choices=list(OBJECTIVES))
     p.add_argument("--static-w", type=float, default=0.0, help="platform power charged per wall-second (W)")
-    p.add_argument("--secs", type=float, default=1.0, help="measurement time per configuration")
+    p.add_argument("--secs", type=float, default=1.0, help="length of one measurement (default 1 s)")
+    p.add_argument("--rounds", type=int, default=3, help="interleaved measurements per configuration, ranked on the median (default 3)")
+    p.add_argument("--keep", type=int, default=3, help="leaders re-measured until their order is stable (default 3)")
+    p.add_argument("--budget", type=float, default=30.0, help="seconds of extra measuring for the leaders (default 30)")
+    p.add_argument("--max-spread", type=float, default=0.10, help="warn when a leader's interquartile range / median exceeds this (0.10)")
     p.add_argument("--bench-args", default="", help="extra harness args, e.g. '--K 2048 --N 512 --serial-us 20'")
     p.add_argument("--harness", help="use another harness binary with the same CLI (e.g. the ggml-linked one)")
     p.set_defaults(fn=cmd_tune)
 
     p = sub.add_parser("roofline", help="measure read bandwidth (DRAM and L2)")
     p.add_argument("--threads", type=int, default=os.cpu_count() or 1)
-    p.add_argument("--streams", type=int, default=1)
+    p.add_argument("--streams", type=int, default=0, help="streams per thread (default 0: best of 1, 2, 4, 8)")
     p.set_defaults(fn=cmd_roofline)
 
     p = sub.add_parser("model", help="compile the whole decode step of one GGUF model (Qwen3 / OLMoE, Q8_0) into one program")
@@ -243,10 +273,17 @@ _main_before_compress = main
 def main(argv=None):  # noqa: F811
     args = sys.argv[1:] if argv is None else list(argv)
     if args[:1] == ["mix"]:
+        from ._numpy import have_numpy
+
+        if not have_numpy():
+            print("kurn: `kurn mix` needs numpy and gguf: pip install 'kurn[gguf]'", file=sys.stderr)
+            return 2
         from .mixed import cli_main
 
         return cli_main(args[1:])
     return _main_before_compress(argv)
+
+
 # --- end compress ---
 
 
@@ -260,4 +297,33 @@ def main(argv=None):  # noqa: F811  (extension commands from kurn.hooks.COMMANDS
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv and argv[0] in hooks.COMMANDS:
         return hooks.COMMANDS[argv[0]](argv[1:])
+    backend = _spec_backend(argv)
+    if backend:
+        return hooks.TARGET_BACKENDS[backend](argv[0], argv[1:])
     return _core_main(argv)
+
+
+# --- end attn ---
+
+
+# --- gpu ---
+def _spec_backend(argv):
+    """The hooks.TARGET_BACKENDS target named by a spec command's spec file or target=... override."""
+    from . import hooks
+
+    if len(argv) < 2 or argv[0] not in ("check", "gen", "build", "verify", "tune") or not hooks.TARGET_BACKENDS:
+        return None
+    target = next((t.split("=", 1)[1] for t in argv[1:] if t.startswith("target=")), None)
+    if target is None:
+        path = next((t for t in argv[1:] if not t.startswith("-") and "=" not in t), None)
+        if not path or not os.path.isfile(path):
+            return None
+        try:
+            spec, _ = load(path)
+        except (OSError, SpecError):
+            return None
+        target = spec.get("target")
+    return target if target in hooks.TARGET_BACKENDS else None
+
+
+# --- end gpu ---

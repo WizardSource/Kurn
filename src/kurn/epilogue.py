@@ -71,9 +71,8 @@ static inline void kq8e_q8_block(__m512 lo, __m512 hi, block_q8_0 *out) {
     const float d = amax / 127.f, id = amax != 0.0f ? 127.f / amax : 0.0f;
     out->d = _cvtss_sh(d, 0);
     const __m512 m = _mm512_set1_ps(id);
-    const int rn = _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC;
-    const __m512i a = _mm512_cvtps_epi32(_mm512_roundscale_ps(_mm512_mul_ps(lo, m), rn));
-    const __m512i b = _mm512_cvtps_epi32(_mm512_roundscale_ps(_mm512_mul_ps(hi, m), rn));
+    const __m512i a = _mm512_cvtps_epi32(_mm512_roundscale_ps(_mm512_mul_ps(lo, m), _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+    const __m512i b = _mm512_cvtps_epi32(_mm512_roundscale_ps(_mm512_mul_ps(hi, m), _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
     _mm_storeu_si128((__m128i *)out->qs, _mm512_cvtepi32_epi8(a));
     _mm_storeu_si128((__m128i *)(out->qs + 16), _mm512_cvtepi32_epi8(b));
 }
@@ -92,8 +91,10 @@ def _pass(n, ld512, ld256, P, fmt="q8_0"):
     L.append(f"    const __m512i nc = _mm512_set1_epi32({ncs}); const __m512 dx = _mm512_set1_ps(A->xd[xb]);")
     L += [f"    const {vt} *blk{i} = W + (g + {i}) * nb + b;" for i in range(n)]
     if P:
-        L += [f"    _mm_prefetch((const char *)(blk{i} + {P}), _MM_HINT_T0); _mm_prefetch((const char *)(blk{i} + {P}) + 256, _MM_HINT_T0);"
-              for i in range(n)]
+        L += [
+            f"    _mm_prefetch((const char *)(blk{i} + {P}), _MM_HINT_T0); _mm_prefetch((const char *)(blk{i} + {P}) + 256, _MM_HINT_T0);"
+            for i in range(n)
+        ]
     L += [f"    __m512i e{i} = nc, o{i} = _mm512_setzero_si512();" for i in range(n)]
     if fmt == "q8_0":
         for kk in range(8):
@@ -103,15 +104,20 @@ def _pass(n, ld512, ld256, P, fmt="q8_0"):
             L.append("    }")
     else:
         for h in range(4):
-            L.append(f"    {{ const __m512i xl = _mm512_set1_epi32(A->xw[xb * 8 + {2 * h}]),"
-                     f" xh = _mm512_set1_epi32(A->xw[xb * 8 + {2 * h + 1}]);")
+            L.append(
+                f"    {{ const __m512i xl = _mm512_set1_epi32(A->xw[xb * 8 + {2 * h}]),"
+                f" xh = _mm512_set1_epi32(A->xw[xb * 8 + {2 * h + 1}]);"
+            )
             for i in range(n):
                 L.append(f"      const __m512i v{i} = {ld512}(blk{i}->q + {64 * h});")
                 L.append(f"      e{i} = _mm512_dpbusd_epi32(e{i}, _mm512_and_si512(v{i}, m4), xl);")
                 L.append(f"      o{i} = _mm512_dpbusd_epi32(o{i}, _mm512_and_si512(_mm512_srli_epi16(v{i}, 4), m4), xh);")
             L.append("    }")
-    L += [f"    a{i} = _mm512_fmadd_ps(_mm512_cvtepi32_ps(_mm512_add_epi32(e{i}, o{i})), "
-          f"_mm512_mul_ps(_mm512_cvtph_ps({ld256}((const __m256i *)blk{i}->d)), dx), a{i});" for i in range(n)]
+    L += [
+        f"    a{i} = _mm512_fmadd_ps(_mm512_cvtepi32_ps(_mm512_add_epi32(e{i}, o{i})), "
+        f"_mm512_mul_ps(_mm512_cvtph_ps({ld256}((const __m256i *)blk{i}->d)), dx), a{i});"
+        for i in range(n)
+    ]
     L.append("}")
     return L
 
@@ -122,16 +128,16 @@ def _epi(kind, n):
     if kind == "store_sumsq":
         return [f"_mm512_storeu_ps(y + (g + {i}) * 16, a{i}); ss = _mm512_fmadd_ps(a{i}, a{i}, ss);" for i in range(n)]
     if kind == "axpy":
-        return [f"_mm512_storeu_ps(y + (g + {i}) * 16, _mm512_fmadd_ps(sv, a{i}, _mm512_loadu_ps(y + (g + {i}) * 16)));"
-                for i in range(n)]
+        return [f"_mm512_storeu_ps(y + (g + {i}) * 16, _mm512_fmadd_ps(sv, a{i}, _mm512_loadu_ps(y + (g + {i}) * 16)));" for i in range(n)]
     if kind == "swiglu_q8":
         L = []
         for q in range(n // 4):
             g0, u0, g1, u1 = 4 * q, 4 * q + 1, 4 * q + 2, 4 * q + 3
             L.append(f"{{ const __m512 lo = _mm512_mul_ps(kq8e_v_silu(a{g0}), a{u0}), hi = _mm512_mul_ps(kq8e_v_silu(a{g1}), a{u1});")
             L.append(f"  kq8e_q8_block(lo, hi, yq + (g + {4 * q}) / 4);")
-            L.append(f"  if (yact) {{ _mm512_storeu_ps(yact + (g + {4 * q}) * 8, lo);"
-                     f" _mm512_storeu_ps(yact + (g + {4 * q}) * 8 + 16, hi); }} }}")
+            L.append(
+                f"  if (yact) {{ _mm512_storeu_ps(yact + (g + {4 * q}) * 8, lo); _mm512_storeu_ps(yact + (g + {4 * q}) * 8 + 16, hi); }} }}"
+            )
         return L
     raise ValueError(kind)
 
@@ -139,8 +145,10 @@ def _epi(kind, n):
 def _function(kind, G, ld512, ld256, P, fmt="q8_0"):
     ret = _RET.get(kind, "void")
     pre, vt = ("kq8e", "vblk") if fmt == "q8_0" else ("kq4e", "vblk4")
-    head = (f"{ret} {pre}_{kind}(const void *Wv, int64_t nb, const kq8e_act *A, int64_t b0, int64_t b1, "
-            f"int64_t g0, int64_t g1, {_ARGS[kind]}) {{")
+    head = (
+        f"{ret} {pre}_{kind}(const void *Wv, int64_t nb, const kq8e_act *A, int64_t b0, int64_t b1, "
+        f"int64_t g0, int64_t g1, {_ARGS[kind]}) {{"
+    )
     L = [head, f"    const {vt} *W = (const {vt} *)Wv;", "    int64_t g = g0;"]
     if fmt == "q4_0":
         L.append("    const __m512i m4 = _mm512_set1_epi8(0x0F);")
@@ -203,10 +211,17 @@ def engine_kernels(c, standalone=True, fmts=("q8_0",)):
     G, P = c["rows"], c["prefetch"]
     aligned = c.get("align") == 64
     ld512, ld256 = ("_mm512_load_si512", "_mm256_load_si256") if aligned else ("_mm512_loadu_si512", "_mm256_loadu_si256")
-    vblk = (f"typedef struct {{ uint8_t q[8 * 64]; uint16_t d[16];{' uint8_t pad[32];' if aligned else ''} }} vblk;"
-            f" // {576 if aligned else 544} B: 16 rows x 32 values, rows interleaved per 4 bytes, +128 biased")
-    head = ["// Generated by kurn (epilogue.py). Fused-epilogue vnni16 Q8_0 GEMVs; ABI in model/kq8e.h.",
-            '#include "kq8e.h"', "#include <string.h>", "#include <immintrin.h>", vblk]
+    vblk = (
+        f"typedef struct {{ uint8_t q[8 * 64]; uint16_t d[16];{' uint8_t pad[32];' if aligned else ''} }} vblk;"
+        f" // {576 if aligned else 544} B: 16 rows x 32 values, rows interleaved per 4 bytes, +128 biased"
+    )
+    head = [
+        "// Generated by kurn (epilogue.py). Fused-epilogue vnni16 Q8_0 GEMVs; ABI in model/kq8e.h.",
+        '#include "kq8e.h"',
+        "#include <string.h>",
+        "#include <immintrin.h>",
+        vblk,
+    ]
     body = (head if standalone else [_ABI]) + [
         _HELPERS,
         "size_t kq8e_blk_bytes(void) { return sizeof(vblk); }",
@@ -251,8 +266,10 @@ def engine_kernels(c, standalone=True, fmts=("q8_0",)):
     if "q8_0" in fmts:
         body += [_function(k, G, ld512, ld256, P) for k in EPILOGUES]
     if "q4_0" in fmts:
-        body.append(f"typedef struct {{ uint8_t q[4 * 64]; uint16_t d[16];{' uint8_t pad[32];' if aligned else ''} }} vblk4;"
-                    f" // {320 if aligned else 288} B: 16 rows x 32 values, two k-steps per byte")
+        body.append(
+            f"typedef struct {{ uint8_t q[4 * 64]; uint16_t d[16];{' uint8_t pad[32];' if aligned else ''} }} vblk4;"
+            f" // {320 if aligned else 288} B: 16 rows x 32 values, two k-steps per byte"
+        )
         body.append(_Q4_0)
         body += [_function(k, G, ld512, ld256, P, "q4_0") for k in EPILOGUES]
     return "\n".join(body) + "\n"
@@ -284,6 +301,7 @@ def register():
     if "epilogue" in hooks.NEW_KEYS:
         return
     hooks.new_key("epilogue", _legal, "none", changes_codegen=False)
-    hooks.EXTRA_INVALID.append((lambda c: c.get("epilogue", "none") != "none" and c.get("layout") != "vnni16",
-                                "epilogue=fused needs layout=vnni16"))
+    hooks.EXTRA_INVALID.append(
+        (lambda c: c.get("epilogue", "none") != "none" and c.get("layout") != "vnni16", "epilogue=fused needs layout=vnni16")
+    )
     hooks.LOWERINGS["vnni16"] = _with_epilogues(hooks.LOWERINGS.get("vnni16", codegen.q8_0_gemv))

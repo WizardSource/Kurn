@@ -4,8 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <immintrin.h>
-static inline float f16f(uint16_t h) { return _cvtsh_ss(h); }
-
 typedef struct { uint16_t d; uint16_t dmin; uint8_t scales[12]; uint8_t qs[128]; } nblock;
 typedef struct { int64_t nrec_k, ngroups; uint8_t *buf; } packed_t;
 #define REC_BYTES 2368

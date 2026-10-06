@@ -3,13 +3,15 @@
 A spec names the kernel configuration and, optionally, the problem it is tuned on:
 
     op        attn
-    kv        q8_0           # KV cache format: f16 | bf16 | q8_0
+    kv        q8_0           # KV cache format: f16 | bf16 | q8_0 | k4c_q4 | k4c_q8 (pre-RoPE 4-bit per-channel K)
     target    amx_bf16       # tile engine: avx512 (f32 FMA) | avx512_bf16 (vdpbf16ps) | amx_bf16
     dk        128            # head dims (dv defaults to dk; MLA: dk 576 dv 512)
     tile_q    64             # query tokens per tile (x G query heads = rows per tile)
     tile_kv   128            # KV tokens per tile
     split     0              # KV splits per (kv head, query tile), 0 = auto (flash-decoding)
     dec_rows  8              # AVX-512 row engine when n_q * G <= dec_rows (decode), 0 = never
+    kcenter   1              # bf16 engines: center K per item before bf16 rounding (0 = off)
+    qk        bf16           # amx_bf16: int8 = Q K^T on AMX-INT8 (P V stays bf16; lossier, no kattn_pack)
     threads   8
     heads 16  kv_heads 8  nq 4096  nkv 4096          # problem (not codegen)
     tune      tile_q=32,64,128 tile_kv=64,128,256
@@ -35,11 +37,15 @@ _V4 = frozenset({"avx2", "fma", "f16c", "avx512f", "avx512bw", "avx512cd", "avx5
 TARGETS = {
     "avx512": (("-O3", "-march=x86-64-v4"), _V4, 0),
     "avx512_bf16": (("-O3", "-march=x86-64-v4", "-mavx512bf16"), _V4 | {"avx512_bf16"}, 1),
-    "amx_bf16": (("-O3", "-march=x86-64-v4", "-mavx512bf16", "-mamx-tile", "-mamx-bf16"),
+    "amx_bf16": (("-O3", "-march=x86-64-v4", "-mavx512bf16", "-mamx-tile", "-mamx-bf16", "-mamx-int8"),
                  _V4 | {"avx512_bf16", "amx_tile", "amx_bf16"}, 2),
 }  # fmt: skip
-KV_FORMATS = {"f16": 0, "bf16": 1, "q8_0": 2}
+KV_FORMATS = {"f16": 0, "bf16": 1, "q8_0": 2, "k4c_q4": 3, "k4c_q8": 4}
 KV_ROW_BYTES = {"f16": lambda d: 2 * d, "bf16": lambda d: 2 * d, "q8_0": lambda d: d // 32 * 34}
+# pre-RoPE K, 4-bit per channel in 32-token groups (kurn_attn.h); V Q4_0 / Q8_0 rows. Not for MLA.
+PRE_ROPE_KV = ("k4c_q4", "k4c_q8")
+# average stored bits per element of complete groups (K, V), scales included
+KV_BITS = {"f16": (16, 16), "bf16": (16, 16), "q8_0": (8.5, 8.5), "k4c_q4": (5.0, 4.5), "k4c_q8": (5.0, 8.5)}
 HEAD_DIMS = {64: (64,), 128: (128,), 256: (256,), 576: (512,)}  # dk -> legal dv
 
 # Legal values per key, as a function of the partially resolved config.
@@ -51,13 +57,16 @@ SCHEDULE = {
     "tile_kv": lambda c: (64, 128, 256),
     "split": lambda c: (0, 1, 2, 4, 8, 16, 32, 64),
     "dec_rows": lambda c: (0, 4, 8),
+    "kcenter": lambda c: (0, 1),
+    "qk": lambda c: ("bf16", "int8") if c["target"] == "amx_bf16" else ("bf16",),
     "threads": lambda c: tuple(range(1, 257)),
 }
-DEFAULTS = {"kv": "f16", "dk": 128, "tile_q": 64, "tile_kv": 128, "split": 0, "dec_rows": 8,
+DEFAULTS = {"kv": "f16", "dk": 128, "tile_q": 64, "tile_kv": 128, "split": 0, "dec_rows": 8, "kcenter": 1, "qk": "bf16",
             "threads": min(8, os.cpu_count() or 8)}  # fmt: skip
-CODEGEN_KEYS = ("kv", "target", "dk", "dv", "tile_q", "tile_kv", "split", "dec_rows")
+CODEGEN_KEYS = ("kv", "target", "dk", "dv", "tile_q", "tile_kv", "split", "dec_rows", "kcenter", "qk")
 # Problem keys: the shape a spec is verified / tuned on (do not change the generated C).
-PROBLEM = {"heads": 16, "kv_heads": 8, "nq": 1, "nkv": 4096, "pos0": -1, "causal": 1, "mask": 0, "mla": 0}
+PROBLEM = {"heads": 16, "kv_heads": 8, "nq": 1, "nkv": 4096, "pos0": -1, "causal": 1, "mask": 0, "mla": 0,
+           "rope_base": 1000000, "rope_dim": -1, "rope_mode": 0}  # fmt: skip
 KNOWN_KEYS = ("kernel", "op", "target") + tuple(SCHEDULE) + tuple(PROBLEM)
 # Accepted max |out - ref| / max |ref| against the float64 reference on the same (dequantized)
 # K/V: the f32 engines differ only by summation order and the exp2 polynomial; the bf16 engines
@@ -93,6 +102,14 @@ def resolve(spec, overrides=None):
         raise SpecError(f"heads={c['heads']} must be a multiple of kv_heads={c['kv_heads']}")
     if c["mla"] and c["dv"] > c["dk"]:
         raise SpecError("mla needs dv <= dk (v is the first dv values of each k row)")
+    if c["kv"] in PRE_ROPE_KV:
+        if c["mla"] or c["dk"] == 576:
+            raise SpecError(f"kv={c['kv']} (pre-RoPE K) does not support MLA latent KV")
+        rd = c["dk"] if c["rope_dim"] < 0 else c["rope_dim"]
+        if rd % 32 or rd > c["dk"]:
+            raise SpecError(f"rope_dim={rd}: expected a multiple of 32 <= dk={c['dk']}")
+        if c["rope_mode"] not in (0, 1):
+            raise SpecError(f"rope_mode={c['rope_mode']}: expected 0 (NEOX) or 1 (NORM)")
     c.setdefault("kernel", f"attn_{c['kv']}_d{c['dk']}_{c['target']}")
     return c
 
@@ -114,7 +131,8 @@ def generate(c):
         hsha = hashlib.sha1(fh.read()).hexdigest()[:12]
     head = [f"/* kurn attention kernel: {' '.join(f'{k}={c[k]}' for k in CODEGEN_KEYS)} (kurn_attn.h {hsha}) */"]
     defs = {"KA_DK": c["dk"], "KA_DV": c["dv"], "KA_KV": KV_FORMATS[c["kv"]], "KA_ENGINE": TARGETS[c["target"]][2],
-            "KA_TQ": c["tile_q"], "KA_TK": c["tile_kv"], "KA_SPLIT": c["split"], "KA_DEC_ROWS": c["dec_rows"]}  # fmt: skip
+            "KA_TQ": c["tile_q"], "KA_TK": c["tile_kv"], "KA_SPLIT": c["split"], "KA_DEC_ROWS": c["dec_rows"],
+            "KA_KCENTER": c["kcenter"], "KA_QK8": int(c["qk"] == "int8")}  # fmt: skip
     head += [f"#define {k} {v}" for k, v in defs.items()]
     return "\n".join(head) + "\n" + body
 
@@ -175,6 +193,8 @@ def problem_args(c):
         a += ["--mask"]
     if c["mla"]:
         a += ["--mla"]
+    if c.get("kv") in PRE_ROPE_KV:
+        a += ["--rope-base", c["rope_base"], "--rope-dim", c["rope_dim"], "--rope-mode", c["rope_mode"]]
     return [str(x) for x in a]
 
 
@@ -214,11 +234,19 @@ CHECK_SHAPES = (
     {"nq": 64, "nkv": 200, "heads": 2, "kv_heads": 1, "causal": 0},
     {"nq": 129, "nkv": 1500, "heads": 4, "kv_heads": 1},
 )
+# pre-RoPE K formats also: no partial group, a single partial group, a tile ending on a group edge
+CHECK_SHAPES_PRE_ROPE = (
+    {"nq": 1, "nkv": 2048, "heads": 16, "kv_heads": 8},
+    {"nq": 1, "nkv": 20, "heads": 4, "kv_heads": 2},
+    {"nq": 96, "nkv": 1024, "heads": 8, "kv_heads": 4},
+)
 
 
 def check(so, c, shapes=CHECK_SHAPES, log=None):
     """Numerical check on awkward shapes. Returns the worst row (check == "FAIL" if any failed)."""
     worst = None
+    if c["kv"] in PRE_ROPE_KV and shapes is CHECK_SHAPES:
+        shapes = shapes + CHECK_SHAPES_PRE_ROPE
     for sh in shapes:
         cc = {**c, **PROBLEM, "pos0": -1, **sh, "threads": min(3, c["threads"])}
         if c["mla"]:
@@ -276,6 +304,6 @@ def legal_configs(kv=None, target=None, dk=(64, 128)):
     """Codegen configurations of the closed space (for tests; tile/split values at their defaults
     unless they change the engine structure)."""
     for t, f, d, tq, tk in itertools.product(TARGETS, KV_FORMATS, dk, (16, 64), (64, 128)):
-        if (kv and f != kv) or (target and t != target):
+        if (kv and f != kv) or (target and t != target) or (f in PRE_ROPE_KV and d == 576):
             continue
         yield resolve({"op": "attn", "target": t, "kv": f, "dk": d, "tile_q": tq, "tile_kv": tk})
