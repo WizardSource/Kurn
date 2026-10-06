@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# KURN GPU attention check: one command on a Linux CUDA machine (built and designed for A100 / sm_80).
+# KURN GPU attention check: one command on a Linux CUDA machine. Tiers: A100 (sm_80, the measured target), B200/GB200
+# (sm_100) and RTX 50 (sm_120); every build carries SASS for all three (CUDA >= 12.8) plus PTX, and the run reports
+# which arch it ran on and whether that was native SASS or JIT from PTX.
 #
 #   ./run_attn_check.sh               ~20-30 min on an A100: build, GPU correctness of every covering config on the awkward
 #                                     shapes vs a float64 reference, then the decode matrix (correctness + timings)
@@ -45,23 +47,36 @@ nvidia-smi --query-gpu=name,compute_cap,memory.total,driver_version --format=csv
 K --version | tee -a "$OUT/run.log"
 ARCH=sm_80
 [ "$DRYRUN" = "0" ] && ARCH=$("$PY" -c 'from kurn.gpu.harness import detect_arch; print(detect_arch() or "sm_80")')
-log "arch: $ARCH"
-[ "$ARCH" = "sm_80" ] || log "note: kurn's GPU attention is designed and tuned for A100 (sm_80); $ARCH runs the sm_80/sm_120 SASS or JIT PTX"
+IFS='|' read -r TIER HOW FATB <<< "$("$PY" -c "
+from kurn.gpu import attn as A
+a = '$ARCH'
+print(A.tier_for(a), 'native SASS' if a in A.fatbin_archs() else 'JIT from embedded PTX', ' '.join(A.fatbin_archs()), sep='|')")"
+if [ "$DRYRUN" = "1" ]; then
+  log "arch: none (dry run); fatbin SASS: $FATB"
+else
+  log "ran on: $ARCH -> tier $TIER ($HOW; fatbin SASS: $FATB)"
+fi
+RAN=$([ "$DRYRUN" = "1" ] && echo none || echo "$ARCH")
+echo "{\"ran_on\": \"$RAN\", \"tier\": \"$TIER\", \"how\": \"$HOW\", \"fatbin\": \"$FATB\", \"dryrun\": $DRYRUN}" > "$OUT/arch.json"
 
-log "== build: every covering config as a fatbin (sm_80 [+ sm_120 with CUDA >= 12.8] + compute_80 PTX); registers, spills"
+log "== build: the covering sets of all three tiers as fatbins ($FATB + PTX); registers, spills"
 K gpu attn ptxas --all > "$OUT/attn_ptxas.txt" 2>&1 || FAILS=$((FAILS + 1))
 tail -1 "$OUT/attn_ptxas.txt" | tee -a "$OUT/run.log"
 
 if [ "$DRYRUN" = "1" ]; then
-  log "== CPU-emulator numerics (covering set, no GPU)"
-  K gpu attn verify --all --quick > "$OUT/attn_verify_emu.txt" 2>&1 || FAILS=$((FAILS + 1))
+  log "== GPU harness for each fatbin arch (compile only)"
+  for a in $FATB; do K gpu attn harness --arch "$a" > /dev/null 2>> "$OUT/harness_build.txt" && log "harness $a: ok" || { log "harness $a: FAILED"; FAILS=$((FAILS + 1)); }; done
+  log "== CPU-emulator numerics: the sm_80 covering set and every tier's default kernels (no GPU)"
+  K gpu attn verify --all --tier sm_80 --quick > "$OUT/attn_verify_emu.txt" 2>&1 || FAILS=$((FAILS + 1))
   tail -1 "$OUT/attn_verify_emu.txt" | tee -a "$OUT/run.log"
+  K gpu attn verify --defaults --quick > "$OUT/attn_verify_emu_defaults.txt" 2>&1 || FAILS=$((FAILS + 1))
+  tail -1 "$OUT/attn_verify_emu_defaults.txt" | tee -a "$OUT/run.log"
 else
   log "== GPU harness"
   HARNESS=$(K gpu attn harness --arch "$ARCH" 2> "$OUT/harness_build.txt" | tail -1)
   [ -n "$HARNESS" ] || { log "harness build failed (see harness_build.txt)"; FAILS=$((FAILS + 1)); }
   if [ -n "$HARNESS" ]; then
-    log "== correctness on the GPU: every covering config on the awkward shapes vs the float64 reference"
+    log "== correctness on the GPU: every covering config of tier $TIER on the awkward shapes vs the float64 reference"
     VQ=(); [ "$QUICK" = "1" ] && VQ=(--quick)
     K gpu attn verify --all --gpu --arch "$ARCH" "${VQ[@]}" > "$OUT/attn_verify_gpu.txt" 2>&1 || FAILS=$((FAILS + 1))
     tail -1 "$OUT/attn_verify_gpu.txt" | tee -a "$OUT/run.log"

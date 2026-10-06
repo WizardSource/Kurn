@@ -40,10 +40,12 @@ def _local_arch(a):
 
 
 def _configs(a, default_tiers=A.ARCHS):
+    tier = getattr(a, "tier", None)
+    tiers = A.ARCHS if tier == "all" else (tier,) if tier else default_tiers
     if getattr(a, "all", False):
-        tier = getattr(a, "tier", None)
-        tiers = A.ARCHS if tier == "all" else (tier,) if tier else default_tiers
         return [c for t in tiers for c in A.covering_configs(arch=t)]
+    if getattr(a, "defaults", False):  # what kernel_for() dispatches per tier
+        return [A.kernel_for(kv, dk, t) for t in tiers for kv in A.KV_FORMATS for dk in A.HEAD_DIMS]
     spec, space, ov, _ = _load(a)
     return [A.resolve(spec, ov)]
 
@@ -217,9 +219,11 @@ def main(argv=None):
     p = spec_cmd("ptxas", cmd_ptxas, optional=True)
     p.add_argument("--all", action="store_true", help="covering set of every KV format and head dim")
     p.add_argument("--tier", choices=[*A.ARCHS, "all"], help="covering set of one tier (default: all three)")
+    p.add_argument("--defaults", action="store_true", help="the per-tier default kernels kernel_for() dispatches")
     p = spec_cmd("verify", cmd_verify, optional=True)
     p.add_argument("--all", action="store_true")
     p.add_argument("--tier", choices=[*A.ARCHS, "all"], help="covering set of one tier (default: emulator all, GPU its own)")
+    p.add_argument("--defaults", action="store_true", help="the per-tier default kernels kernel_for() dispatches")
     p.add_argument("--quick", action="store_true", help="5 shapes, one schedule")
     p.add_argument("--gpu", action="store_true", help="run on the local GPU instead of the CPU emulator")
     p.add_argument("--arch")
