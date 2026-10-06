@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Added: cost-aware verify width in llama-server (`integration/llama.cpp/spec-width`)
+- `llama-server-spec-width.patch` (applied by `spec-width/apply.sh`): `--spec-width TABLE [--spec-width-mode cap]`
+  (or `KURN_SPEC_WIDTH`) runs `kurn-spec-width.h`'s policy per slot with a draft model: per-step cap, per-token stop,
+  truncation before verification, online acceptance learned across the slot's requests.
+- Qwen3-1.7B target / Qwen3-0.6B draft (a pair where speculation does not pay: the draft costs ~40% of a target step),
+  8 prompts x 256 tokens: no draft 55.5 tok/s, fixed k = 3 / 7 / 15 50.4 / 45.3 / 33.2, policy 54.7.
+
 ### Added: k4c as a llama.cpp KV cache type (`integration/llama.cpp/k4c`)
 - `k4c/apply.sh` adds `GGML_TYPE_K4C` (per-channel 4-bit keys in 32-cell groups, read by kurn's attention):
   `-ctk k4c -ctv q4_0|q8_0` (or `-ctk k4c_q4|k4c_q8`) in llama-cli / llama-server / llama-perplexity. Keys are cached
