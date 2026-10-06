@@ -50,7 +50,7 @@ typedef int cudaError_t;
 namespace kemu {
 
 enum State { RUN, BAR, WARP, DONE };
-enum Op { OP_SHFL_XOR, OP_SHFL_IDX, OP_SYNCWARP, OP_MMA_S8, OP_MMA_F16, OP_MMA_BF16, OP_LDSM };
+enum Op { OP_SHFL_XOR, OP_SHFL_IDX, OP_SYNCWARP, OP_MMA_S8, OP_MMA_F16, OP_MMA_BF16, OP_MMA_E4M3, OP_LDSM };
 
 struct CpAsync {
   void *dst;
@@ -112,6 +112,13 @@ inline void entry() {
 }
 
 float h2f_bits(uint16_t h);
+// FP8 E4M3 (e4m3fn: bias 7, no infinity, 0x7F / 0xFF NaN, max 448)
+inline float e4m3_to_f(uint8_t b) {
+  const int s = b >> 7, e = (b >> 3) & 15, m = b & 7;
+  if (e == 15 && m == 7) return NAN;
+  const float v = e ? ldexpf(1.f + m / 8.f, e - 7) : ldexpf((float)m, -9);
+  return s ? -v : v;
+}
 inline float bf2f_bits(uint16_t h) {
   uint32_t u = (uint32_t)h << 16;
   float f;
@@ -124,6 +131,28 @@ inline void resolve_warp(std::vector<Thread> &t, int w0) {
   Op op = L[0].op;
   for (int l = 1; l < 32; l++)
     if (L[l].op != op) fail("lanes of one warp reached different collectives");
+  if (op == OP_MMA_E4M3) {
+    // mma.sync.aligned.m16n8k32.row.col.f32.e4m3.e4m3.f32: the byte fragment layouts of the int8 m16n8k32 MMA
+    float A[16][32], B[32][8], C[16][8];
+    for (int l = 0; l < 32; l++) {
+      int g = l >> 2, tq = l & 3;
+      for (int i = 0; i < 16; i++)
+        A[g + 8 * ((i / 4) & 1)][4 * tq + (i & 3) + (i >= 8 ? 16 : 0)] = e4m3_to_f((uint8_t)(L[l].in[i / 4] >> (8 * (i & 3))));
+      for (int i = 0; i < 8; i++) B[4 * tq + (i & 3) + (i >= 4 ? 16 : 0)][g] = e4m3_to_f((uint8_t)(L[l].in[4 + i / 4] >> (8 * (i & 3))));
+      for (int i = 0; i < 4; i++) memcpy(&C[g + 8 * (i >= 2)][2 * tq + (i & 1)], &L[l].in[6 + i], 4);
+    }
+    for (int l = 0; l < 32; l++) {
+      int g = l >> 2, tq = l & 3;
+      for (int i = 0; i < 4; i++) {
+        int r = g + 8 * (i >= 2), col = 2 * tq + (i & 1);
+        float acc = C[r][col];
+        for (int k = 0; k < 32; k++) acc += A[r][k] * B[k][col];  // e4m3 x e4m3 products are exact in f32
+        memcpy(&L[l].out[i], &acc, 4);
+      }
+    }
+    for (int l = 0; l < 32; l++) L[l].state = RUN;
+    return;
+  }
   if (op == OP_SHFL_XOR || op == OP_SHFL_IDX) {
     for (int l = 0; l < 32; l++) {
       int src = op == OP_SHFL_XOR ? (l ^ (int)L[l].in[1]) : ((int)L[l].in[1] & 31);
@@ -449,6 +478,32 @@ inline uint16_t kemu_f2bf(float f) {
   return (uint16_t)(u >> 16);
 }
 inline uint32_t kemu_cvt_bf16x2(float hi, float lo) { return (uint32_t)kemu_f2bf(lo) | ((uint32_t)kemu_f2bf(hi) << 16); }
+inline void kemu_mma_e4m3_16832(float d[4], const unsigned a[4], const unsigned b[2], const float c[4]) {
+  uint32_t in[10] = {a[0], a[1], a[2], a[3], b[0], b[1], 0, 0, 0, 0};
+  memcpy(&in[6], c, 16);
+  kemu::warp_op(kemu::OP_MMA_E4M3, in, 10);
+  memcpy(d, kemu::ctx().cur->out, 16);
+}
+// f32 -> e4m3, round to nearest even, saturating to +-448 (cvt.rn.satfinite.e4m3x2.f32); NaN -> 0x7F
+inline uint8_t kemu_f2e4m3(float x) {
+  if (x != x) return 0x7F;
+  const uint8_t s = std::signbit(x) ? 0x80 : 0;
+  const float a = fabsf(x);
+  if (a >= 448.f) return s | 0x7E;
+  if (a < 0.015625f) return s | (uint8_t)std::nearbyintf(a * 512.f);  // subnormal (q = 8 is the smallest normal, code 8)
+  int e;
+  frexpf(a, &e);  // a = f * 2^e, f in [0.5, 1)
+  e -= 1;         // a = 1.m * 2^e
+  int q = (int)std::nearbyintf(ldexpf(a, 3 - e));  // 8 .. 16
+  if (q == 16) q = 8, e++;
+  if (e + 7 > 15 || (e + 7 == 15 && q - 8 == 7)) return s | 0x7E;
+  return s | (uint8_t)(((e + 7) << 3) | (q - 8));
+}
+inline uint32_t kemu_cvt_e4m3x2(float hi, float lo) { return (uint32_t)kemu_f2e4m3(lo) | ((uint32_t)kemu_f2e4m3(hi) << 8); }
+// e4m3x2 -> f16x2 (cvt.rn.f16x2.e4m3x2; exact): low byte -> low half
+inline uint32_t kemu_cvt_f16x2_e4m3x2(uint32_t v) {
+  return (uint32_t)kemu_f2h(kemu::e4m3_to_f((uint8_t)v)) | ((uint32_t)kemu_f2h(kemu::e4m3_to_f((uint8_t)(v >> 8))) << 16);
+}
 inline void kemu_ldmatrix(unsigned *r, const void *addr, int n, int trans) {
   uint64_t a = (uint64_t)(uintptr_t)addr;
   uint32_t in[4] = {(uint32_t)a, (uint32_t)(a >> 32), (uint32_t)n, (uint32_t)trans};
