@@ -126,6 +126,32 @@ engine; 545 of them run on kurn). `tests/test_llama_attn.py` checks the generato
 kurn's harness, checks that `exact` is batch-invariant, and runs a test-backend-ops subset when a built checkout is
 found (`KURN_LLAMA_CPP`).
 
+## k4c KV cache (`k4c/`)
+
+`k4c/apply.sh LLAMA_DIR` (after `apply.sh`) adds `GGML_TYPE_K4C`, kurn's k4c key format, as a llama.cpp K cache type:
+`-ctk k4c -ctv q4_0` is kurn's `k4c_q4`, `-ctv q8_0` its `k4c_q8` (`-ctk k4c_q4` / `-ctk k4c_q8` set both). Keys are
+quantized to 4 bits per channel over groups of 32 cache cells (f16 scale and min per channel and group, 5 bits per value
+on average); kurn's attention reads the groups directly (`kurn-attn.cpp`, kernels `kattn_*_k4c_q4/q8_*`).
+
+- **After RoPE.** llama.cpp caches rotated keys, so the kernels run with `rope_dim 0`; kurn's own engine stores keys
+  before RoPE. On Qwen3-1.7B the per-channel 4-bit keys are still accurate (WikiText-2, ctx 2048, KL vs F16 KV with
+  ggml's FA: k4c_q4 0.016 at +0.10% perplexity, k4c_q8 0.010; llama.cpp's own Q4_0 KV 0.32 at +29%, 1.15 at +107%
+  without its Hadamard rotation).
+- **Writes** (`ggml-k4c.c`, SET_ROWS into a K4C cache): each touched group is re-encoded from the exact values of its
+  valid rows, kept as f16 in a bounded table (`GGML_K4C_EXACT_MB`, default 256) for recently written groups. A group
+  filled one token at a time, rolled back (rejected drafts) or partly cleared holds the same bytes as the same rows
+  written at once; freed cells are cleared, so stale keys never widen a group's range. Older groups that left the table
+  are re-encoded from their 4-bit values if they are ever rewritten.
+- **Session state** (prompt cache, `--slot-save-path` save / restore, `llama_state_seq_*`): K4C keys are written as f16
+  rows and re-quantized into whatever cells they are restored to; with the f16 table this restores the same codes. With
+  `GGML_KURN_FA_MODE=exact`, llama-server's cached, restored and recomputed continuations are bit-identical.
+- **Not supported:** K-shift (context shift, `--cache-reuse`: `get_can_shift()` is false), the non-FA path, V types
+  other than Q4_0 / Q8_0, MLA models, cache sizes that are not a multiple of 32, non-CPU buffers.
+
+`k4c/test_k4c.c` checks writes in llama.cpp's patterns (prefill ending inside a group, appends, rollback, out-of-order
+rows, clears), byte-identical groups for prefill vs appends + rollback, FA on K4C against ggml on the dequantized keys,
+and batch invariance in exact mode; `tests/test_llama_k4c.py` runs it against a built checkout.
+
 ## Speculative decoding: cost-aware verify width (`spec-width/`)
 
 Verify cost on this buffer type is a staircase: 3 columns cost as much as 4 and 5-7 as much as 8 (one kernel per

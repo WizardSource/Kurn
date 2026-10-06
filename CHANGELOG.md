@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Added: k4c as a llama.cpp KV cache type (`integration/llama.cpp/k4c`)
+- `k4c/apply.sh` adds `GGML_TYPE_K4C` (per-channel 4-bit keys in 32-cell groups, read by kurn's attention):
+  `-ctk k4c -ctv q4_0|q8_0` (or `-ctk k4c_q4|k4c_q8`) in llama-cli / llama-server / llama-perplexity. Keys are cached
+  after RoPE (kernel `rope_dim 0`). Qwen3-1.7B, WikiText-2 ctx 2048, KL vs F16 KV: k4c_q4 0.016 (+0.10% PPL), k4c_q8
+  0.010; llama.cpp's Q4_0 KV 0.32 (+29%).
+- Group writes re-encode from exact (f16) values of recently written groups, so appends, rollbacks and clears give the
+  same bytes as a prefill; session state (prompt cache, slot save / restore) stores f16 rows and restores the same
+  codes. No K-shift. `k4c/test_k4c.c`, `tests/test_llama_k4c.py`.
+
 ### Added: kurn attention as llama.cpp's `FLASH_ATTN_EXT` (`integration/llama.cpp`)
 - `apply.sh` generates kurn attention kernels (`gen_ggml_attn.py`: f32 / AMX-BF16 / AVX512-BF16 tile engines plus a
   batch-invariant `exact` configuration, F16 / BF16 / Q8_0 KV, head dims 64 / 128 / 256 / 576-512) and makes
