@@ -1,0 +1,30 @@
+q8_0: matmul time per forward: 36 layers + head (ms) by verify width M
+  M  kernel     ms    vs M=1   ms/token
+  1  gemv     60.38    1.00x    60.38
+  2  vfy2     93.25    1.54x    46.62
+  3  vfy4    113.12    1.87x    37.71
+  4  vfy4    117.55    1.95x    29.39
+  5  vfy8    131.24    2.17x    26.25
+  6  vfy8    132.02    2.19x    22.00
+  7  vfy8    139.28    2.31x    19.90
+  8  vfy8    139.39    2.31x    17.42
+q4_0: matmul time per forward: 36 layers (ms) by verify width M
+  M  kernel     ms    vs M=1   ms/token
+  1  gemv     34.78    1.00x    34.78
+  2  vfy2     54.47    1.57x    27.24
+  3  vfy4     61.08    1.76x    20.36
+  4  vfy4     65.47    1.88x    16.37
+  5  vfy8     72.96    2.10x    14.59
+  6  vfy8     73.92    2.13x    12.32
+  7  vfy8     74.33    2.14x    10.62
+  8  vfy8     72.87    2.09x     9.11
+q4_K: matmul time per forward: 36 layers (ms) by verify width M
+  M  kernel     ms    vs M=1   ms/token
+  1  gemv     35.33    1.00x    35.33
+  2  vfy2     53.12    1.50x    26.56
+  3  vfy4     60.82    1.72x    20.27
+  4  vfy4     61.06    1.73x    15.26
+  5  vfy8     74.43    2.11x    14.89
+  6  vfy8     74.25    2.10x    12.38
+  7  vfy8     76.37    2.16x    10.91
+  8  vfy8     75.20    2.13x     9.40

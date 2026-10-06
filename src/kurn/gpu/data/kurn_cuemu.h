@@ -50,7 +50,7 @@ typedef int cudaError_t;
 namespace kemu {
 
 enum State { RUN, BAR, WARP, DONE };
-enum Op { OP_SHFL_XOR, OP_SHFL_IDX, OP_SYNCWARP, OP_MMA_S8, OP_MMA_F16, OP_LDSM };
+enum Op { OP_SHFL_XOR, OP_SHFL_IDX, OP_SYNCWARP, OP_MMA_S8, OP_MMA_F16, OP_MMA_BF16, OP_LDSM };
 
 struct CpAsync {
   void *dst;
@@ -112,6 +112,12 @@ inline void entry() {
 }
 
 float h2f_bits(uint16_t h);
+inline float bf2f_bits(uint16_t h) {
+  uint32_t u = (uint32_t)h << 16;
+  float f;
+  memcpy(&f, &u, 4);
+  return f;
+}
 
 inline void resolve_warp(std::vector<Thread> &t, int w0) {
   Thread *L = &t[w0];
@@ -155,18 +161,19 @@ inline void resolve_warp(std::vector<Thread> &t, int w0) {
       }
     }
   }
-  else if (op == OP_MMA_F16) {
-    // mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 fragment layouts (PTX ISA):
+  else if (op == OP_MMA_F16 || op == OP_MMA_BF16) {
+    // mma.sync.aligned.m16n8k16.row.col.f32.{f16,bf16}.{f16,bf16}.f32 fragment layouts (PTX ISA, same for both types):
     //   A (16x16): reg r holds 2 halves (lo, hi) at row g + 8*(r&1), col 2t + (lo/hi) + 8*(r>>1)
     //   B (16x8):  reg r holds 2 halves at row(k) 2t + (lo/hi) + 8*r, col g
     //   C/D (16x8): c_i at row g + 8*(i>=2), col 2t + (i&1)
+    float (*cvt)(uint16_t) = op == OP_MMA_F16 ? h2f_bits : bf2f_bits;
     float A[16][16], B[16][8], C[16][8];
     for (int l = 0; l < 32; l++) {
       int g = l >> 2, tq = l & 3;
       for (int r = 0; r < 4; r++)
-        for (int h = 0; h < 2; h++) A[g + 8 * (r & 1)][2 * tq + h + 8 * (r >> 1)] = h2f_bits((uint16_t)(L[l].in[r] >> (16 * h)));
+        for (int h = 0; h < 2; h++) A[g + 8 * (r & 1)][2 * tq + h + 8 * (r >> 1)] = cvt((uint16_t)(L[l].in[r] >> (16 * h)));
       for (int r = 0; r < 2; r++)
-        for (int h = 0; h < 2; h++) B[2 * tq + h + 8 * r][g] = h2f_bits((uint16_t)(L[l].in[4 + r] >> (16 * h)));
+        for (int h = 0; h < 2; h++) B[2 * tq + h + 8 * r][g] = cvt((uint16_t)(L[l].in[4 + r] >> (16 * h)));
       for (int i = 0; i < 4; i++) {
         float f;
         memcpy(&f, &L[l].in[6 + i], 4);
@@ -178,7 +185,7 @@ inline void resolve_warp(std::vector<Thread> &t, int w0) {
       for (int i = 0; i < 4; i++) {
         int r = g + 8 * (i >= 2), col = 2 * tq + (i & 1);
         float acc = C[r][col];
-        for (int k = 0; k < 16; k++) acc += A[r][k] * B[k][col];  // f16 x f16 products are exact in f32
+        for (int k = 0; k < 16; k++) acc += A[r][k] * B[k][col];  // f16 x f16 and bf16 x bf16 products are exact in f32
         memcpy(&L[l].out[i], &acc, 4);
       }
     }
@@ -246,9 +253,20 @@ inline void launch(dim3 grid, dim3 block, std::function<void()> body) {
               int tmp = order[i]; order[i] = order[j]; order[j] = tmp;
             }
           }
+          // KEMU_SEED also holds back whole warps for a pass, so warps drift apart and cross-warp races on shared
+          // memory (a missing __syncthreads between a producer warp and a consumer warp) are exposed
+          uint64_t warp_hold = 0;
+          if (c.seed && nt > 32) {
+            for (int w = 0; w < nt / 32 && w < 64; w++) {
+              c.seed = c.seed * 6364136223846793005ULL + 1442695040888963407ULL;
+              if ((c.seed >> 41) % 3 == 0) warp_hold |= 1ULL << w;
+            }
+            if (warp_hold == ((nt / 32 >= 64) ? ~0ULL : (1ULL << (nt / 32)) - 1)) warp_hold &= warp_hold - 1;
+          }
           for (int ii = 0; ii < nt; ii++) {
             Thread &t = c.threads[order[ii]];
             if (t.state != RUN) continue;
+            if (warp_hold >> ((order[ii] / 32) & 63) & 1) continue;
             if (c.seed) {
               c.seed = c.seed * 6364136223846793005ULL + 1442695040888963407ULL;
               if ((c.seed >> 40) % 3 == 0 && ii + 1 < nt) continue;  // delay this thread one pass
@@ -417,6 +435,20 @@ inline void kemu_mma_f16_16816(float d[4], const unsigned a[4], const unsigned b
   kemu::warp_op(kemu::OP_MMA_F16, in, 10);
   memcpy(d, kemu::ctx().cur->out, 16);
 }
+inline void kemu_mma_bf16_16816(float d[4], const unsigned a[4], const unsigned b[2], const float c[4]) {
+  uint32_t in[10] = {a[0], a[1], a[2], a[3], b[0], b[1], 0, 0, 0, 0};
+  memcpy(&in[6], c, 16);
+  kemu::warp_op(kemu::OP_MMA_BF16, in, 10);
+  memcpy(d, kemu::ctx().cur->out, 16);
+}
+// f32 -> bf16, round to nearest even (same as cvt.rn.bf16x2.f32; NaN stays NaN)
+inline uint16_t kemu_f2bf(float f) {
+  uint32_t u = kemu::f2u(f);
+  if ((u & 0x7F800000u) == 0x7F800000u && (u & 0x7FFFFFu)) return (uint16_t)((u >> 16) | 0x40);
+  u += 0x7FFFu + ((u >> 16) & 1u);
+  return (uint16_t)(u >> 16);
+}
+inline uint32_t kemu_cvt_bf16x2(float hi, float lo) { return (uint32_t)kemu_f2bf(lo) | ((uint32_t)kemu_f2bf(hi) << 16); }
 inline void kemu_ldmatrix(unsigned *r, const void *addr, int n, int trans) {
   uint64_t a = (uint64_t)(uintptr_t)addr;
   uint32_t in[4] = {(uint32_t)a, (uint32_t)(a >> 32), (uint32_t)n, (uint32_t)trans};
@@ -438,6 +470,20 @@ inline void kemu_mma_s8_16832(int d[4], const unsigned a[4], const unsigned b[2]
   for (int i = 0; i < 4; i++) d[i] = (int)t->out[i];
 }
 
+// A cp.async copy lands at its wait_group, so reading shared memory without waiting reads stale data. Under KEMU_SEED
+// half of the copies land at issue instead (also legal on hardware), so refilling a buffer that other warps still
+// read (a missing barrier before the next stage's copies) overwrites their data.
+inline void kemu_cp_issue(const kemu::CpAsync &e) {
+  kemu::Ctx &c = kemu::ctx();
+  if (c.seed) {
+    c.seed = c.seed * 6364136223846793005ULL + 1442695040888963407ULL;
+    if ((c.seed >> 45) & 1) {
+      memcpy(e.dst, e.src, e.n);
+      return;
+    }
+  }
+  c.cur->open.push_back(e);
+}
 // cp.async (16 bytes, zero-filled past src_size), deferred until wait_group
 inline void kemu_cp_async16(void *dst, const void *src, int src_size) {
   if ((uintptr_t)dst % 16 || (src_size && (uintptr_t)src % 16)) kemu::fail("misaligned cp.async (16-byte copies need 16-byte alignment)");
@@ -446,7 +492,17 @@ inline void kemu_cp_async16(void *dst, const void *src, int src_size) {
   e.n = 16;
   memset(e.src, 0, 16);
   if (src_size) memcpy(e.src, src, src_size);
-  kemu::ctx().cur->open.push_back(e);
+  kemu_cp_issue(e);
+}
+// cp.async.ca 4-byte copy (zero-filled when src_size == 0), deferred until wait_group
+inline void kemu_cp_async4(void *dst, const void *src, int src_size) {
+  if ((uintptr_t)dst % 4 || (src_size && (uintptr_t)src % 4)) kemu::fail("misaligned cp.async (4-byte copies need 4-byte alignment)");
+  kemu::CpAsync e;
+  e.dst = dst;
+  e.n = 4;
+  memset(e.src, 0, 16);
+  if (src_size) memcpy(e.src, src, src_size);
+  kemu_cp_issue(e);
 }
 inline void kemu_cp_commit() {
   kemu::Thread *t = kemu::ctx().cur;

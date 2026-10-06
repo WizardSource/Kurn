@@ -14,6 +14,7 @@ kurn gpu matrix [--formats ...] [--quick]         the benchmark matrix vs every 
 kurn gpu report RESULTS_DIR                       wins/ties/losses report.md + dispatch.json
 kurn gpu dispatch FMT BATCH [--table T]           what kernel_for() picks
 kurn gpu kit-tune [--quick] [--out tuned.json]    brief tuning of the kernels the matrix races (hand-run kit)
+kurn gpu attn ...                                 the attention op (see `kurn gpu attn -h`)
 """
 
 import argparse
@@ -289,6 +290,10 @@ def main(argv=None):
         from .kit import main as kit_main
 
         return kit_main(argv[1:])
+    if argv[:1] == ["attn"]:
+        from .attn_cli import main as attn_main
+
+        return attn_main(argv[1:])
     ap = argparse.ArgumentParser(prog="kurn gpu", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("targets")
@@ -386,4 +391,8 @@ SPEC_COMMANDS = ("check", "gen", "build", "verify", "tune")
 
 
 def spec_command(cmd, argv):
+    if argv and os.path.isfile(argv[0]) and gspec.load(argv[0])[0].get("op") == "attn":  # `op attn` specs: kurn.gpu.attn
+        if cmd not in ("check", "gen", "build", "verify", "tune"):
+            raise SpecError(f"kurn {cmd}: not available for op attn target cuda")
+        return main(["attn", cmd, *argv])
     return main([cmd, *argv])

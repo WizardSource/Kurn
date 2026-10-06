@@ -72,7 +72,8 @@ K gpu targets > "$OUT/targets.txt" 2>&1; head -2 "$OUT/targets.txt" | tee -a "$O
 FORMATS=${FORMATS:-q8_0,q4_0,iq4_nl,q4_K,q2_0,tq2_0,q1_0,e8p}
 if [ "$DRYRUN" = "1" ]; then
   ARCH=sm_80
-  ARCHS=sm_80,sm_90,sm_100
+  ARCHS=sm_80  # the targets: A100, plus RTX 50 (sm_120) when nvcc >= 12.8
+  "$PY" -c 'import sys; from kurn.gpu.attn import fatbin_archs; sys.exit("sm_120" not in fatbin_archs())' && ARCHS=sm_80,sm_120
 else
   ARCH=$("$PY" -c 'from kurn.gpu.harness import detect_arch; print(detect_arch() or "sm_80")')
   ARCHS=$ARCH
@@ -94,6 +95,16 @@ log "== CPU-emulator numerics (generated kernels vs the exact reference, no GPU)
 EXTRA=4; [ "$QUICK" = "1" ] && EXTRA=0
 K gpu verify --all --extra "$EXTRA" > "$OUT/verify_emu.txt" 2>&1
 tail -1 "$OUT/verify_emu.txt" | tee -a "$OUT/run.log"
+if [ -n "${KURN_NVCC:-}" ]; then
+  log "== attention: sm_80 + sm_120 fatbins for the covering set (registers, spills, cuobjdump contents)"
+  K gpu attn ptxas --all > "$OUT/attn_ptxas.txt" 2>&1
+  tail -1 "$OUT/attn_ptxas.txt" | tee -a "$OUT/run.log"
+fi
+if [ "$DRYRUN" = "1" ]; then
+  log "== attention: CPU-emulator numerics of the default kernels"
+  for kv in f16 bf16 q8_0; do for dk in 128 576; do K gpu attn verify - kv=$kv dk=$dk --quick; done; done > "$OUT/attn_verify_emu.txt" 2>&1
+  grep -c "^ok" "$OUT/attn_verify_emu.txt" | sed 's/^/attention defaults ok on the emulator: /' | tee -a "$OUT/run.log"
+fi
 
 # ---------------------------------------------------------------- llama.cpp (ggml-cuda competitor)
 LLAMA=""
@@ -152,6 +163,12 @@ else
   tail -1 "$OUT/verify_gpu.txt" | tee -a "$OUT/run.log"
   grep FAIL "$OUT/verify_gpu.txt" | head -5 | tee -a "$OUT/run.log"
 
+  log "== attention correctness on the GPU (covering set, awkward shapes vs the float64 reference)"
+  AQ=(--quick); [ "$QUICK" = "1" ] || AQ=()
+  K gpu attn verify --all --gpu --arch "$ARCH" "${AQ[@]}" > "$OUT/attn_verify_gpu.txt" 2>&1
+  tail -1 "$OUT/attn_verify_gpu.txt" | tee -a "$OUT/run.log"
+  grep FAIL "$OUT/attn_verify_gpu.txt" | head -5 | tee -a "$OUT/run.log"
+
   log "== tuning sweep for every format before the matrix (dp4a GEMV + tensor-core engine per batch range; speed and NVML energy)"
   TQ=(); [ "$QUICK" = "1" ] && TQ=(--quick)
   K gpu kit-tune --harness "$HARNESS" --arch "$ARCH" --formats "$FORMATS" --out "$OUT/tuned.json" "${TQ[@]}" > "$OUT/tune.txt" 2>&1
@@ -162,6 +179,10 @@ else
   K gpu matrix --results "$OUT" --harness "$HARNESS" --arch "$ARCH" --formats "$FORMATS" --kernels "$OUT/tuned.json" \
     --secs 0.4 --reps 5 "${MQ[@]}" > "$OUT/matrix_report_stdout.txt" 2>&1
   tail -3 "$OUT/matrix.log" 2>/dev/null | tee -a "$OUT/run.log"
+
+  log "== attention decode matrix (Llama-3-8B / Qwen3-1.7B / MLA shapes x context x F16/BF16/Q8_0 KV, cold KV > L2)"
+  K gpu attn matrix --results "$OUT" --arch "$ARCH" "${MQ[@]}" > "$OUT/attn_matrix_stdout.txt" 2>&1
+  tail -1 "$OUT/attn_matrix_stdout.txt" | tee -a "$OUT/run.log"
 
   if [ "${NO_MARLIN:-0}" != "1" ]; then
     log "== Marlin (optional cross-format competitor)"

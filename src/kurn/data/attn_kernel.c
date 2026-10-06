@@ -12,7 +12,28 @@
  * max is only raised when a tile's max exceeds it by more than KA_RESCALE (lazy
  * rescaling): probabilities stay <= 2^KA_RESCALE, which is exact enough in f32/bf16
  * and skips almost every rescale of the output accumulator after the first tiles.
+ *
+ *   KA_KCENTER        bf16 engines: subtract a per-item K mean (of the first K tile it packs, offset-
+ *                     dominated channels only) before rounding K to bf16. q.mu is constant per row, so softmax is unchanged;
+ *                     it is added back to the running max for the split-KV merge. Removes the
+ *                     rounding noise of constant K channel offsets (e.g. Qwen2 key bias).
  */
+#ifndef KA_KCENTER
+#define KA_KCENTER 1
+#endif
+/*   KA_QK8            amx_bf16: Q K^T on AMX-INT8 (q int8 per row, k int8 per token after centering),
+ *                     P V stays bf16. About 6x the bf16 score rounding error; no kattn_pack support. */
+#ifndef KA_QK8
+#define KA_QK8 0
+#endif
+#if KA_ENGINE == 0
+#undef KA_KCENTER
+#define KA_KCENTER 0
+#endif
+#if KA_ENGINE != 2
+#undef KA_QK8
+#define KA_QK8 0
+#endif
 #include <immintrin.h>
 #include <math.h>
 #include <stdatomic.h>
@@ -36,8 +57,13 @@
 #define KA_MAX(a, b) ((a) > (b) ? (a) : (b))
 #define KA_INLINE static inline __attribute__((always_inline, unused)) /* shared by all engines; each uses a subset */
 
+/* pre-RoPE formats: K and V are dequantized (and K rotated) into f32 staging rows per tile */
+#define KA_PRE_ROPE (KA_KV == KATTN_KV_K4C_Q4 || KA_KV == KATTN_KV_K4C_Q8)
+
 #if KA_KV == KATTN_KV_Q8_0
 #define KA_ROW_BYTES(d) ((int64_t)(d) / 32 * 34)
+#elif KA_PRE_ROPE
+#define KA_ROW_BYTES(d) ((int64_t)(d) * 4)
 #else
 #define KA_ROW_BYTES(d) ((int64_t)(d) * 2)
 #endif
@@ -46,7 +72,11 @@ int64_t kattn_config(int *dk, int *dv, int *kv_format) {
     if (dk) *dk = KA_DK;
     if (dv) *dv = KA_DV;
     if (kv_format) *kv_format = KA_KV;
+#if KA_PRE_ROPE
+    return KATTN_K4C_BLOCK_BYTES(KA_DK);
+#else
     return KA_ROW_BYTES(KA_DK);
+#endif
 }
 
 /* ---------------------------------------------------------------- helpers */
@@ -73,6 +103,8 @@ KA_INLINE __m512 ka_row16(const uint8_t *row, int i) {
     return _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)(row + 2 * i)));
 #elif KA_KV == KATTN_KV_BF16
     return _mm512_castsi512_ps(_mm512_slli_epi32(_mm512_cvtepu16_epi32(_mm256_loadu_si256((const __m256i *)(row + 2 * i))), 16));
+#elif KA_PRE_ROPE
+    return _mm512_loadu_ps((const float *)row + i);
 #else
     const uint8_t *b = row + (i >> 5) * 34;
     const __m512 d = _mm512_set1_ps(ka_f16(*(const uint16_t *)b));
@@ -133,6 +165,10 @@ typedef struct {
     size_t thr_bytes, part_off, thr_off;
 } ka_plan;
 
+#if KA_PRE_ROPE
+static size_t ka_stage_bytes(int dec);
+#endif
+
 typedef struct {
     atomic_int next, done;
     atomic_int group[]; /* per (kv head, query tile): splits finished */
@@ -186,8 +222,12 @@ static void ka_make_plan(const kattn_args *a, int nth, ka_plan *p) {
           + KA_ALIGN(kb * KA_TK * KA_DV)                             /* packed V tile */
           + KA_ALIGN(sizeof(float) * p->Rpad * KA_DV)                /* O */
           + 2 * KA_ALIGN(sizeof(float) * p->Rpad)                    /* m, l */
+          + KA_ALIGN(sizeof(float) * KA_DK)                          /* K mean */
           + 64;
     }
+#if KA_PRE_ROPE
+    t = KA_ALIGN(t) + ka_stage_bytes(p->dec); /* staging area: the last bytes of each thread's share */
+#endif
     p->thr_bytes = KA_ALIGN(t);
     p->part_off = KA_ALIGN(sizeof(ka_hdr) + sizeof(atomic_int) * p->ngroups);
     const size_t part = p->nsplit > 1 ? sizeof(float) * p->ngroups * p->nsplit * p->R * (KA_DV + 2) : 0;
@@ -205,6 +245,8 @@ typedef struct {
     const ka_plan *p;
     int64_t g, ng, qt, t0, nt, k0, k1; /* first kv head, heads, query tile, first token, tokens, kv range */
     float *m, *l, *O;              /* per row: running max (log2), sum, unnormalized output [R][DV] */
+    const uint8_t *kvp;            /* kattn_packed: AMX-ready K/V (NULL = pack per tile) */
+    int64_t cap;                   /* its token capacity (multiple of KA_TK) */
 } ka_item;
 
 KA_INLINE const float *ka_qrow_g(const ka_item *it, int64_t g, int64_t r) {
@@ -214,13 +256,220 @@ KA_INLINE const float *ka_qrow_g(const ka_item *it, int64_t g, int64_t r) {
 
 KA_INLINE const float *ka_qrow(const ka_item *it, int64_t r) { return ka_qrow_g(it, it->g, r); }
 
+#if KA_PRE_ROPE
+static const kattn_args *ka_staged(const kattn_args *a, int64_t g, int64_t j);
+#endif
+
 KA_INLINE const uint8_t *ka_krow(const kattn_args *a, int64_t g, int64_t j) {
+#if KA_PRE_ROPE
+    a = ka_staged(a, g, j);
+#endif
     return (const uint8_t *)a->k + j * a->k_s_tok + g * a->k_s_head;
 }
 
 KA_INLINE const uint8_t *ka_vrow(const kattn_args *a, int64_t g, int64_t j) {
+#if KA_PRE_ROPE
+    a = ka_staged(a, g, j);
+#endif
     return (const uint8_t *)a->v + j * a->v_s_tok + g * a->v_s_head;
 }
+
+#if KA_PRE_ROPE
+/* ---------------------------------------------------------------- pre-RoPE staging
+ * Per thread: f32 K [tk][DK] (dequantized, rotated), f32 V [tk][DV], cos / sin [tk][DK/2] of
+ * the tile's positions and the key they were computed for. The engines then read the staged
+ * rows through a copy of the arguments whose k / v point at them (ka_row16 reads f32). */
+#define KA_STK(dec) ((dec) ? (int64_t)KA_DEC_TK : (int64_t)KA_TK)
+
+static size_t ka_stage_bytes(int dec) {
+    const size_t tk = (size_t)KA_STK(dec);
+    return KA_ALIGN(4 * tk * KA_DK) + KA_ALIGN(4 * tk * KA_DV) + 2 * KA_ALIGN(4 * tk * (KA_DK / 2)) + 64;
+}
+
+/* cos / sin of pos * f[i], i < 16: angle and range reduction in double, minimax-style f32
+ * polynomials on [-pi/4, pi/4] (Cephes sinf / cosf), ~1e-7 absolute */
+KA_INLINE void ka_sincos16(double pos, const float *f, float *co, float *si) {
+    __m256 rh[2];
+    __m256i qh[2];
+    for (int h = 0; h < 2; h++) {
+        const __m512d x = _mm512_mul_pd(_mm512_set1_pd(pos), _mm512_cvtps_pd(_mm256_loadu_ps(f + 8 * h)));
+        const __m512d k = _mm512_roundscale_pd(_mm512_mul_pd(x, _mm512_set1_pd(0.63661977236758134)), _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+        __m512d r = _mm512_fnmadd_pd(k, _mm512_set1_pd(1.5707963267948966), x);
+        r = _mm512_fnmadd_pd(k, _mm512_set1_pd(6.123233995736766e-17), r);
+        rh[h] = _mm512_cvtpd_ps(r);
+        qh[h] = _mm512_cvtpd_epi32(k);
+    }
+    const __m512 r = _mm512_insertf32x8(_mm512_castps256_ps512(rh[0]), rh[1], 1);
+    const __m512i q = _mm512_inserti32x8(_mm512_castsi256_si512(qh[0]), qh[1], 1);
+    const __m512 z = _mm512_mul_ps(r, r);
+    __m512 s = _mm512_fmadd_ps(_mm512_set1_ps(-1.9515295891e-4f), z, _mm512_set1_ps(8.3321608736e-3f));
+    s = _mm512_fmadd_ps(s, z, _mm512_set1_ps(-1.6666654611e-1f));
+    s = _mm512_fmadd_ps(_mm512_mul_ps(s, z), r, r);
+    __m512 c = _mm512_fmadd_ps(_mm512_set1_ps(2.443315711809948e-5f), z, _mm512_set1_ps(-1.388731625493765e-3f));
+    c = _mm512_fmadd_ps(c, z, _mm512_set1_ps(4.166664568298827e-2f));
+    c = _mm512_fmadd_ps(_mm512_mul_ps(c, z), z, _mm512_fnmadd_ps(_mm512_set1_ps(0.5f), z, _mm512_set1_ps(1.0f)));
+    const __mmask16 sw = _mm512_test_epi32_mask(q, _mm512_set1_epi32(1));
+    const __mmask16 ns = _mm512_test_epi32_mask(q, _mm512_set1_epi32(2));
+    const __mmask16 nc = _mm512_test_epi32_mask(_mm512_add_epi32(q, _mm512_set1_epi32(1)), _mm512_set1_epi32(2));
+    __m512 so = _mm512_mask_blend_ps(sw, s, c), cof = _mm512_mask_blend_ps(sw, c, s);
+    const __m512 neg = _mm512_set1_ps(-0.0f);
+    so = _mm512_mask_xor_ps(so, ns, so, neg);
+    cof = _mm512_mask_xor_ps(cof, nc, cof, neg);
+    _mm512_storeu_ps(si, so);
+    _mm512_storeu_ps(co, cof);
+}
+
+/* cos / sin rows [nk][DK/2] for positions pos0 .. pos0 + nk - 1: exact every 16 positions, the
+ * positions in between by rotating with (cos f, sin f), so the error stays ~1e-6 */
+static void ka_rope_table(int64_t pos0, int nk, const float *f, int rd, float *C, float *Sn) {
+    for (int i = 0; i < rd / 2; i += 16) {
+        float cf[16], sf[16];
+        ka_sincos16(1.0, f + i, cf, sf);
+        const __m512 vcf = _mm512_loadu_ps(cf), vsf = _mm512_loadu_ps(sf);
+        __m512 c = _mm512_setzero_ps(), s = _mm512_setzero_ps();
+        for (int t = 0; t < nk; t++) {
+            float *ct = C + t * (KA_DK / 2) + i, *st = Sn + t * (KA_DK / 2) + i;
+            if (t % 16 == 0) {
+                ka_sincos16((double)(pos0 + t), f + i, ct, st);
+                c = _mm512_loadu_ps(ct);
+                s = _mm512_loadu_ps(st);
+            } else {
+                const __m512 c2 = _mm512_fmsub_ps(c, vcf, _mm512_mul_ps(s, vsf));
+                s = _mm512_fmadd_ps(s, vcf, _mm512_mul_ps(c, vsf));
+                c = c2;
+                _mm512_storeu_ps(ct, c);
+                _mm512_storeu_ps(st, s);
+            }
+        }
+    }
+}
+
+/* rotate the f32 row k[DK] by the cos / sin row (rope_dim % 32 == 0) */
+KA_INLINE void ka_rope_row(__m512 *k, const float *co, const float *si, int rd, int mode) {
+    if (mode == KATTN_ROPE_NEOX) {
+        const int hb = rd / 32; /* 16-lane blocks per half */
+        for (int b = 0; b < hb; b++) {
+            const __m512 c = _mm512_loadu_ps(co + 16 * b), s = _mm512_loadu_ps(si + 16 * b);
+            const __m512 x0 = k[b], x1 = k[b + hb];
+            k[b] = _mm512_fnmadd_ps(x1, s, _mm512_mul_ps(x0, c));
+            k[b + hb] = _mm512_fmadd_ps(x0, s, _mm512_mul_ps(x1, c));
+        }
+    } else {
+        const __m512i dup = _mm512_set_epi32(7, 7, 6, 6, 5, 5, 4, 4, 3, 3, 2, 2, 1, 1, 0, 0);
+        const __m512 alt = _mm512_set_ps(1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1);
+        for (int b = 0; b < rd / 16; b++) {
+            const __m512 c = _mm512_permutexvar_ps(dup, _mm512_castps256_ps512(_mm256_loadu_ps(co + 8 * b)));
+            const __m512 s = _mm512_mul_ps(alt, _mm512_permutexvar_ps(dup, _mm512_castps256_ps512(_mm256_loadu_ps(si + 8 * b))));
+            k[b] = _mm512_fmadd_ps(_mm512_permute_ps(k[b], 0xB1), s, _mm512_mul_ps(k[b], c));
+        }
+    }
+}
+
+KA_INLINE __m512 ka_v16(const uint8_t *row, int i) {
+    const uint8_t *b = row + (i >> 5) * (KA_KV == KATTN_KV_K4C_Q4 ? 18 : 34);
+    const __m512 d = _mm512_set1_ps(_cvtsh_ss(*(const uint16_t *)b));
+#if KA_KV == KATTN_KV_K4C_Q4
+    __m512i x = _mm512_cvtepu8_epi32(_mm_loadu_si128((const __m128i *)(b + 2)));
+    x = (i & 31) ? _mm512_srli_epi32(x, 4) : _mm512_and_si512(x, _mm512_set1_epi32(15));
+    return _mm512_mul_ps(d, _mm512_cvtepi32_ps(_mm512_sub_epi32(x, _mm512_set1_epi32(8))));
+#else
+    return _mm512_mul_ps(d, _mm512_cvtepi32_ps(_mm512_cvtepi8_epi32(_mm_loadu_si128((const __m128i *)(b + 2 + (i & 31))))));
+#endif
+}
+
+KA_INLINE const uint8_t *ka_vrow_raw(const kattn_args *a, int64_t g, int64_t j) {
+    return (const uint8_t *)a->v + j * a->v_s_tok + g * a->v_s_head;
+}
+
+static const kattn_args *ka_stage(const kattn_args *a, int64_t g, int64_t kv0, int nk, uint8_t *st, int dec, kattn_args *out) {
+    const int64_t tk = KA_STK(dec);
+    float *Kf = (float *)st;
+    float *Vf = (float *)(st + KA_ALIGN(4 * tk * KA_DK));
+    float *C = (float *)((uint8_t *)Vf + KA_ALIGN(4 * tk * KA_DV));
+    float *Sn = (float *)((uint8_t *)C + KA_ALIGN(4 * tk * (KA_DK / 2)));
+    int64_t *tag = (int64_t *)((uint8_t *)Sn + KA_ALIGN(4 * tk * (KA_DK / 2)));
+    const int rd = a->rope_dim > KA_DK ? KA_DK : a->rope_dim;
+    if (rd > 0) {
+        const int64_t pos0 = a->k_pos0 + kv0;
+        int64_t fbits = 0;
+        memcpy(&fbits, a->rope_freq + rd / 2 - 1, 4);
+        if (tag[0] != pos0 || tag[1] < nk || tag[2] != (int64_t)(uintptr_t)a->rope_freq || tag[3] != rd || tag[4] != fbits + 1) {
+            ka_rope_table(pos0, nk, a->rope_freq, rd, C, Sn);
+            tag[0] = pos0; tag[1] = nk; tag[2] = (int64_t)(uintptr_t)a->rope_freq; tag[3] = rd; tag[4] = fbits + 1;
+        }
+    }
+    const int64_t nfull = a->n_kv / KATTN_K4C_GROUP * KATTN_K4C_GROUP;
+    __m512 sc[KA_DK / 16], mn[KA_DK / 16];
+    for (int v = 0; v < KA_DK / 16; v++) sc[v] = mn[v] = _mm512_setzero_ps();
+    int64_t cur = -1;
+    for (int t = 0; t < nk; t++) {
+        const int64_t j = kv0 + t, jn = j + tk;
+        __m512 kf[KA_DK / 16];
+        if (j < nfull) {
+            const uint8_t *blk = (const uint8_t *)a->k + (j / KATTN_K4C_GROUP) * a->k_s_tok + g * a->k_s_head;
+            if (j / KATTN_K4C_GROUP != cur) {
+                cur = j / KATTN_K4C_GROUP;
+                for (int v = 0; v < KA_DK / 16; v++) {
+                    sc[v] = _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)(blk + 32 * v)));
+                    mn[v] = _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)(blk + 2 * KA_DK + 32 * v)));
+                }
+            }
+            const uint8_t *qs = blk + 4 * KA_DK + (j % KATTN_K4C_GROUP) * (KA_DK / 2);
+            for (int c = 0; c < KA_DK; c += 32) {
+                const __m512i x = _mm512_cvtepu8_epi32(_mm_loadu_si128((const __m128i *)(qs + c / 2)));
+                kf[c / 16] = _mm512_fmadd_ps(_mm512_cvtepi32_ps(_mm512_and_si512(x, _mm512_set1_epi32(15))), sc[c / 16], mn[c / 16]);
+                kf[c / 16 + 1] = _mm512_fmadd_ps(_mm512_cvtepi32_ps(_mm512_srli_epi32(x, 4)), sc[c / 16 + 1], mn[c / 16 + 1]);
+            }
+        } else {
+            const uint16_t *tr = (const uint16_t *)((const uint8_t *)a->k_tail + (j % KATTN_K4C_GROUP) * a->kt_s_tok + g * a->kt_s_head);
+            for (int v = 0; v < KA_DK / 16; v++) kf[v] = _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)(tr + 16 * v)));
+        }
+        if (jn < nfull) {
+            const uint8_t *nb = (const uint8_t *)a->k + (jn / KATTN_K4C_GROUP) * a->k_s_tok + g * a->k_s_head;
+            if (jn % KATTN_K4C_GROUP == 0)
+                for (int c = 0; c < 4 * KA_DK; c += 64) _mm_prefetch((const char *)nb + c, _MM_HINT_T0);
+            for (int c = 0; c < KA_DK / 2; c += 64) _mm_prefetch((const char *)nb + 4 * KA_DK + (jn % KATTN_K4C_GROUP) * (KA_DK / 2) + c, _MM_HINT_T0);
+        }
+        if (rd > 0) ka_rope_row(kf, C + t * (KA_DK / 2), Sn + t * (KA_DK / 2), rd, a->rope_mode);
+        for (int v = 0; v < KA_DK / 16; v++) _mm512_store_ps(Kf + t * KA_DK + 16 * v, kf[v]);
+        const uint8_t *vr = ka_vrow_raw(a, g, j);
+        if (jn < a->n_kv)
+            for (int c = 0; c < (KA_KV == KATTN_KV_K4C_Q4 ? 18 : 34) * (KA_DV / 32); c += 64) _mm_prefetch((const char *)vr + tk * a->v_s_tok + c, _MM_HINT_T0);
+        for (int v = 0; v < KA_DV / 16; v++) _mm512_store_ps(Vf + t * KA_DV + 16 * v, ka_v16(vr, 16 * v));
+    }
+    *out = *a;
+    out->k = (const void *)((uintptr_t)Kf - (uintptr_t)(kv0 * 4 * KA_DK));
+    out->k_s_tok = 4 * KA_DK;
+    out->k_s_head = 0;
+    out->v = (const void *)((uintptr_t)Vf - (uintptr_t)(kv0 * 4 * KA_DV));
+    out->v_s_tok = 4 * KA_DV;
+    out->v_s_head = 0;
+    return out;
+}
+
+/* The tile engine (and anything else that reads K / V through ka_krow / ka_vrow) sees staged rows:
+ * the KA_TK-token tile holding j is staged on first touch. Tiles start at multiples of KA_TK (item
+ * ranges are multiples of the chunk). kattn() points st at this thread's staging bytes per call. */
+static __thread struct {
+    uint8_t *st;
+    const kattn_args *a;
+    int64_t g, j0, j1;
+    kattn_args sa;
+} ka_tls;
+
+static const kattn_args *ka_staged(const kattn_args *a, int64_t g, int64_t j) {
+    if (a != ka_tls.a || g != ka_tls.g || j < ka_tls.j0 || j >= ka_tls.j1) {
+        const int64_t j0 = j / KA_TK * KA_TK;
+        const int nk = (int)KA_MIN((int64_t)KA_TK, a->n_kv - j0);
+        ka_stage(a, g, j0, nk, ka_tls.st, 0, &ka_tls.sa);
+        ka_tls.a = a;
+        ka_tls.g = g;
+        ka_tls.j0 = j0;
+        ka_tls.j1 = j0 + nk;
+    }
+    return &ka_tls.sa;
+}
+#endif
 
 /* Online-softmax update of one score row (log2 domain, n valid of `width` columns, masked
  * entries already -inf). Writes probabilities to p (f32) and returns the factor the row's
@@ -394,9 +643,146 @@ KA_INLINE void ka_dec_run(ka_item *it, uint8_t *scratch, const int NR) {
     }
 }
 
+#if KA_PRE_ROPE
+/* The decode engine for pre-RoPE K: K is dequantized and rotated in registers (scales of a
+ * 32-token group loaded once per 16 tokens) and V read from its Q4_0 / Q8_0 rows, with no
+ * staging pass; scores, masking, softmax and the PV block are as in ka_dec_run. */
+KA_INLINE void ka_dec_run_k4c(ka_item *it, uint8_t *scratch, const int NR) {
+    const kattn_args *a = it->a;
+    float *S = (float *)scratch;
+    float *acc = (float *)(scratch + KA_ALIGN(sizeof(float) * KA_DEC_ROWS * KA_DEC_TK));
+    float *Qall = acc + KA_DEC_ROWS * 256;
+    float *Cs = (float *)(scratch + it->p->thr_bytes - ka_stage_bytes(1)), *Sn = Cs + KA_DEC_TK * (KA_DK / 2);
+    const float qs = a->scale * KA_LOG2E;
+    const int rd = a->rope_dim > KA_DK ? KA_DK : a->rope_dim;
+    const int64_t nfull = a->n_kv / KATTN_K4C_GROUP * KATTN_K4C_GROUP;
+    const int vbytes = (KA_KV == KATTN_KV_K4C_Q4 ? 18 : 34) * (KA_DV / 32);
+    for (int64_t hl = 0; hl < it->ng; hl++) {
+        for (int r = 0; r < NR; r++) {
+            const float *q = ka_qrow_g(it, it->g + hl, r);
+            float *Q = Qall + (hl * KA_DEC_ROWS + r) * KA_DK;
+            for (int d = 0; d < KA_DK; d += 16) _mm512_store_ps(Q + d, _mm512_mul_ps(_mm512_set1_ps(qs), _mm512_loadu_ps(q + d)));
+            it->m[hl * KA_DEC_ROWS + r] = -INFINITY;
+            it->l[hl * KA_DEC_ROWS + r] = 0.0f;
+            memset(it->O + (hl * KA_DEC_ROWS + r) * KA_DV, 0, sizeof(float) * KA_DV);
+        }
+    }
+    for (int64_t kv0 = it->k0; kv0 < it->k1; kv0 += KA_DEC_TK) {
+        const int nk = (int)KA_MIN((int64_t)KA_DEC_TK, it->k1 - kv0);
+        const int width = (nk + 15) & ~15;
+        const int mclass = a->mask ? ka_mask_scan(a, it, kv0, nk) : KA_MASK_NONE;
+        if (mclass == KA_MASK_SKIP) continue;
+        if (rd > 0) ka_rope_table(a->k_pos0 + kv0, nk, a->rope_freq, rd, Cs, Sn);
+        for (int64_t hl = 0; hl < it->ng; hl++) {
+            const int64_t g = it->g + hl;
+            const float *Q = Qall + hl * KA_DEC_ROWS * KA_DK;
+            float *O = it->O + hl * KA_DEC_ROWS * KA_DV, *m = it->m + hl * KA_DEC_ROWS, *l = it->l + hl * KA_DEC_ROWS;
+            for (int j0 = 0; j0 < width; j0 += 16) {
+                const int64_t jb = kv0 + j0; /* a 16-token block never straddles nfull (kv0 % 64 == 0) */
+                const uint8_t *blk = (const uint8_t *)a->k + (jb / KATTN_K4C_GROUP) * a->k_s_tok + g * a->k_s_head;
+                __m512 sc[KA_DK / 16], mn[KA_DK / 16];
+                for (int v = 0; v < KA_DK / 16; v++) {
+                    sc[v] = jb < nfull ? _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)(blk + 32 * v))) : _mm512_setzero_ps();
+                    mn[v] = jb < nfull ? _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)(blk + 2 * KA_DK + 32 * v))) : _mm512_setzero_ps();
+                }
+                if (jb + KA_DEC_TK < nfull && (jb + KA_DEC_TK) % KATTN_K4C_GROUP == 0)
+                    for (int c = 0; c < 4 * KA_DK; c += 64)
+                        _mm_prefetch((const char *)blk + KA_DEC_TK / KATTN_K4C_GROUP * a->k_s_tok + c, _MM_HINT_T0);
+                for (int jj = 0; jj < 16; jj++) {
+                    const int slot = ((jj & 3) << 2) | (jj >> 2);
+                    const int64_t j = jb + jj;
+                    if (j0 + jj >= nk) {
+                        for (int r = 0; r < NR; r++) _mm512_store_ps(acc + r * 256 + slot * 16, _mm512_setzero_ps());
+                        continue;
+                    }
+                    __m512 kf[KA_NVK];
+                    if (jb < nfull) {
+                        const uint8_t *qr = blk + 4 * KA_DK + (j % KATTN_K4C_GROUP) * (KA_DK / 2);
+                        if (j + KA_DEC_TK < nfull)
+                            for (int c = 0; c < KA_DK / 2; c += 64)
+                                _mm_prefetch((const char *)qr + KA_DEC_TK / KATTN_K4C_GROUP * a->k_s_tok + c, _MM_HINT_T0);
+                        for (int c = 0; c < KA_DK; c += 32) {
+                            const __m512i x = _mm512_cvtepu8_epi32(_mm_loadu_si128((const __m128i *)(qr + c / 2)));
+                            kf[c / 16] = _mm512_fmadd_ps(_mm512_cvtepi32_ps(_mm512_and_si512(x, _mm512_set1_epi32(15))), sc[c / 16], mn[c / 16]);
+                            kf[c / 16 + 1] = _mm512_fmadd_ps(_mm512_cvtepi32_ps(_mm512_srli_epi32(x, 4)), sc[c / 16 + 1], mn[c / 16 + 1]);
+                        }
+                    } else {
+                        const uint16_t *tr = (const uint16_t *)((const uint8_t *)a->k_tail + (j % KATTN_K4C_GROUP) * a->kt_s_tok + g * a->kt_s_head);
+                        for (int v = 0; v < KA_NVK; v++) kf[v] = _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)(tr + 16 * v)));
+                    }
+                    if (rd > 0) ka_rope_row(kf, Cs + (j0 + jj) * (KA_DK / 2), Sn + (j0 + jj) * (KA_DK / 2), rd, a->rope_mode);
+                    for (int r = 0; r < NR; r++) {
+                        const float *q = Q + r * KA_DK;
+                        __m512 s0 = _mm512_mul_ps(_mm512_load_ps(q), kf[0]);
+                        __m512 s1 = _mm512_mul_ps(_mm512_load_ps(q + 16), kf[1]);
+                        for (int v = 2; v < KA_NVK; v += 2) {
+                            s0 = _mm512_fmadd_ps(_mm512_load_ps(q + 16 * v), kf[v], s0);
+                            s1 = _mm512_fmadd_ps(_mm512_load_ps(q + 16 * v + 16), kf[v + 1], s1);
+                        }
+                        _mm512_store_ps(acc + r * 256 + slot * 16, _mm512_add_ps(s0, s1));
+                    }
+                }
+                for (int r = 0; r < NR; r++) _mm512_storeu_ps(S + r * KA_DEC_TK + j0, ka_hsum16(acc + r * 256));
+            }
+            int masked = nk < width;
+            for (int r = 0; r < NR; r++)
+                for (int j = nk; j < width; j++) S[r * KA_DEC_TK + j] = -INFINITY;
+            if (a->causal && kv0 + nk - 1 > a->q_pos0 + it->t0) {
+                masked = 1;
+                for (int r = 0; r < NR; r++) {
+                    const int64_t lim = a->q_pos0 + it->t0 + r / it->p->G - kv0;
+                    for (int j = (int)KA_MAX((int64_t)0, lim + 1); j < nk; j++) S[r * KA_DEC_TK + j] = -INFINITY;
+                }
+            }
+            if (mclass == KA_MASK_MIXED) {
+                masked = 1;
+                ka_mask_add(a, it, S, KA_DEC_TK, kv0, nk, width);
+            }
+            for (int r = 0; r < NR; r++) {
+                const float alpha = ka_softmax_row(S + r * KA_DEC_TK, width, &m[r], &l[r], masked);
+                if (alpha != 1.0f) ka_scale_row(O + r * KA_DV, KA_DV, alpha);
+            }
+#define KA_DC (KA_MIN(KA_NVV, (NR <= 2 ? 8 : NR <= 4 ? 4 : 2)))
+            for (int d0 = 0; d0 < KA_NVV; d0 += KA_DC) {
+                __m512 o[KA_DEC_ROWS][8];
+                for (int r = 0; r < NR; r++)
+                    for (int c = 0; c < KA_DC; c++) o[r][c] = _mm512_loadu_ps(O + r * KA_DV + 16 * (d0 + c));
+                for (int j = 0; j < nk; j++) {
+                    const uint8_t *vr = ka_vrow_raw(a, g, kv0 + j);
+                    if (d0 == 0 && kv0 + j + KA_DEC_TK < a->n_kv)
+                        for (int c = 0; c < vbytes; c += 64) _mm_prefetch((const char *)vr + KA_DEC_TK * a->v_s_tok + c, _MM_HINT_T0);
+                    __m512 vf[8];
+#if KA_KV == KATTN_KV_K4C_Q4
+                    for (int c = 0; c < KA_DC; c += 2) { /* one Q4_0 block = two 16-lane vectors */
+                        const uint8_t *b = vr + (d0 + c) / 2 * 18;
+                        const __m512 d = _mm512_set1_ps(_cvtsh_ss(*(const uint16_t *)b)), d8 = _mm512_mul_ps(d, _mm512_set1_ps(-8.0f));
+                        const __m512i x = _mm512_cvtepu8_epi32(_mm_loadu_si128((const __m128i *)(b + 2)));
+                        vf[c] = _mm512_fmadd_ps(_mm512_cvtepi32_ps(_mm512_and_si512(x, _mm512_set1_epi32(15))), d, d8);
+                        vf[c + 1] = _mm512_fmadd_ps(_mm512_cvtepi32_ps(_mm512_srli_epi32(x, 4)), d, d8);
+                    }
+#else
+                    for (int c = 0; c < KA_DC; c++) vf[c] = ka_v16(vr, 16 * (d0 + c));
+#endif
+                    for (int r = 0; r < NR; r++) {
+                        const __m512 pj = _mm512_set1_ps(S[r * KA_DEC_TK + j]);
+                        for (int c = 0; c < KA_DC; c++) o[r][c] = _mm512_fmadd_ps(pj, vf[c], o[r][c]);
+                    }
+                }
+                for (int r = 0; r < NR; r++)
+                    for (int c = 0; c < KA_DC; c++) _mm512_storeu_ps(O + r * KA_DV + 16 * (d0 + c), o[r][c]);
+            }
+#undef KA_DC
+        }
+    }
+}
+#define KA_DEC_RUN ka_dec_run_k4c
+#else
+#define KA_DEC_RUN ka_dec_run
+#endif
+
 static void ka_dec(ka_item *it, uint8_t *scratch) {
     switch (it->p->R) {
-#define C(n) case n: ka_dec_run(it, scratch, n < KA_DEC_ROWS ? n : KA_DEC_ROWS); break;
+#define C(n) case n: KA_DEC_RUN(it, scratch, n < KA_DEC_ROWS ? n : KA_DEC_ROWS); break;
         C(1) C(2) C(3) C(4) C(5) C(6) C(7) C(8)
 #undef C
     }
@@ -411,46 +797,80 @@ typedef struct {
     uint16_t *P; /* [Rpad][TK]  bf16 probabilities */
     void *Kp;    /* bf16: [TK/16][DK/2][16] pairs; f32: [DK][TK] */
     void *Vp;    /* bf16: [DV/16][TK/2][16] pairs; f32: [TK][DV] */
+    float *mu;   /* [DK] KA_KCENTER mean */
 } ka_tile_buf;
 
 #if KA_ENGINE != 0
 KA_INLINE __m512i ka_bf16x32(__m512 lo, __m512 hi) { return (__m512i)_mm512_cvtne2ps_pbh(hi, lo); }
 
-static void ka_pack_k(const kattn_args *a, int64_t g, int64_t kv0, int nk, uint32_t *Kp) {
-    for (int t0 = 0; t0 < KA_TK; t0 += 16) {
-        for (int d0 = 0; d0 < KA_DK; d0 += 32) {
-            __m512i r[16];
-            for (int t = 0; t < 16; t++) {
-                if (t0 + t < nk) {
-                    const uint8_t *kr = ka_krow(a, g, kv0 + t0 + t);
-                    r[t] = ka_bf16x32(ka_row16(kr, d0), ka_row16(kr, d0 + 16));
-                } else {
-                    r[t] = _mm512_setzero_si512();
-                }
-            }
-            ka_transpose16(r);
-            uint32_t *dst = Kp + ((size_t)(t0 / 16) * (KA_DK / 2) + d0 / 2) * 16;
-            for (int i = 0; i < 16; i++) _mm512_store_si512(dst + 16 * i, r[i]);
+/* Per-channel mean of K rows [kv0, kv0 + nk), kept only where it exceeds half the channel's spread
+ * (|mu| > 0.5 sd): only offset-dominated channels gain from centering, and zero-mean channels then
+ * round exactly as without it. */
+static __attribute__((unused)) void ka_kmean(const kattn_args *a, int64_t g, int64_t kv0, int nk, float *mu) {
+    const __m512 inv = _mm512_set1_ps(1.0f / (float)nk);
+    for (int d = 0; d < KA_DK; d += 16) {
+        __m512 s = _mm512_setzero_ps(), ss = _mm512_setzero_ps();
+        for (int t = 0; t < nk; t++) {
+            const __m512 x = ka_row16(ka_krow(a, g, kv0 + t), d);
+            s = _mm512_add_ps(s, x);
+            ss = _mm512_fmadd_ps(x, x, ss);
         }
+        const __m512 m = _mm512_mul_ps(s, inv), m2 = _mm512_mul_ps(m, m);
+        const __m512 var = _mm512_fmsub_ps(ss, inv, m2);
+        _mm512_store_ps(mu + d, _mm512_maskz_mov_ps(_mm512_cmp_ps_mask(_mm512_mul_ps(_mm512_set1_ps(4.0f), m2), var, _CMP_GT_OQ), m));
     }
 }
 
-static void ka_pack_v(const kattn_args *a, int64_t g, int64_t kv0, int nk, uint32_t *Vp) {
+/* 16 K rows [kv0, kv0 + 16) (nk valid, the rest zero) as bf16 pairs [DK/2][16] */
+static __attribute__((unused)) void ka_pack_k16(const kattn_args *a, int64_t g, int64_t kv0, int nk, uint32_t *dst, const float *mu) {
+    for (int d0 = 0; d0 < KA_DK; d0 += 32) {
+        __m512i r[16];
+#if KA_KCENTER
+        const __m512 m0 = _mm512_load_ps(mu + d0), m1 = _mm512_load_ps(mu + d0 + 16);
+#else
+        (void)mu;
+#endif
+        for (int t = 0; t < 16; t++) {
+            if (t < nk) {
+                const uint8_t *kr = ka_krow(a, g, kv0 + t);
+                __m512 x0 = ka_row16(kr, d0), x1 = ka_row16(kr, d0 + 16);
+#if KA_KCENTER
+                x0 = _mm512_sub_ps(x0, m0);
+                x1 = _mm512_sub_ps(x1, m1);
+#endif
+                r[t] = ka_bf16x32(x0, x1);
+            } else {
+                r[t] = _mm512_setzero_si512();
+            }
+        }
+        ka_transpose16(r);
+        for (int i = 0; i < 16; i++) _mm512_store_si512(dst + (size_t)(d0 / 2 + i) * 16, r[i]);
+    }
+}
+
+static __attribute__((unused)) void ka_pack_k(const kattn_args *a, int64_t g, int64_t kv0, int nk, uint32_t *Kp, const float *mu) {
+    for (int t0 = 0; t0 < KA_TK; t0 += 16) ka_pack_k16(a, g, kv0 + t0, nk - t0, Kp + (size_t)(t0 / 16) * (KA_DK / 2) * 16, mu);
+}
+
+/* ntok V rows [kv0, kv0 + ntok) (nk valid, the rest zero) as bf16 pairs [DV/16][vs][16] */
+static void ka_pack_vn(const kattn_args *a, int64_t g, int64_t kv0, int nk, int ntok, uint32_t *Vp, int64_t vs) {
     const __m512i idx = _mm512_set_epi16(31, 15, 30, 14, 29, 13, 28, 12, 27, 11, 26, 10, 25, 9, 24, 8,
                                          23, 7, 22, 6, 21, 5, 20, 4, 19, 3, 18, 2, 17, 1, 16, 0);
-    for (int t = 0; t < KA_TK; t += 2) {
+    for (int t = 0; t < ntok; t += 2) {
         const uint8_t *va = t < nk ? ka_vrow(a, g, kv0 + t) : NULL;
         const uint8_t *vb = t + 1 < nk ? ka_vrow(a, g, kv0 + t + 1) : NULL;
         for (int d0 = 0; d0 < KA_DV; d0 += 16) {
             const __m512 x = va ? ka_row16(va, d0) : _mm512_setzero_ps();
             const __m512 y = vb ? ka_row16(vb, d0) : _mm512_setzero_ps();
             const __m512i pr = _mm512_permutexvar_epi16(idx, ka_bf16x32(x, y)); /* (x0,y0,x1,y1,...) */
-            _mm512_store_si512(Vp + ((size_t)(d0 / 16) * (KA_TK / 2) + t / 2) * 16, pr);
+            _mm512_store_si512(Vp + ((size_t)(d0 / 16) * vs + t / 2) * 16, pr);
         }
     }
 }
 
-static void ka_pack_q(const ka_item *it, uint16_t *Q) {
+static void ka_pack_v(const kattn_args *a, int64_t g, int64_t kv0, int nk, uint32_t *Vp) { ka_pack_vn(a, g, kv0, nk, KA_TK, Vp, KA_TK / 2); }
+
+static __attribute__((unused)) void ka_pack_q(const ka_item *it, uint16_t *Q) {
     const float qs = it->a->scale * KA_LOG2E;
     const __m512 vs = _mm512_set1_ps(qs);
     for (int64_t r = 0; r < it->p->Rpad; r++) {
@@ -465,16 +885,16 @@ static void ka_pack_q(const ka_item *it, uint16_t *Q) {
     }
 }
 
-/* 2^x to ~4e-5 relative (degree-4 Taylor on [-0.5, 0.5]): far below the bf16 rounding of P */
+/* 2^x to 7.5e-5 relative (degree-3 relative-minimax on [-0.5, 0.5]): far below the bf16 rounding of P.
+ * No clamp: unmasked tiles hold finite scores (scalef flushes very negative n to 0), and the NaN that
+ * -inf produces only appears in masked tiles, whose -inf lanes the caller zeroes. */
 KA_INLINE __m512 ka_exp2_lo(__m512 x) {
-    x = _mm512_max_ps(x, _mm512_set1_ps(-127.0f));
     const __m512 n = _mm512_roundscale_ps(x, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
     const __m512 f = _mm512_sub_ps(x, n);
-    __m512 p = _mm512_set1_ps(9.6181291076284772e-3f);
-    p = _mm512_fmadd_ps(p, f, _mm512_set1_ps(5.5504108664821580e-2f));
-    p = _mm512_fmadd_ps(p, f, _mm512_set1_ps(2.4022650695910071e-1f));
-    p = _mm512_fmadd_ps(p, f, _mm512_set1_ps(6.9314718055994531e-1f));
-    p = _mm512_fmadd_ps(p, f, _mm512_set1_ps(1.0f));
+    __m512 p = _mm512_set1_ps(5.517134442925453e-2f);
+    p = _mm512_fmadd_ps(p, f, _mm512_set1_ps(2.4261033535003662e-1f));
+    p = _mm512_fmadd_ps(p, f, _mm512_set1_ps(6.932609677314758e-1f));
+    p = _mm512_fmadd_ps(p, f, _mm512_set1_ps(9.999281167984009e-1f));
     return _mm512_scalef_ps(p, n);
 }
 
@@ -536,8 +956,8 @@ static void ka_qk(const uint16_t *Q, const uint32_t *Kp, float *S, int64_t R) {
     }
 }
 
-/* O[R][DV] += P V: 4 rows x 64 dims per register block */
-static void ka_pv(const uint16_t *P, const uint32_t *Vp, float *O, int64_t R) {
+/* O[R][DV] += P V: 4 rows x 64 dims per register block; vs = pair rows per 16-dim group of Vp */
+static void ka_pv(const uint16_t *P, const uint32_t *Vp, float *O, int64_t R, int64_t vs) {
     for (int64_t r0 = 0; r0 < R; r0 += 4) {
         for (int d0 = 0; d0 < KA_DV; d0 += 64) {
             __m512 acc[4][4];
@@ -546,7 +966,7 @@ static void ka_pv(const uint16_t *P, const uint32_t *Vp, float *O, int64_t R) {
             const uint32_t *p32 = (const uint32_t *)(P + r0 * KA_TK);
             for (int kp = 0; kp < KA_TK / 2; kp++) {
                 __m512bh vv[4];
-                for (int c = 0; c < 4; c++) vv[c] = (__m512bh)_mm512_load_si512(Vp + ((size_t)(d0 / 16 + c) * (KA_TK / 2) + kp) * 16);
+                for (int c = 0; c < 4; c++) vv[c] = (__m512bh)_mm512_load_si512(Vp + ((size_t)(d0 / 16 + c) * vs + kp) * 16);
                 for (int i = 0; i < 4; i++) {
                     const __m512bh pb = (__m512bh)_mm512_set1_epi32((int)p32[i * (KA_TK / 2) + kp]);
                     for (int c = 0; c < 4; c++) acc[i][c] = _mm512_dpbf16_ps(acc[i][c], pb, vv[c]);
@@ -607,7 +1027,7 @@ static inline int ka_amx_slow(uint64_t t0) {
 }
 
 /* S = Q Kᵀ: 32 rows x 32 tokens per step (tiles 0-3 accumulate, 4-5 Q, 6-7 K) */
-static void ka_qk(const uint16_t *Q, const uint32_t *Kp, float *S, int64_t R) {
+static __attribute__((unused)) void ka_qk(const uint16_t *Q, const uint32_t *Kp, float *S, int64_t R) {
     for (int64_t r0 = 0; r0 < R; r0 += 32) {
         for (int c0 = 0; c0 < KA_TK; c0 += 32) {
             uint64_t t0;
@@ -633,8 +1053,8 @@ static void ka_qk(const uint16_t *Q, const uint32_t *Kp, float *S, int64_t R) {
     }
 }
 
-/* O += P V: 32 rows x 32 dims per step */
-static void ka_pv(const uint16_t *P, const uint32_t *Vp, float *O, int64_t R) {
+/* O += P V: 32 rows x 32 dims per step; vs = pair rows per 16-dim group of Vp */
+static void ka_pv(const uint16_t *P, const uint32_t *Vp, float *O, int64_t R, int64_t vs) {
     float T[32 * 32] __attribute__((aligned(64)));
     for (int64_t r0 = 0; r0 < R; r0 += 32) {
         for (int d0 = 0; d0 < KA_DV; d0 += 32) {
@@ -645,8 +1065,8 @@ static void ka_pv(const uint16_t *P, const uint32_t *Vp, float *O, int64_t R) {
                 for (int k = 0; k < KA_TK; k += 32) {
                     _tile_loadd(4, P + r0 * KA_TK + k, 2 * KA_TK);
                     _tile_loadd(5, P + (r0 + 16) * KA_TK + k, 2 * KA_TK);
-                    _tile_loadd(6, Vp + ((size_t)(d0 / 16) * (KA_TK / 2) + k / 2) * 16, 64);
-                    _tile_loadd(7, Vp + ((size_t)(d0 / 16 + 1) * (KA_TK / 2) + k / 2) * 16, 64);
+                    _tile_loadd(6, Vp + ((size_t)(d0 / 16) * vs + k / 2) * 16, 64);
+                    _tile_loadd(7, Vp + ((size_t)(d0 / 16 + 1) * vs + k / 2) * 16, 64);
                     _tile_dpbf16ps(0, 4, 6);
                     _tile_dpbf16ps(1, 4, 7);
                     _tile_dpbf16ps(2, 5, 6);
@@ -665,10 +1085,115 @@ static void ka_pv(const uint16_t *P, const uint32_t *Vp, float *O, int64_t R) {
         }
     }
 }
+
+#if KA_QK8
+/* Scaled q rows -> int8, one scale per row: Q8 [Rpad][DK], sq [Rpad] */
+static void ka_pack_q8(const ka_item *it, int8_t *Q8, float *sq) {
+    const __m512 vs = _mm512_set1_ps(it->a->scale * KA_LOG2E);
+    for (int64_t r = 0; r < it->p->Rpad; r++) {
+        int8_t *dst = Q8 + r * KA_DK;
+        if (r >= it->nt * it->p->G) {
+            memset(dst, 0, KA_DK);
+            sq[r] = 0.0f;
+            continue;
+        }
+        const float *q = ka_qrow(it, r);
+        __m512 mx = _mm512_setzero_ps();
+        for (int d = 0; d < KA_DK; d += 16) mx = _mm512_max_ps(mx, _mm512_abs_ps(_mm512_mul_ps(vs, _mm512_loadu_ps(q + d))));
+        const float amax = _mm512_reduce_max_ps(mx);
+        sq[r] = amax / 127.0f;
+        const __m512 id = _mm512_set1_ps(amax > 0.0f ? 127.0f / amax : 0.0f);
+        for (int d = 0; d < KA_DK; d += 16)
+            _mm_storeu_si128((__m128i *)(dst + d), _mm512_cvtsepi32_epi8(_mm512_cvtps_epi32(_mm512_mul_ps(id, _mm512_mul_ps(vs, _mm512_loadu_ps(q + d))))));
+    }
+}
+
+/* K rows [kv0, kv0 + TK) (nk valid) minus mu -> int8, one scale per token (sk [TK]). Per 16 tokens and
+ * 64 dims, 16 rows (dim quads) x 16 tokens x 4 bytes: the AMX-INT8 B operand. */
+static void ka_pack_k8(const kattn_args *a, int64_t g, int64_t kv0, int nk, uint32_t *K8, float *sk, const float *mu) {
+    for (int t0 = 0; t0 < KA_TK; t0 += 16) {
+        float id[16];
+        for (int t = 0; t < 16; t++) {
+            id[t] = 0.0f;
+            sk[t0 + t] = 0.0f;
+            if (t0 + t >= nk) continue;
+            const uint8_t *kr = ka_krow(a, g, kv0 + t0 + t);
+            __m512 mx = _mm512_setzero_ps();
+            for (int d = 0; d < KA_DK; d += 16) {
+                __m512 x = ka_row16(kr, d);
+#if KA_KCENTER
+                x = _mm512_sub_ps(x, _mm512_load_ps(mu + d));
+#endif
+                mx = _mm512_max_ps(mx, _mm512_abs_ps(x));
+            }
+            const float amax = _mm512_reduce_max_ps(mx);
+            sk[t0 + t] = amax / 127.0f;
+            id[t] = amax > 0.0f ? 127.0f / amax : 0.0f;
+        }
+        for (int d0 = 0; d0 < KA_DK; d0 += 64) {
+            __m512i r[16];
+            for (int t = 0; t < 16; t++) {
+                r[t] = _mm512_setzero_si512();
+                if (t0 + t >= nk) continue;
+                const uint8_t *kr = ka_krow(a, g, kv0 + t0 + t);
+                const __m512 vi = _mm512_set1_ps(id[t]);
+                __m128i b[4];
+                for (int i = 0; i < 4; i++) {
+                    __m512 x = ka_row16(kr, d0 + 16 * i);
+#if KA_KCENTER
+                    x = _mm512_sub_ps(x, _mm512_load_ps(mu + d0 + 16 * i));
+#endif
+                    b[i] = _mm512_cvtsepi32_epi8(_mm512_cvtps_epi32(_mm512_mul_ps(vi, x)));
+                }
+                r[t] = _mm512_inserti32x4(_mm512_inserti32x4(_mm512_inserti32x4(_mm512_castsi128_si512(b[0]), b[1], 1), b[2], 2), b[3], 3);
+            }
+            ka_transpose16(r);
+            uint32_t *dst = K8 + ((size_t)(t0 / 16) * (KA_DK / 64) + d0 / 64) * 256;
+            for (int i = 0; i < 16; i++) _mm512_store_si512(dst + 16 * i, r[i]);
+        }
+    }
+#if !KA_KCENTER
+    (void)mu;
+#endif
+}
+
+/* S = (Q8 K8^T) * sq[r] * sk[j] as f32 in place: 32 rows x 32 tokens per AMX step */
+static void ka_qk8(const int8_t *Q8, const float *sq, const uint32_t *K8, const float *sk, float *S, int64_t R) {
+    for (int64_t r0 = 0; r0 < R; r0 += 32) {
+        for (int c0 = 0; c0 < KA_TK; c0 += 32) {
+            uint64_t t0;
+            do {
+                t0 = __rdtsc();
+                _tile_zero(0); _tile_zero(1); _tile_zero(2); _tile_zero(3);
+                for (int k = 0; k < KA_DK; k += 64) {
+                    _tile_loadd(4, Q8 + r0 * KA_DK + k, KA_DK);
+                    _tile_loadd(5, Q8 + (r0 + 16) * KA_DK + k, KA_DK);
+                    _tile_loadd(6, K8 + ((size_t)(c0 / 16) * (KA_DK / 64) + k / 64) * 256, 64);
+                    _tile_loadd(7, K8 + ((size_t)(c0 / 16 + 1) * (KA_DK / 64) + k / 64) * 256, 64);
+                    _tile_dpbssd(0, 4, 6);
+                    _tile_dpbssd(1, 4, 7);
+                    _tile_dpbssd(2, 5, 6);
+                    _tile_dpbssd(3, 5, 7);
+                }
+                _tile_stored(0, S + r0 * KA_TK + c0, 4 * KA_TK);
+                _tile_stored(1, S + r0 * KA_TK + c0 + 16, 4 * KA_TK);
+                _tile_stored(2, S + (r0 + 16) * KA_TK + c0, 4 * KA_TK);
+                _tile_stored(3, S + (r0 + 16) * KA_TK + c0 + 16, 4 * KA_TK);
+            } while (ka_amx_slow(t0));
+        }
+        for (int64_t r = r0; r < r0 + 32; r++) {
+            const __m512 vq = _mm512_set1_ps(sq[r]);
+            float *s = S + r * KA_TK;
+            for (int j = 0; j < KA_TK; j += 16)
+                _mm512_storeu_ps(s + j, _mm512_mul_ps(_mm512_mul_ps(vq, _mm512_loadu_ps(sk + j)), _mm512_cvtepi32_ps(_mm512_loadu_si512(s + j))));
+        }
+    }
+}
+#endif
 #endif
 
 #if KA_ENGINE == 0
-static void ka_pack_k(const kattn_args *a, int64_t g, int64_t kv0, int nk, float *Kt) { /* [DK][TK] */
+static void ka_pack_k(const kattn_args *a, int64_t g, int64_t kv0, int nk, float *Kt, const float *mu __attribute__((unused))) { /* [DK][TK] */
     for (int t0 = 0; t0 < KA_TK; t0 += 16) {
         for (int d0 = 0; d0 < KA_DK; d0 += 16) {
             __m512i r[16];
@@ -741,12 +1266,77 @@ static void ka_pv(const float *P, const float *V, float *O, int64_t R) {
 }
 #endif
 
+/* kattn_pack buffer: per kv head a K mean [DK] (KA_KCENTER, frozen once >= KA_MU_MIN tokens are packed),
+ * then K as bf16 pairs [cap/16][DK/2][16] per head, then V as bf16 pairs [DV/16][cap/2][16] per head:
+ * a KV tile at kv0 is K + kv0/16 groups and V + kv0/2 pair rows (V stride cap/2), read in place. */
+#define KA_MU_MIN 32
+static int64_t ka_cap(int64_t cap) { return (cap + KA_TK - 1) / KA_TK * KA_TK; }
+static size_t ka_kvp_koff(const kattn_args *a) { return KA_ALIGN(sizeof(float) * a->n_head_kv * KA_DK); }
+static size_t ka_kvp_voff(const kattn_args *a, int64_t cap) { return ka_kvp_koff(a) + (size_t)a->n_head_kv * cap * KA_DK * 2; }
+static inline __attribute__((unused)) const float *ka_kvp_mu(const uint8_t *kvp, int64_t g) { return (const float *)kvp + g * KA_DK; }
+static inline __attribute__((unused)) const uint32_t *ka_kvp_k(const kattn_args *a, const uint8_t *kvp, int64_t cap, int64_t g) {
+    return (const uint32_t *)(kvp + ka_kvp_koff(a) + (size_t)g * cap * KA_DK * 2);
+}
+static inline __attribute__((unused)) const uint32_t *ka_kvp_v(const kattn_args *a, const uint8_t *kvp, int64_t cap, int64_t g) {
+    return (const uint32_t *)(kvp + ka_kvp_voff(a, cap) + (size_t)g * cap * KA_DV * 2);
+}
+
+/* Not for the pre-RoPE formats: packing would need K dequantized and rotated at fixed positions. */
+#define KA_CAN_PACK (KA_ENGINE != 0 && !KA_QK8 && !KA_PRE_ROPE)
+
+size_t kattn_pack_bytes(const kattn_args *a, int64_t cap) {
+    if (!KA_CAN_PACK) return 0;
+    const int64_t C = ka_cap(cap);
+    return ka_kvp_voff(a, C) + (size_t)a->n_head_kv * C * KA_DV * 2;
+}
+
+void kattn_pack(const kattn_args *a, void *kvp, int64_t cap, int64_t j0, int64_t j1, int ith, int nth) {
+#if KA_CAN_PACK
+    const int64_t C = ka_cap(cap);
+    uint8_t *base = (uint8_t *)kvp;
+    /* while fewer than KA_MU_MIN tokens were packed before, recompute the K mean and repack from 0 */
+    const int remu = KA_KCENTER && j0 < KA_MU_MIN;
+    if (remu) j0 = 0;
+    j0 &= ~(int64_t)15;
+    if (j1 > C || j1 <= j0) return;
+    const int64_t ng = (j1 - j0 + 15) / 16, units = (int64_t)a->n_head_kv * ng;
+    float mul[KA_DK] __attribute__((aligned(64)));
+    int64_t gl = -1;
+    const float *mu = NULL;
+    for (int64_t u = units * ith / nth; u < units * (ith + 1) / nth; u++) {
+        const int64_t g = u / ng, t = j0 + (u % ng) * 16;
+        if (g != gl) {
+            gl = g;
+            mu = ka_kvp_mu(base, g);
+            if (remu) {
+                const int64_t n = KA_MIN(j1, (int64_t)KA_TK);
+                if (n >= KA_MU_MIN) ka_kmean(a, g, 0, (int)n, mul);
+                else memset(mul, 0, sizeof mul);
+                if (u % ng == 0) memcpy((float *)base + g * KA_DK, mul, sizeof mul); /* one writer per head */
+                mu = mul;
+            }
+        }
+        const int nk = (int)KA_MIN((int64_t)16, j1 - t);
+        ka_pack_k16(a, g, t, nk, (uint32_t *)ka_kvp_k(a, base, C, g) + (size_t)(t / 16) * (KA_DK / 2) * 16, mu);
+        ka_pack_vn(a, g, t, nk, 16, (uint32_t *)ka_kvp_v(a, base, C, g) + (size_t)(t / 2) * 16, C / 2);
+    }
+#else
+    (void)a, (void)kvp, (void)cap, (void)j0, (void)j1, (void)ith, (void)nth;
+#endif
+}
+
 static void ka_tile(ka_item *it, const ka_tile_buf *b) {
     const kattn_args *a = it->a;
     const ka_plan *p = it->p;
     const int64_t Rv = it->nt * p->G;            /* valid rows */
     const int64_t Rc = (Rv + 31) & ~(int64_t)31; /* rows computed */
+#if KA_QK8
+    int8_t *Q8 = (int8_t *)b->Q; /* int8 rows, then the row scales (the bf16 Q buffer has room for both) */
+    float *sq = (float *)(Q8 + p->Rpad * KA_DK), *sk = (float *)((uint8_t *)b->Kp + KA_TK * KA_DK);
+    ka_pack_q8(it, Q8, sq);
+#else
     ka_pack_q(it, b->Q);
+#endif
     for (int64_t r = 0; r < Rc; r++) {
         it->m[r] = -INFINITY;
         it->l[r] = 0.0f;
@@ -755,14 +1345,44 @@ static void ka_tile(ka_item *it, const ka_tile_buf *b) {
 #if KA_ENGINE != 0
     memset(b->P + Rv * KA_TK, 0, 2 * (Rc - Rv) * KA_TK);
 #endif
+    const float *mu = NULL;
     for (int64_t kv0 = it->k0; kv0 < it->k1; kv0 += KA_TK) {
         const int nk = (int)KA_MIN((int64_t)KA_TK, it->k1 - kv0);
         float *S = b->S;
         int masked = nk < KA_TK;
         const int mclass = a->mask ? ka_mask_scan(a, it, kv0, nk) : KA_MASK_NONE;
         if (mclass == KA_MASK_SKIP) continue;
-        ka_pack_k(a, it->g, kv0, nk, b->Kp);
+#if KA_KCENTER
+        if (!mu) {
+            if (it->kvp) {
+                mu = ka_kvp_mu(it->kvp, it->g);
+            } else {
+                ka_kmean(a, it->g, kv0, nk, b->mu);
+                mu = b->mu;
+            }
+        }
+#endif
+#if KA_ENGINE != 0
+        const uint32_t *Kt = b->Kp, *Vt = b->Vp;
+        int64_t vs = KA_TK / 2;
+#if KA_QK8
+        (void)Kt;
+        ka_pack_k8(a, it->g, kv0, nk, b->Kp, sk, mu);
+        ka_qk8(Q8, sq, b->Kp, sk, S, Rc);
+#else
+        if (it->kvp) {
+            Kt = ka_kvp_k(a, it->kvp, it->cap, it->g) + (size_t)(kv0 / 16) * (KA_DK / 2) * 16;
+            Vt = ka_kvp_v(a, it->kvp, it->cap, it->g) + (size_t)(kv0 / 2) * 16;
+            vs = it->cap / 2;
+        } else {
+            ka_pack_k(a, it->g, kv0, nk, b->Kp, mu);
+        }
+        ka_qk(b->Q, Kt, S, Rc);
+#endif
+#else
+        ka_pack_k(a, it->g, kv0, nk, b->Kp, mu);
         ka_qk(b->Q, b->Kp, S, Rc);
+#endif
         if (masked)
             for (int64_t r = 0; r < Rv; r++)
                 for (int j = nk; j < KA_TK; j++) S[r * KA_TK + j] = -INFINITY;
@@ -790,9 +1410,19 @@ static void ka_tile(ka_item *it, const ka_tile_buf *b) {
             const float alpha = ka_softmax_row_bf16(S + r * KA_TK, b->P + r * KA_TK, &it->m[r], &it->l[r], masked);
             if (alpha != 1.0f) ka_scale_row(it->O + r * KA_DV, KA_DV, alpha);
         }
-        ka_pack_v(a, it->g, kv0, nk, b->Vp);
-        ka_pv(b->P, b->Vp, it->O, Rc);
+        if (!it->kvp) ka_pack_v(a, it->g, kv0, nk, b->Vp);
+        ka_pv(b->P, Vt, it->O, Rc, vs);
 #endif
+    }
+    if (mu) {
+        const float qs = a->scale * KA_LOG2E;
+        for (int64_t r = 0; r < Rv; r++) {
+            if (it->m[r] == -INFINITY) continue;
+            const float *q = ka_qrow(it, r);
+            __m512 s = _mm512_setzero_ps();
+            for (int d = 0; d < KA_DK; d += 16) s = _mm512_fmadd_ps(_mm512_loadu_ps(q + d), _mm512_load_ps(mu + d), s);
+            it->m[r] += qs * _mm512_reduce_add_ps(s);
+        }
     }
 }
 
@@ -830,13 +1460,17 @@ static void ka_merge(const kattn_args *a, const ka_plan *p, const ka_item *it, c
     }
 }
 
-void kattn(const kattn_args *a, void *ws, int ith, int nth) {
+static void ka_run(const kattn_args *a, const uint8_t *kvp, int64_t cap, void *ws, int ith, int nth) {
     ka_plan p;
     ka_make_plan(a, nth, &p);
     uint8_t *base = (uint8_t *)(((uintptr_t)ws + 63) & ~(uintptr_t)63);
     ka_hdr *h = (ka_hdr *)base;
     float *parts = (float *)(base + p.part_off);
     uint8_t *mine = base + p.thr_off + p.thr_bytes * (size_t)ith;
+#if KA_PRE_ROPE
+    ka_tls.st = mine + p.thr_bytes - ka_stage_bytes(p.dec);
+    ka_tls.a = NULL;
+#endif
     ka_tile_buf tb = {0};
     float *m, *l, *O;
     if (p.dec) {
@@ -860,7 +1494,8 @@ void kattn(const kattn_args *a, void *ws, int ith, int nth) {
         tb.Vp = q;                                     q += KA_ALIGN(qb * KA_TK * KA_DV);
         O = (float *)q;                                q += KA_ALIGN(sizeof(float) * p.Rpad * KA_DV);
         m = (float *)q;                                q += KA_ALIGN(sizeof(float) * p.Rpad);
-        l = (float *)q;
+        l = (float *)q;                                q += KA_ALIGN(sizeof(float) * p.Rpad);
+        tb.mu = (float *)q;
     }
 #if KA_ENGINE == 2
     ka_tilecfg saved;
@@ -870,7 +1505,7 @@ void kattn(const kattn_args *a, void *ws, int ith, int nth) {
     for (;;) {
         const int64_t i = atomic_fetch_add_explicit(&h->next, 1, memory_order_relaxed);
         if (i >= p.nitems) break;
-        ka_item it = {a, &p, 0, 0, 0, 0, 0, 0, 0, m, l, O};
+        ka_item it = {a, &p, 0, 0, 0, 0, 0, 0, 0, m, l, O, kvp, cap};
         it.qt = p.nqt - 1 - i / per_qt; /* most expensive (last) query tiles first */
         it.g = (i % per_qt) / p.nsplit * p.hb;
         it.ng = KA_MIN(p.hb, a->n_head_kv - it.g);
@@ -916,4 +1551,11 @@ void kattn(const kattn_args *a, void *ws, int ith, int nth) {
         atomic_store_explicit(&h->next, 0, memory_order_relaxed);
         atomic_store_explicit(&h->done, 0, memory_order_release);
     }
+}
+
+void kattn(const kattn_args *a, void *ws, int ith, int nth) { ka_run(a, NULL, 0, ws, ith, nth); }
+
+void kattn_packed(const kattn_args *a, const void *kvp, int64_t cap, void *ws, int ith, int nth) {
+    const int use = KA_CAN_PACK && kvp && a->n_kv <= ka_cap(cap);
+    ka_run(a, use ? (const uint8_t *)kvp : NULL, ka_cap(cap), ws, ith, nth);
 }

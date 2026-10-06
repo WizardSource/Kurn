@@ -27,6 +27,8 @@ class KattnArgs(ctypes.Structure):
         ("v", ctypes.c_void_p), ("v_s_tok", ctypes.c_int64), ("v_s_head", ctypes.c_int64),
         ("mask", ctypes.c_void_p), ("mask_s_tok", ctypes.c_int64),
         ("out", ctypes.c_void_p), ("o_s_tok", ctypes.c_int64), ("o_s_head", ctypes.c_int64),
+        ("k_tail", ctypes.c_void_p), ("kt_s_tok", ctypes.c_int64), ("kt_s_head", ctypes.c_int64),
+        ("rope_freq", ctypes.c_void_p), ("k_pos0", ctypes.c_int64), ("rope_dim", ctypes.c_int32), ("rope_mode", ctypes.c_int32),
     ]  # fmt: skip
 
 

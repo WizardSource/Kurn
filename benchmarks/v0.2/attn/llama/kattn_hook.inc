@@ -19,6 +19,10 @@ struct args {
     const void * v; int64_t v_s_tok, v_s_head;
     const uint16_t * mask; int64_t mask_s_tok;
     float * out; int64_t o_s_tok, o_s_head;
+    const void * k_tail; int64_t kt_s_tok, kt_s_head; // KATTN_KV_K4C_* only
+    const float * rope_freq;
+    int64_t k_pos0;
+    int32_t rope_dim, rope_mode;
 };
 
 struct lib {
@@ -92,7 +96,7 @@ static bool try_run(const ggml_compute_params * params, ggml_tensor * dst) {
     }
     if (!L) return false;
 
-    args a;
+    args a{};
     a.n_q = q->ne[1]; a.n_kv = k->ne[1]; a.q_pos0 = 0;
     a.n_head = (int32_t) q->ne[2]; a.n_head_kv = (int32_t) k->ne[2]; a.causal = 0;
     a.scale = scale;

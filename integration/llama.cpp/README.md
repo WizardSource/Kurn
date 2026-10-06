@@ -84,6 +84,26 @@ TEST_BUFT=AMX ./t quick q8_0                         # same checks against anoth
 reference, and the checker's smoke mode when a patched llama.cpp is found (`KURN_LLAMA_CPP`, default
 `~/src/llama-kurn`); it skips cleanly otherwise.
 
+## Speculative decoding: cost-aware verify width (`spec-width/`)
+
+Verify cost on this buffer type is a staircase: 3 columns cost as much as 4 and 5-7 as much as 8 (one kernel per
+2 / 4 / 8 columns), and every 8 more columns add a group pass. `spec-width/` sizes the draft to it:
+
+- `kurn-spec-calib` (same flags as `llama-speculative-simple`; `KURN_CALIB_OUT=prefix`) measures the whole-forward
+  cost table (`verify M ms`: target, M tokens with logits for all; `draft M ms`) and a greedy acceptance trace.
+  `kurn specwidth show prefix.cost` prints it; `kurn specwidth simulate prefix.cost *.trace` replays traces against
+  fixed widths and the policy.
+- `kurn-spec-width.h` (header-only, the twin of `kurn.specwidth.WidthPolicy`) picks the draft length that maximises
+  expected accepted tokens minus lambda x time (lambda = running tokens/ms), with acceptance learned online per
+  draft-confidence bin. `KURN_SPEC_WIDTH=prefix.cost llama-speculative-simple ... --spec-draft-n-max 15` caps,
+  stops and truncates every draft through it (`KURN_SPEC_WIDTH_MODE=cap`: rate-only cap). The patch adds draft
+  confidences and a keep-drafting callback to draft-simple; without `KURN_SPEC_WIDTH` behaviour is unchanged.
+
+```sh
+kurn/integration/llama.cpp/spec-width/apply.sh ~/src/llama-kurn   # after apply.sh; idempotent
+cmake --build build -j --target llama-speculative-simple kurn-spec-calib
+```
+
 ## AMX caveat
 
 On the KVM guest used for development, AMX tile registers are not reliably preserved across context switches: with

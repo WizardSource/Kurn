@@ -84,6 +84,17 @@ def suite(name):
                               kurn_impl("kurn-mla-fma-f16", "avx512", "f16"), ggml_impl("ggml-mla-fa-f16", "fa", "f16")]))  # fmt: skip
             cases.append((f"decode-gqa-1.7B-d{depth}", {"nq": 1, "nkv": depth, "causal": 1, **QWEN17, "dk": 128},
                           [kurn_impl("kurn-f16", "avx512", "f16"), ggml_impl("ggml-fa-f16", "fa", "f16")]))  # fmt: skip
+    elif name == "kvfmt":  # pre-RoPE 4-bit per-channel K (k4c_*) vs the row formats, decode, cold KV
+        for shape_name, shape in (("1.7B", QWEN17), ("8B", QWEN8)):
+            for depth in (512, 2048, 8192, 16384, 32768):
+                prob = {"nq": 1, "nkv": depth, "causal": 1, **shape, "dk": 128}
+                impls = [kurn_impl(f"kurn-{kv}", "avx512", kv) for kv in ("f16", "q8_0", "k4c_q4", "k4c_q8")]
+                cases.append((f"decode-{shape_name}-d{depth}", prob, impls))
+    elif name == "kvfmt_prefill":  # the same formats in the AMX tile engine (n_q = 512 at depth)
+        for depth in (2048, 8192, 32768):
+            prob = {"nq": 512, "nkv": depth, "causal": 1, **QWEN17, "dk": 128}
+            impls = [kurn_impl(f"kurn-amx-{kv}", "amx_bf16", kv) for kv in ("f16", "q8_0", "k4c_q4", "k4c_q8")]
+            cases.append((f"prefill-1.7B-d{depth}", prob, impls))
     else:
         raise SystemExit(f"unknown suite {name}")
     return cases
