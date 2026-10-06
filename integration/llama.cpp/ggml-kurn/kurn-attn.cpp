@@ -3,6 +3,7 @@
 // ggml_compute_forward_flash_attn_ext calls ggml_kurn_flash_attn_ext first; when it returns false
 // ggml's own kernel runs. kurn takes a node when
 //   - Q is F32, K and V have the same type F16, BF16 or Q8_0, with contiguous rows (V not transposed),
+//     or K is GGML_TYPE_K4C (k4c/ patch) with V Q4_0 or Q8_0 (kurn's k4c_q4 / k4c_q8),
 //   - the head dims are a generated configuration (kattn_dispatch.h: 64, 128, 256, 576/512),
 //   - there is no ALiBi (max_bias), logit softcap or attention sinks,
 //   - the mask (if any) is F16 and shared by all heads (mask->ne[2] == 1).
@@ -115,13 +116,26 @@ const fa_config & cfg() {
     return c;
 }
 
-int kv_format(ggml_type t) {
-    switch (t) {
+// KATTN_KV_* format of a (K, V) type pair, -1 if kurn has none
+int kv_format(ggml_type k, ggml_type v) {
+#ifdef GGML_K4C_GROUP
+    if (k == GGML_TYPE_K4C) {  // k4c/: per-channel 4-bit K in 32-row groups, V Q4_0 or Q8_0 rows
+        return v == GGML_TYPE_Q4_0 ? KATTN_KV_K4C_Q4 : v == GGML_TYPE_Q8_0 ? KATTN_KV_K4C_Q8 : -1;
+    }
+#endif
+    if (k != v) {
+        return -1;
+    }
+    switch (k) {
         case GGML_TYPE_F16:  return KATTN_KV_F16;
         case GGML_TYPE_BF16: return KATTN_KV_BF16;
         case GGML_TYPE_Q8_0: return KATTN_KV_Q8_0;
         default:             return -1;
     }
+}
+
+bool is_k4c(int fmt) {
+    return fmt == KATTN_KV_K4C_Q4 || fmt == KATTN_KV_K4C_Q8;
 }
 
 const kurn_fa_kernel * find_kernel(int dk, int dv, int kv) {
@@ -154,8 +168,8 @@ const char * unsupported(const ggml_tensor * dst) {
     if (softcap != 0.0f)       return "logit softcap";
     if (dst->src[4])           return "sinks";
     if (q->type != GGML_TYPE_F32 || dst->type != GGML_TYPE_F32) return "Q/dst type";
-    if (k->type != v->type)    return "K/V types differ";
-    if (kv_format(k->type) < 0) return "KV type";
+    const int fmt = kv_format(k->type, v->type);
+    if (fmt < 0)               return k->type != v->type ? "K/V types differ" : "KV type";
     if (q->nb[0] != sizeof(float) || q->nb[1] % sizeof(float) || q->nb[2] % sizeof(float) || q->nb[3] % sizeof(float) ||
         dst->nb[0] != sizeof(float) || dst->nb[1] % sizeof(float) || dst->nb[2] % sizeof(float)) return "Q/dst layout";
     if (k->nb[0] != ggml_type_size(k->type) || v->nb[0] != ggml_type_size(v->type)) return "K/V rows not contiguous";
@@ -164,7 +178,15 @@ const char * unsupported(const ggml_tensor * dst) {
     if (q->ne[1] < 1 || k->ne[1] < 1)                     return "empty";
     if (mask && (mask->type != GGML_TYPE_F16 || mask->nb[0] != 2 || mask->ne[2] != 1 || mask->ne[0] < k->ne[1] ||
                  mask->ne[1] < q->ne[1] || mask->nb[1] % 2)) return "mask layout";
-    if (!find_kernel((int) k->ne[0], (int) v->ne[0], kv_format(k->type))) return "head dims";
+    if (!find_kernel((int) k->ne[0], (int) v->ne[0], fmt)) return "head dims";
+    if (is_k4c(fmt)) {
+        // whole 32-row groups: the view must start on a group and cover whole groups (llama.cpp pads n_kv to 256)
+        const size_t gs = KATTN_K4C_GROUP * k->nb[1];
+        const size_t off = k->view_src ? (size_t) ((const char *) k->data - (const char *) k->view_src->data) : 0;
+        if (k->ne[1] % KATTN_K4C_GROUP || off % gs || k->nb[3] % gs || (int64_t) k->nb[2] * KATTN_K4C_GROUP != KATTN_K4C_BLOCK_BYTES(k->ne[0])) {
+            return "k4c view not group-aligned";
+        }
+    }
     return nullptr;
 }
 
@@ -233,6 +255,10 @@ void grow(const ggml_compute_params * params, void ** buf, size_t * size, size_t
 
 }  // namespace
 
+extern "C" bool ggml_kurn_flash_attn_ext_supported(const ggml_tensor * op) {
+    return cfg().on && unsupported(op) == nullptr;
+}
+
 extern "C" bool ggml_kurn_flash_attn_ext(const ggml_compute_params * params, ggml_tensor * dst) {
     const fa_config & c = cfg();
     if (!c.on || params->use_ref) {
@@ -240,7 +266,8 @@ extern "C" bool ggml_kurn_flash_attn_ext(const ggml_compute_params * params, ggm
     }
     const char * why = unsupported(dst);
     const ggml_tensor * q = dst->src[0], * k = dst->src[1], * v = dst->src[2], * mask = dst->src[3];
-    const kurn_fa_kernel * kern = why ? nullptr : find_kernel((int) k->ne[0], (int) v->ne[0], kv_format(k->type));
+    const int fmt = kv_format(k->type, v->type);
+    const kurn_fa_kernel * kern = why ? nullptr : find_kernel((int) k->ne[0], (int) v->ne[0], fmt);
     if (params->ith == 0) {
         (kern ? stats().calls : stats().fallbacks)++;
         if (c.verbose) {
@@ -282,6 +309,11 @@ extern "C" bool ggml_kurn_flash_attn_ext(const ggml_compute_params * params, ggm
         a.k = (const char *) k->data + (s / rk3) * k->nb[3];
         a.k_s_tok = k->nb[1];
         a.k_s_head = k->nb[2];
+        if (is_k4c(fmt)) {  // strides of a 32-row group; keys are cached after RoPE, so no rotation in the kernel
+            a.k_s_tok = KATTN_K4C_GROUP * k->nb[1];
+            a.k_s_head = KATTN_K4C_GROUP * k->nb[2];
+            a.rope_dim = 0;
+        }
         a.v = (const char *) v->data + (s / rk3) * v->nb[3];
         a.v_s_tok = v->nb[1];
         a.v_s_head = v->nb[2];

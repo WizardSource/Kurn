@@ -37,6 +37,9 @@ def test_generator_writes_every_variant_with_renamed_symbols(tmp_path):
     for variant in gen.VARIANTS:
         for kv in gen.KV:
             for dk, dv in gen.DIMS:
+                if kv in A.PRE_ROPE_KV and dk == 576:
+                    assert not (tmp_path / f"{gen.name(variant, kv, dk, dv)}.c").exists()
+                    continue
                 name = gen.name(variant, kv, dk, dv)
                 src = (tmp_path / f"{name}.c").read_text()
                 assert src.startswith("#if ") and src.rstrip().endswith("#endif")
@@ -82,7 +85,7 @@ def _build(variant, kv="f16", dk=128, dv=128):
 
 
 @pytest.mark.parametrize("variant,kv", [("f32", "f16"), ("f32", "q8_0"), ("exact", "f16"), ("exact", "q8_0"), ("exact", "bf16"),
-                                        ("bf16", "f16"), ("amx", "q8_0")])  # fmt: skip
+                                        ("bf16", "f16"), ("amx", "q8_0"), ("f32", "k4c_q4"), ("exact", "k4c_q8")])  # fmt: skip
 def test_generated_kernels_pass_kurn_check(variant, kv):
     c, so = _build(variant, kv)
     worst = A.check(so, c)
