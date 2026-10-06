@@ -3,6 +3,8 @@
 #   apply.sh LLAMA_CPP_DIR [--config tuned.json] [--only q8_0,q4_0] [--patch OUT.patch]
 # - copies ggml-kurn/kurn-buft.{cpp,h} into ggml/src/ggml-cpu/kurn/
 # - generates the kurn kernels for every registry format ggml knows (gen_ggml_sources.py)
+# - generates kurn attention kernels (gen_ggml_attn.py; $ATTN_CONFIG = its --config) and makes kurn
+#   attention the first FLASH_ATTN_EXT implementation (kurn-attn.cpp, ggml's kernel as fallback)
 # - registers the buffer type first in ggml-cpu's extra buffer list and adds the sources to CMake
 # Re-running regenerates the kernels (e.g. with a new --config); the edits are idempotent.
 # --patch writes `git diff` of the checkout (relative to its HEAD) to OUT.patch.
@@ -22,9 +24,12 @@ done
 PY=${KURN_PYTHON:-$( [ -x /opt/kenv/bin/python ] && echo /opt/kenv/bin/python || echo python3 )}
 CPU=$L/ggml/src/ggml-cpu
 mkdir -p "$CPU/kurn"
-cp "$HERE/ggml-kurn/kurn-buft.cpp" "$HERE/ggml-kurn/kurn-buft.h" "$CPU/kurn/"
+cp "$HERE/ggml-kurn/kurn-buft.cpp" "$HERE/ggml-kurn/kurn-buft.h" "$HERE/ggml-kurn/kurn-attn.cpp" \
+  "$HERE/ggml-kurn/kurn-attn.h" "$CPU/kurn/"
 PYTHONPATH="$HERE/../../src${PYTHONPATH:+:$PYTHONPATH}" "$PY" "$HERE/gen_ggml_sources.py" "$CPU/kurn" \
   --ggml-h "$L/ggml/include/ggml.h" "${GEN_ARGS[@]}"
+PYTHONPATH="$HERE/../../src${PYTHONPATH:+:$PYTHONPATH}" "$PY" "$HERE/gen_ggml_attn.py" "$CPU/kurn" \
+  ${ATTN_CONFIG:+--config "$ATTN_CONFIG"}
 "$PY" - "$L" <<'EOF'
 import sys
 L = sys.argv[1]
@@ -59,6 +64,17 @@ if "kurn-buft.h" not in s:
 
 #if defined(__AMX_INT8__) && defined(__AVX512VNNI__)
 """, 1)
+    open(p, "w").write(s)
+p = f"{L}/ggml/src/ggml-cpu/ops.cpp"
+s = open(p).read()
+if "kurn-attn.h" not in s:
+    inc = '#include "ops.h"\n'
+    assert s.startswith(inc), "ops.cpp include anchor not found"
+    s = s.replace(inc, inc + '#include "kurn/kurn-attn.h"\n', 1)
+    anchor = "void ggml_compute_forward_flash_attn_ext(\n        const ggml_compute_params * params,\n        ggml_tensor * dst) {\n"
+    assert s.count(anchor) == 1, "flash_attn_ext entry point not found"
+    s = s.replace(anchor, anchor + "    // kurn attention first (kurn/integration/llama.cpp); ggml below for what it does not take\n"
+                  "    if (ggml_kurn_flash_attn_ext(params, dst)) {\n        return;\n    }\n", 1)
     open(p, "w").write(s)
 EOF
 if [ -n "$PATCH" ]; then

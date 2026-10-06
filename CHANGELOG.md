@@ -5,6 +5,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Added: kurn attention as llama.cpp's `FLASH_ATTN_EXT` (`integration/llama.cpp`)
+- `apply.sh` generates kurn attention kernels (`gen_ggml_attn.py`: f32 / AMX-BF16 / AVX512-BF16 tile engines plus a
+  batch-invariant `exact` configuration, F16 / BF16 / Q8_0 KV, head dims 64 / 128 / 256 / 576-512) and makes
+  `ggml-kurn/kurn-attn.cpp` the first `FLASH_ATTN_EXT` implementation; ggml's kernel stays as the fallback (ALiBi,
+  softcap, sinks, other types or head dims, per-head masks). GQA, llama.cpp's KQ mask, KV streams, kurn's flash-decoding
+  splits and per-call K/V packing (`kattn_pack`) for the bf16 / AMX engines.
+- Qwen3-1.7B Q8_0, F16 KV, 8 threads, against ggml's FA in the same build: pp512 at depth 4096 1.81x (f32) / 2.62x
+  (AMX), tg64 at depth 4096 2.1x; WikiText-2 (ctx 2048) KL vs ggml's FA 0.0018, the same as ggml's non-FA path.
+- `GGML_KURN_FA_MODE=exact`: a token's attention output does not depend on the batch, the padded KV length or the
+  thread count (`tests/test_llama_attn.py`).
+
 ### Added: cost-aware speculative verify width (`kurn specwidth`, `integration/llama.cpp/spec-width`)
 - Verify cost on the KURN buffer type is a staircase: one kernel per 2 / 4 / 8 columns (3 and 5-7 columns pay for 4
   and 8), plus a group pass per further 8. `kurn specwidth kernels` measures it per kernel; `kurn-spec-calib` measures

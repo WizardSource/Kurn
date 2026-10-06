@@ -1,4 +1,4 @@
-# llama.cpp integration: the KURN extra buffer type
+# llama.cpp integration: the KURN extra buffer type and kurn attention
 
 `ggml-kurn/kurn-buft.cpp` adds a ggml-cpu *extra buffer type* named `KURN`, the same mechanism as ggml's own `AMX`
 and `CPU_REPACK` buffers. At model load, every weight whose type has a kurn kernel is repacked once into kurn's
@@ -83,6 +83,48 @@ TEST_BUFT=AMX ./t quick q8_0                         # same checks against anoth
 `tests/test_llama_integration.py` runs format discovery, the packing glue and GEMV / verify kernels against a Python
 reference, and the checker's smoke mode when a patched llama.cpp is found (`KURN_LLAMA_CPP`, default
 `~/src/llama-kurn`); it skips cleanly otherwise.
+
+## Attention: kurn as `FLASH_ATTN_EXT`
+
+`apply.sh` also makes kurn's attention kernel (`kurn.attention`, `data/attn_kernel.c`) the first implementation of
+ggml-cpu's `FLASH_ATTN_EXT`: `ggml-kurn/kurn-attn.cpp` is called at the top of `ggml_compute_forward_flash_attn_ext`
+and ggml's own kernel runs for every node it does not take. `gen_ggml_attn.py` generates the kernels (one renamed
+instance per configuration, compiled only when the build has the ISA it needs) and `kattn_dispatch.h`.
+
+| | kurn takes | falls back to ggml |
+|---|---|---|
+| KV | K and V both F16, BF16 or Q8_0, rows contiguous (`-fa on` cache layout) | other or mixed types, transposed V |
+| heads | dk = dv = 64, 128, 256; dk 576 / dv 512 (MLA, V a view of K); any GQA ratio | other head dims |
+| mask | F16 mask shared by all heads (llama.cpp's KQ mask, causal / SWA / multi-sequence) | per-head masks |
+| other | streams (`ne[3]`, llama.cpp's per-sequence KV streams), dim-3 broadcast | ALiBi, logit softcap, attention sinks |
+
+The mask carries causality, so kurn runs with `causal = 0`; KV tiles that the mask hides for every row of a tile are
+skipped. Decode (n_q x G <= 8) uses kurn's f32 row engine with automatic KV splits (flash-decoding); larger batches
+use the tile engine. Prefill-sized calls of the bf16 / AMX engines pack K/V once per call (`kattn_pack`) and read
+every query tile from that copy (`kattn_packed`) instead of re-packing each KV tile for every query tile.
+
+Two modes:
+
+- **fast** (default): tile engine `f32` (default), `amx` (AMX-BF16, `GGML_KURN_AMX=1`, see the AMX caveat; the kernel
+  times each tile block and recomputes blocks that spanned a preemption) or `bf16` (AVX512-BF16).
+- **exact** (`GGML_KURN_FA_MODE=exact`): the f32 tile engine for every batch size and a single KV split. A token's
+  attention output then does not depend on how many tokens are computed with it, the (padded) KV length or the thread
+  count; together with the buffer type's batch-invariant matmuls, a speculative verify batch reproduces one-token
+  decoding bit for bit. Decode is slower than fast mode at long context (the tile engine computes 32 query rows).
+
+| variable | effect |
+|---|---|
+| `GGML_KURN_FA=0` (or `GGML_KURN=0`) | ggml's flash attention only |
+| `GGML_KURN_FA_MODE=fast\|exact` | see above (default fast) |
+| `GGML_KURN_FA_ENGINE=f32\|amx\|bf16` | tile engine of fast mode (default f32, amx with `GGML_KURN_AMX=1`) |
+| `GGML_KURN_FA_PACK=0` | no per-call K/V packing (bf16 / AMX engines) |
+| `GGML_KURN_VERBOSE=1` | log the configuration, every new node shape with its kernel or fallback reason, and node counts at exit |
+
+Checks: `test-backend-ops -o FLASH_ATTN_EXT -b CPU` compares the CPU backend against itself in reference mode, where
+kurn steps aside, so every supported case is kurn against ggml's vec kernel (all 5,314 cases pass in every mode and
+engine; 545 of them run on kurn). `tests/test_llama_attn.py` checks the generator, runs the renamed kernels through
+kurn's harness, checks that `exact` is batch-invariant, and runs a test-backend-ops subset when a built checkout is
+found (`KURN_LLAMA_CPP`).
 
 ## Speculative decoding: cost-aware verify width (`spec-width/`)
 
