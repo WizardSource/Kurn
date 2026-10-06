@@ -1,6 +1,10 @@
-"""CUDA backend (`target cuda`, kurn.gpu): the `kurn gpu` command and routing of spec commands
-(`kurn check|gen|build|verify|tune SPEC`) for specs whose target is cuda. kurn.gpu is imported
-lazily: it builds on kurn.spec, which imports this package."""
+"""CUDA backend (`target cuda`, `kurn gpu ...`) and hybrid device routing.
+
+Registers:
+  hooks.COMMANDS["gpu"]           -> `kurn gpu ...`
+  hooks.TARGET_BACKENDS["cuda"]   -> routes check|gen|build|verify|tune on cuda specs
+  hooks.COMMANDS["hybrid"]        -> `kurn hybrid ...` (cpu / gpu / together)
+"""
 
 from .. import hooks
 
@@ -17,5 +21,12 @@ def _spec_command(cmd, argv):
     return spec_command(cmd, argv)
 
 
+def _hybrid_cli(argv):
+    from ..hybrid.cli import main
+
+    return main(argv)
+
+
 hooks.COMMANDS["gpu"] = _gpu_cli
+hooks.COMMANDS["hybrid"] = _hybrid_cli
 hooks.TARGET_BACKENDS["cuda"] = _spec_command
