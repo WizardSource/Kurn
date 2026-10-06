@@ -385,7 +385,7 @@ static __global__ void __launch_bounds__(KGA_NT, 1) kga_main(kga_args a, kga_pla
 #pragma unroll
     for (int n = 0; n < KGA_TKW / 8; n++) sc[n][0] = sc[n][1] = sc[n][2] = sc[n][3] = 0.f;
 #if KGA_FP8
-#pragma unroll 2
+#pragma unroll 1  // with qsplit each step holds two A fragments; unrolling pushed 1-warp-wide tiles past 255 registers
     for (int kk = 0; kk < KGA_DK / 32; kk++) {  // m16n8k32: 32 e4m3 values = the same 16-byte ldmatrix rows as f16
       uint32_t af[4];
       const uint8_t *qa = Qs + (16 * wm + (lane & 7) + 8 * ((lane >> 3) & 1)) * KGA_QST8 + 32 * kk + 16 * (lane >> 4);

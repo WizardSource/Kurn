@@ -131,6 +131,8 @@ INVALID = [
         "shared memory exceeds the arch's per-block limit (sm_80 163 KB, sm_100 227 KB, sm_120 99 KB): smaller tk, or q8_0 / mla",
     ),
     (lambda c: est_regs(c) > REG_BUDGET, "accumulators need too many registers (use more wn warps or a smaller tk)"),
+    (lambda c: est_regs(c) > 0.9 * min(255, 65536 // (32 * c["wm"] * c["wn"])),
+     "too many registers for the launch bounds (512 threads cap a thread at 128): use fewer wm x wn warps"),
 ]
 
 
