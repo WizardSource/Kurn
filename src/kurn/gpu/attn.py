@@ -331,8 +331,9 @@ def fatbin_contents(so):
 
 def archs_for(c):
     """Tiers whose per-block shared memory fits this config (it always fits its own `arch`); kga_run returns -4
-    elsewhere."""
-    return [a for a in FATBIN_ARCHS if smem_bytes(c) <= SMEM_LIMITS[a] and a in fatbin_archs(c) + [c["arch"]]]
+    elsewhere. Independent of the local nvcc: a missing/old toolkit still reports where a tile can launch."""
+    ok = FP8_ARCHS if c.get("kv") == "fp8" else FATBIN_ARCHS
+    return [a for a in FATBIN_ARCHS if a in ok and smem_bytes(c) <= SMEM_LIMITS[a]]
 
 
 # --------------------------------------------------------------------------- emulator verification
