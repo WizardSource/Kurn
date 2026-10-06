@@ -44,11 +44,24 @@ from .toolchain import (
 
 KV_FORMATS = {"f16": 0, "bf16": 1, "q8_0": 2}
 HEAD_DIMS = {64: (64,), 128: (128,), 256: (256,), 576: (512,)}  # dk -> legal dv (as the CPU op)
-ARCH = "sm_80"  # the measured target (A100); configs are validated against its limits
-FATBIN_ARCHS = ("sm_80", "sm_120")  # SASS in every build; sm_120 (RTX 50, consumer Blackwell) is compile-only
-MIN_NVCC = {"sm_80": (11, 0), "sm_120": (12, 8)}  # first CUDA release that targets the arch
-SMEM_LIMITS = {"sm_80": 166912, "sm_120": 101376}  # opt-in dynamic shared memory per block
+ARCH = "sm_80"  # the default and measured target (A100)
+# Tiers a config is validated and tuned for: sm_80 (A100, measured), sm_100 (B200 / GB200) and sm_120 (RTX 50), the
+# last two compile-only. Every build carries SASS for each of them (when nvcc can target it) plus compute_80 PTX.
+ARCHS = ("sm_80", "sm_100", "sm_120")
+FATBIN_ARCHS = ARCHS
+MIN_NVCC = {"sm_80": (11, 0), "sm_100": (12, 8), "sm_120": (12, 8)}  # first CUDA release that targets the arch
+SMEM_LIMITS = {"sm_80": 166912, "sm_100": 232448, "sm_120": 101376}  # opt-in dynamic shared memory per block
 SMEM_MAX = SMEM_LIMITS[ARCH]
+# Default tiles per tier and head dim: (tk, wn). sm_120 has 99 KB per block, so dk 256 drops to 32-token tiles; sm_100
+# has 227 KB, so MLA keeps 64-token tiles with 4 warps (O in 64 registers instead of 128 with wn 2).
+ARCH_DEFAULTS = {
+    "sm_80": {64: (64, 4), 128: (64, 4), 256: (64, 4), 576: (32, 2)},
+    "sm_100": {64: (64, 4), 128: (64, 4), 256: (64, 4), 576: (64, 4)},
+    "sm_120": {64: (64, 4), 128: (64, 4), 256: (32, 2), 576: (32, 2)},
+}
+# Other GPUs map to the tier with their per-block shared memory (sm_86/89: 99 KB like sm_120; sm_90/103: 227 KB).
+TIER_OF = {"sm_80": "sm_80", "sm_86": "sm_120", "sm_87": "sm_80", "sm_89": "sm_120", "sm_90": "sm_100", "sm_100": "sm_100",
+           "sm_101": "sm_100", "sm_103": "sm_100", "sm_110": "sm_100", "sm_120": "sm_120", "sm_121": "sm_120"}  # fmt: skip
 REG_BUDGET = 200  # estimated registers per thread above which ptxas would likely spill (255 cap, launch bounds)
 STAGES = 2
 
@@ -63,7 +76,7 @@ SCHEDULE = {
     "split": lambda c: (0, 1, 2, 4, 8, 16, 32, 64),
 }
 DEFAULTS = {"kv": "f16", "dk": 128, "tk": 64, "wm": 1, "wn": 4, "split": 0}
-CODEGEN_KEYS = ("kv", "dk", "dv", "mla", "tk", "wm", "wn", "split")
+CODEGEN_KEYS = ("arch", "kv", "dk", "dv", "mla", "tk", "wm", "wn", "split")
 PROBLEM = {"heads": 32, "kv_heads": 8, "nq": 1, "nkv": 4096, "pos0": -1, "causal": 1, "mask": 0, "layout": 0}
 KNOWN = ("kernel", "op", "target", "arch") + tuple(SCHEDULE) + tuple(PROBLEM)
 # max |out - ref| / max |ref| against the float64 reference on the stored (dequantized) K/V. f16: q, k, P rounded to
@@ -97,7 +110,10 @@ INVALID = [
     (lambda c: (c["tk"] // c["wn"]) % 16, "tk / wn must be a multiple of 16 (QK^T n-tiles are loaded in pairs)"),
     (lambda c: (c["dv"] // c["wn"]) % 16, "dv / wn must be a multiple of 16 (PV n-tiles are loaded in pairs)"),
     (lambda c: c["wm"] * c["wn"] > 16, "at most 16 warps per CTA"),
-    (lambda c: smem_bytes(c) > SMEM_MAX, "shared memory exceeds the A100's 163 KB per block (smaller tk, or q8_0 / mla)"),
+    (
+        lambda c: smem_bytes(c) > SMEM_LIMITS[c["arch"]],
+        "shared memory exceeds the arch's per-block limit (sm_80 163 KB, sm_100 227 KB, sm_120 99 KB): smaller tk, or q8_0 / mla",
+    ),
     (lambda c: est_regs(c) > REG_BUDGET, "accumulators need too many registers (use more wn warps or a smaller tk)"),
 ]
 
@@ -120,8 +136,8 @@ def resolve(spec, overrides=None):
     if c.get("target", "cuda") != "cuda":
         raise SpecError(f"target {c['target']!r}: kurn.gpu.attn handles target cuda only")
     c["target"] = "cuda"
-    if c.setdefault("arch", ARCH) != ARCH:
-        raise SpecError(f"arch {c['arch']!r}: GPU attention targets {ARCH} (A100) only")
+    if c.setdefault("arch", ARCH) not in ARCHS:
+        raise SpecError(f"arch {c['arch']!r}: GPU attention tiers are {list(ARCHS)} (map other GPUs with tier_for)")
     for k in c:
         if k not in KNOWN:
             raise SpecError(f"unknown key {k!r} for op attn target cuda: expected one of {sorted(KNOWN)}")
@@ -130,8 +146,8 @@ def resolve(spec, overrides=None):
         if k not in c:
             if k == "mla":
                 c[k] = 1 if c["dk"] == 576 else 0
-            elif k in ("tk", "wn") and c["dk"] == 576:  # MLA: a 32-token tile of 576-wide rows double-buffered
-                c[k] = 32 if k == "tk" else 2
+            elif k in ("tk", "wn"):
+                c[k] = ARCH_DEFAULTS[c["arch"]][c["dk"]][0 if k == "tk" else 1]
             else:
                 c[k] = DEFAULTS[k] if DEFAULTS.get(k) in allowed else allowed[0]
         if c[k] not in allowed:
@@ -147,6 +163,24 @@ def resolve(spec, overrides=None):
             raise SpecError(msg)
     c.setdefault("kernel", f"attn_{c['kv']}_d{c['dk']}_cuda")
     return c
+
+
+def tier_for(arch):
+    """The attention tier (sm_80 / sm_100 / sm_120) whose limits fit GPU `arch` (e.g. 'sm_86' -> 'sm_120')."""
+    if arch in TIER_OF:
+        return TIER_OF[arch]
+    major = int(arch.split("_")[1]) // 10 if arch and arch.startswith("sm_") else 8
+    return "sm_120" if major >= 12 else "sm_100" if major >= 9 else "sm_80"
+
+
+def kernel_for(kv, dk, arch=None, **problem):
+    """Per-arch dispatch: the default config for KV format `kv` and head dim `dk` on GPU `arch` (default: the local
+    GPU, else sm_80). MLA (dk 576) picks mla 1. Extra keys (heads, kv_heads, nq, nkv, ...) set the problem."""
+    if arch is None:
+        from .harness import detect_arch
+
+        arch = detect_arch() or ARCH
+    return resolve({"kv": kv, "dk": dk, "arch": tier_for(arch), **problem})
 
 
 def label(c):
@@ -166,9 +200,9 @@ def generate(c):
         body = fh.read()
     defs = {"KGA_DK": c["dk"], "KGA_DV": c["dv"], "KGA_KV": KV_FORMATS[c["kv"]], "KGA_TK": c["tk"], "KGA_WM": c["wm"],
             "KGA_WN": c["wn"], "KGA_STAGES": STAGES, "KGA_SPLIT": c["split"], "KGA_MLA": c["mla"]}  # fmt: skip
-    head = [f"// kurn GPU attention kernel ({ARCH}): {label(c)}"]
+    head = [f"// kurn GPU attention kernel (tuned for {c['arch']}): {label(c)}"]
     head += [f"#define {k} {v}" for k, v in defs.items()]
-    head.append(f'#define KGA_CONFIG "op=attn arch={ARCH} {label(c)}"')
+    head.append(f'#define KGA_CONFIG "op=attn {label(c)}"')
     return "\n".join(head) + "\n" + PRELUDE + CPASYNC + HELPERS + body
 
 
@@ -204,8 +238,8 @@ def emu_build(c, src=None):
     return exe
 
 
-def fatbin_archs():
-    """FATBIN_ARCHS this nvcc can target (CUDA < 12.8 builds sm_80 only; compute_80 PTX still JITs on RTX 50)."""
+def fatbin_archs(c=None):
+    """FATBIN_ARCHS this nvcc can target (CUDA < 12.8 builds sm_80 only; the compute_80 PTX still JITs on Blackwell)."""
     v = nvcc_version() or "0.0"
     try:
         have = tuple(int(x) for x in v.split(".")[:2])
@@ -214,12 +248,13 @@ def fatbin_archs():
     return [a for a in FATBIN_ARCHS if have >= MIN_NVCC[a]]
 
 
-def fatbin_flags():
-    """SASS for every fatbin_archs() entry plus compute_80 PTX, so drivers can JIT the kernel for later GPUs."""
+def fatbin_flags(c=None):
+    """SASS for every fatbin_archs(c) entry plus PTX of the lowest one, so drivers can JIT the kernel for later GPUs."""
     out = []
-    for a in fatbin_archs():
+    archs = fatbin_archs(c)
+    for a in archs:
         n = a.split("_")[1]
-        code = f"[sm_{n},compute_{n}]" if a == ARCH else f"sm_{n}"
+        code = f"[sm_{n},compute_{n}]" if a == archs[0] else f"sm_{n}"
         out += ["-gencode", f"arch=compute_{n},code={code}"]
     return out
 
@@ -231,7 +266,7 @@ def nvcc_build(c, src=None, out_dir=None):
     if not n:
         raise GpuBuildError("nvcc not found (install the CUDA toolkit or set KURN_NVCC)")
     src = src or generate(c)
-    flags = ["-O3", "-std=c++17", "-shared", "-Xcompiler", "-fPIC", "-Xptxas", "-v", "-lineinfo", *fatbin_flags(),
+    flags = ["-O3", "-std=c++17", "-shared", "-Xcompiler", "-fPIC", "-Xptxas", "-v", "-lineinfo", *fatbin_flags(c),
              "-I", os.path.dirname(data_path("kurn_gpu_attn.h"))]  # fmt: skip
     h = _sha(src, open(data_path("kurn_gpu_attn.h"), "rb").read(), n, nvcc_version(), shlex.join(flags))
     d = out_dir or _out_dir("cuda")
@@ -273,8 +308,9 @@ def fatbin_contents(so):
 
 
 def archs_for(c):
-    """Fatbin archs whose per-block shared memory fits this config (the A100 is always one of them)."""
-    return [a for a in FATBIN_ARCHS if smem_bytes(c) <= SMEM_LIMITS[a]]
+    """Tiers whose per-block shared memory fits this config (it always fits its own `arch`); kga_run returns -4
+    elsewhere."""
+    return [a for a in FATBIN_ARCHS if smem_bytes(c) <= SMEM_LIMITS[a] and a in fatbin_archs(c) + [c["arch"]]]
 
 
 # --------------------------------------------------------------------------- emulator verification
@@ -343,8 +379,9 @@ def emu_check(c, shapes=CHECK_SHAPES, scheds=(0,), log=None, exe=None):
     return worst
 
 
-def covering_configs(kv=None, dk=None):
-    """The defaults per (kv, head dims) plus every legal value of every schedule key varied one at a time."""
+def covering_configs(kv=None, dk=None, arch=ARCH):
+    """For tier `arch`: the defaults per (kv, head dims) plus every legal value of every schedule key varied one at a
+    time."""
     out, seen = [], set()
 
     def add(c):
@@ -355,7 +392,7 @@ def covering_configs(kv=None, dk=None):
     for f, d in itertools.product(KV_FORMATS, HEAD_DIMS):
         if (kv and f != kv) or (dk and d != dk):
             continue
-        base = {"op": "attn", "target": "cuda", "kv": f, "dk": d}
+        base = {"op": "attn", "target": "cuda", "kv": f, "dk": d, "arch": arch}
         try:
             dflt = resolve(base)
         except SpecError:
@@ -370,11 +407,11 @@ def covering_configs(kv=None, dk=None):
     return out
 
 
-def legal_configs(kv=None, dk=None):
+def legal_configs(kv=None, dk=None, arch=ARCH):
     for f, d in itertools.product(KV_FORMATS, HEAD_DIMS):
         if (kv and f != kv) or (dk and d != dk):
             continue
-        base = {"op": "attn", "target": "cuda", "kv": f, "dk": d}
+        base = {"op": "attn", "target": "cuda", "kv": f, "dk": d, "arch": arch}
         for combo in itertools.product(*(SCHEDULE[k]({"dk": d, "dv": HEAD_DIMS[d][0]}) for k in ("tk", "wm", "wn", "mla"))):
             try:
                 yield resolve(base, dict(zip(("tk", "wm", "wn", "mla"), combo)))
@@ -492,7 +529,7 @@ MATRIX_CONTEXTS = (1024, 4096, 16384, 32768)
 
 
 def matrix(harness, results, kvs=("f16", "bf16", "q8_0"), models=MATRIX_MODELS, contexts=MATRIX_CONTEXTS, nqs=(1,), secs=0.4, reps=5,
-           kernels=None, log=print):  # fmt: skip
+           kernels=None, log=print, arch=ARCH):  # fmt: skip
     """For each (model, KV format, context, nq): the default kernel (or the `kernels[(model, kv)]` overrides) is checked
     on the GPU and timed in the cold regime. Writes RESULTS/attn_matrix.jsonl and returns the rows."""
     os.makedirs(results, exist_ok=True)
@@ -500,13 +537,14 @@ def matrix(harness, results, kvs=("f16", "bf16", "q8_0"), models=MATRIX_MODELS, 
     rows = []
     with open(path, "w") as fh:
         for (mname, m), kv, ctx, nq in itertools.product(models.items(), kvs, contexts, nqs):
-            ov = {"kv": kv, "dk": m["dk"], "heads": m["heads"], "kv_heads": m["kv_heads"], "nkv": ctx, "nq": nq}
+            ov = {"kv": kv, "dk": m["dk"], "heads": m["heads"], "kv_heads": m["kv_heads"], "nkv": ctx, "nq": nq, "arch": tier_for(arch)}
             ov.update((kernels or {}).get((mname, kv), {}))
             try:
                 c = resolve({}, ov)
                 chk, samples = gpu_run(harness, nvcc_build(c)[0], c, secs=secs, reps=reps)
                 row = {"model": mname, "kv": kv, "nkv": ctx, "nq": nq, "config": label(c), "relerr": chk["relerr"],
-                       "status": chk["status"], "splits": chk["splits"], **summarize(samples)}  # fmt: skip
+                       "status": chk["status"], "splits": chk["splits"], "device": chk["device"], "sm": chk["sm"],
+                       "native": f"sm_{chk['sm']}" in fatbin_archs(c), **summarize(samples)}  # fmt: skip
             except (SpecError, GpuBuildError, HarnessError, subprocess.TimeoutExpired) as e:
                 row = {"model": mname, "kv": kv, "nkv": ctx, "nq": nq, "status": "error", "error": str(e).splitlines()[0]}
             rows.append(row)

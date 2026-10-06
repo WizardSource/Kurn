@@ -18,7 +18,9 @@ def test_defaults_and_mla_defaults():
 
 
 @pytest.mark.parametrize("ov, msg", [
-    ({"arch": "sm_90"}, "A100"),
+    ({"arch": "sm_90"}, "tiers"),
+    ({"arch": "sm_120", "dk": 256, "tk": 64, "wn": 4}, "shared memory"),
+    ({"arch": "sm_80", "dk": 576, "tk": 64, "wn": 4}, "shared memory"),
     ({"tk": 32, "wn": 4}, "tk / wn"),
     ({"dk": 576, "mla": 0, "tk": 64}, "shared memory"),
     ({"wm": 4, "wn": 2, "tk": 128}, "shared memory"),
@@ -125,7 +127,8 @@ def test_old_nvcc_builds_sm80_only(monkeypatch):
     monkeypatch.setattr(A, "nvcc_version", lambda: "12.2")
     assert A.fatbin_archs() == ["sm_80"] and "arch=compute_120,code=sm_120" not in A.fatbin_flags()
     monkeypatch.setattr(A, "nvcc_version", lambda: "12.9")
-    assert A.fatbin_flags() == ["-gencode", "arch=compute_80,code=[sm_80,compute_80]", "-gencode", "arch=compute_120,code=sm_120"]
+    assert A.fatbin_flags() == ["-gencode", "arch=compute_80,code=[sm_80,compute_80]", "-gencode", "arch=compute_100,code=sm_100",
+                                "-gencode", "arch=compute_120,code=sm_120"]  # fmt: skip
 
 
 @pytest.mark.skipif(not toolchain.nvcc(), reason="nvcc not installed")
@@ -143,15 +146,16 @@ def test_cli_routes_attn_specs(tmp_path, capsys):
     sp.write_text("op attn\ntarget cuda\nkv q8_0\ndk 576\n")
     assert main(["check", str(sp)]) == 0
     out = capsys.readouterr().out
-    assert '"mla": 1' in out and "fits: sm_80, sm_120" in out
+    assert '"mla": 1' in out and "fits: sm_80, sm_100, sm_120" in out
     assert main(["gpu", "attn", "check", "-", "kv=bf16", "tk=32", "wn=4"]) == 2
 
 
 def test_shared_memory_decides_where_a_config_runs():
-    assert A.archs_for(A.resolve({"kv": "q8_0"})) == ["sm_80", "sm_120"]
-    assert A.archs_for(A.resolve({"kv": "q8_0", "dk": 576})) == ["sm_80", "sm_120"]
-    assert A.archs_for(A.resolve({"kv": "f16", "dk": 256})) == ["sm_80"]  # 146 KB tile: A100 only
-    assert A.archs_for(A.resolve({"kv": "f16", "dk": 256, "tk": 32, "wn": 2})) == ["sm_80", "sm_120"]
+    assert A.archs_for(A.resolve({"kv": "q8_0"})) == ["sm_80", "sm_100", "sm_120"]
+    assert A.archs_for(A.resolve({"kv": "q8_0", "dk": 576})) == ["sm_80", "sm_100", "sm_120"]
+    assert A.archs_for(A.resolve({"kv": "f16", "dk": 256})) == ["sm_80", "sm_100"]  # 146 KB tile: not on sm_120
+    assert A.archs_for(A.resolve({"kv": "f16", "dk": 256, "arch": "sm_120"})) == ["sm_80", "sm_100", "sm_120"]
+    assert A.archs_for(A.resolve({"kv": "f16", "dk": 576, "arch": "sm_100"})) == ["sm_100"]  # 171 KB: B200 only
 
 
 _LAYOUT = """#include <cstddef>
@@ -246,3 +250,23 @@ def test_gpu_plumbing_with_a_stub_harness(tmp_path):
     stub.write_text('#!/bin/sh\necho \'{"kind": "error", "error": "kga_run failed (-4): tile exceeds"}\'\nexit 1\n')
     with pytest.raises(A.HarnessError, match="-4"):
         A.gpu_run(str(stub), "x.so", c)
+
+
+def test_per_arch_defaults_and_dispatch():
+    for arch in A.ARCHS:  # every default fits its tier
+        for dk in A.HEAD_DIMS:
+            for kv in A.KV_FORMATS:
+                c = A.kernel_for(kv, dk, arch)
+                assert c["arch"] == arch and A.smem_bytes(c) <= A.SMEM_LIMITS[arch] and A.est_regs(c) <= A.REG_BUDGET
+    assert (A.kernel_for("f16", 256, "sm_120")["tk"], A.kernel_for("f16", 256, "sm_120")["wn"]) == (32, 2)
+    assert (A.kernel_for("q8_0", 576, "sm_100")["tk"], A.kernel_for("q8_0", 576, "sm_100")["wn"]) == (64, 4)
+    assert [A.tier_for(a) for a in ("sm_80", "sm_86", "sm_89", "sm_90", "sm_100", "sm_103", "sm_120", "sm_121", "sm_75")] == [
+        "sm_80", "sm_120", "sm_120", "sm_100", "sm_100", "sm_100", "sm_120", "sm_120", "sm_80"]  # fmt: skip
+
+
+@emu
+@pytest.mark.parametrize("arch, kv, dk", [("sm_120", "f16", 256), ("sm_120", "q8_0", 256), ("sm_100", "bf16", 576),
+                                         ("sm_100", "q8_0", 576)])  # fmt: skip
+def test_per_arch_defaults_match_reference(arch, kv, dk):
+    w = A.emu_check(A.kernel_for(kv, dk, arch), shapes=A.QUICK_SHAPES, scheds=(0, 5))
+    assert w["ok"], w
