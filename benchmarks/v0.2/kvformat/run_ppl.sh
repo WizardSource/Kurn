@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # KV-format accuracy on one model: perplexity, KL vs the f16-KV run, and argmax agreement.
 #   run_ppl.sh ENGINE MODEL.gguf TOKENS CTX CHUNKS OUTDIR [formats...]
-# ENGINE is a `kurn model` engine built with -DMAX_CTX >= CTX. Threads = 8 (one per kv head on
+# ENGINE is a `kurn model` engine (its context capacity follows CTX). Threads = 8 (one per kv head on
 # Qwen3-0.6B/1.7B/8B). Each format scores the 2nd half of CHUNKS chunks of CTX tokens.
 set -euo pipefail
 ENGINE=$1 MODEL=$2 TOKENS=$3 CTX=$4 CHUNKS=$5 OUT=$6
