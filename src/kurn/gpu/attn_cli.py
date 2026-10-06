@@ -45,7 +45,7 @@ def _configs(a, default_tiers=A.ARCHS):
     if getattr(a, "all", False):
         return [c for t in tiers for c in A.covering_configs(arch=t)]
     if getattr(a, "defaults", False):  # what kernel_for() dispatches per tier
-        return [A.kernel_for(kv, dk, t) for t in tiers for kv in A.KV_FORMATS for dk in A.HEAD_DIMS]
+        return [A.kernel_for(kv, dk, t) for t in tiers for kv in A.SCHEDULE["kv"]({"arch": t}) for dk in A.HEAD_DIMS]
     spec, space, ov, _ = _load(a)
     return [A.resolve(spec, ov)]
 
