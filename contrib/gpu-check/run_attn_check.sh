@@ -10,6 +10,7 @@
 #
 # Writes kurn-attn-results-<host>-<date>.tar.gz next to this script. Exit status 0 only if every check passed.
 # Needs: Linux, NVIDIA driver + CUDA toolkit (nvcc) 11.x/12.x, python3 >= 3.9, g++. Installs nothing; no root.
+# CUDA runtime outside the toolkit dir (split install)? KURN_CUDA_INCLUDE=<dir>/include KURN_CUDA_LIB=<dir>/lib ./...
 # Pick the GPU with CUDA_VISIBLE_DEVICES=N.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -26,8 +27,8 @@ FAILS=0
 for d in "${CUDA_HOME:-}" /usr/local/cuda /usr/local/cuda-*; do
   if [ -n "$d" ] && [ -x "$d/bin/nvcc" ] && ! command -v nvcc >/dev/null; then export PATH="$d/bin:$PATH"; fi
 done
-command -v nvcc >/dev/null || { log "nvcc not found: install the CUDA toolkit (or put it on PATH / set CUDA_HOME)"; exit 1; }
-export KURN_NVCC=$(command -v nvcc)
+[ -n "${KURN_NVCC:-}" ] || command -v nvcc >/dev/null || { log "nvcc not found: install the CUDA toolkit (or put it on PATH / set CUDA_HOME or KURN_NVCC)"; exit 1; }
+export KURN_NVCC=${KURN_NVCC:-$(command -v nvcc)}
 PY=${PYTHON:-python3}
 "$PY" -c 'import sys; assert sys.version_info >= (3, 9)' || { log "python3 >= 3.9 needed"; exit 1; }
 export PYTHONPATH="$HERE/kurn/src${PYTHONPATH:+:$PYTHONPATH}"
@@ -45,12 +46,35 @@ log "== system"
 } > "$OUT/system.txt" 2>&1
 nvidia-smi --query-gpu=name,compute_cap,memory.total,driver_version --format=csv,noheader 2>/dev/null | tee -a "$OUT/run.log"
 K --version | tee -a "$OUT/run.log"
+
+# CUDA toolchain preflight: nvcc plus the runtime headers / libcudart it needs (they can live outside the toolkit, e.g. a
+# monorepo third_party dir with include_no_implicit/ and lib/), checked once with a tiny .cu and the exact build flags,
+# before hundreds of builds can fail the same way. Fix: KURN_CUDA_INCLUDE / KURN_CUDA_LIB (or CUDA_HOME, or
+# NVCC_APPEND_FLAGS="-I... -L...", passed through unchanged).
+if [ -n "${KURN_NVCC:-}" ]; then
+  log "== CUDA toolchain preflight (nvcc + runtime headers/libs, compile + link, run on the GPU if present)"
+  PFNR=(); [ "$DRYRUN" = "1" ] && PFNR=(--no-run)
+  if K gpu doctor "${PFNR[@]}" --json "$OUT/toolchain.json" > "$OUT/toolchain.txt" 2>&1; then
+    sed 's/^/  /' "$OUT/toolchain.txt" | tee -a "$OUT/run.log"
+  else
+    sed 's/^/  /' "$OUT/toolchain.txt" | tee -a "$OUT/run.log"
+    log "stopping before any build: fix the CUDA toolchain as shown above, then re-run"
+    tar czf "$HERE/$NAME.tar.gz" -C "$HERE" "$NAME"
+    log "results: $HERE/$NAME.tar.gz"
+    exit 1
+  fi
+fi
 ARCH=sm_80
 [ "$DRYRUN" = "0" ] && ARCH=$("$PY" -c 'from kurn.gpu.harness import detect_arch; print(detect_arch() or "sm_80")')
+# Which archs a build here embeds is decided by this box's nvcc (or KURN_GPU_ARCHS=sm_80,sm_120 to choose); archs it can't
+# build are skipped with a message and those GPUs JIT the embedded PTX. archs.json records the decision.
+NOGPU=(); [ "$DRYRUN" = "1" ] && NOGPU=(--no-gpu)
+K gpu attn archs "${NOGPU[@]}" > "$OUT/archs.json" 2> "$OUT/archs_warnings.txt" || { log "arch selection failed:"; cat "$OUT/archs.json" "$OUT/archs_warnings.txt" | tee -a "$OUT/run.log"; exit 1; }
+[ -s "$OUT/archs_warnings.txt" ] && sed 's/^/note: /' "$OUT/archs_warnings.txt" | tee -a "$OUT/run.log"
 IFS='|' read -r TIER HOW FATB <<< "$("$PY" -c "
 from kurn.gpu import attn as A
 a = '$ARCH'
-print(A.tier_for(a), 'native SASS' if a in A.fatbin_archs() else 'JIT from embedded PTX', ' '.join(A.fatbin_archs()), sep='|')")"
+print(A.tier_for(a), A.run_mode(a), ' '.join(A.target_archs()), sep='|')" 2>/dev/null)"
 if [ "$DRYRUN" = "1" ]; then
   log "arch: none (dry run); fatbin SASS: $FATB"
 else
@@ -96,5 +120,5 @@ mkdir -p "$OUT/kernels"
 cp "$KURN_CACHE_DIR"/gpu/cuda/attn_*.cu "$OUT/kernels/" 2>/dev/null
 tar czf "$HERE/$NAME.tar.gz" -C "$HERE" "$NAME"
 log "results: $HERE/$NAME.tar.gz ($(du -h "$HERE/$NAME.tar.gz" | cut -f1))"
-echo "Copy $NAME.tar.gz into the artifacts folder (e.g. the artifacts/ folder) and "
+echo "Copy $NAME.tar.gz into your local artifacts/ folder (or wherever you keep run outputs)."
 [ "$FAILS" = 0 ]

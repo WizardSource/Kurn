@@ -71,15 +71,6 @@ bool ggml_k4c_get_row(const void * group, int64_t n_head, int64_t dk, int r, flo
     return true;
 }
 
-// f16 neighbours of a finite value, toward -inf / +inf
-static ggml_fp16_t k4c_f16_dn(ggml_fp16_t h) {
-    return (h & 0x8000) ? (ggml_fp16_t) (h + 1) : (h == 0 ? (ggml_fp16_t) 0x8001 : (ggml_fp16_t) (h - 1));
-}
-
-static ggml_fp16_t k4c_f16_up(ggml_fp16_t h) {
-    return (h & 0x8000) ? (h == 0x8000 ? (ggml_fp16_t) 1 : (ggml_fp16_t) (h - 1)) : (ggml_fp16_t) (h + 1);
-}
-
 static int k4c_quant(float x, float lo, float s) {
     if (s == 0.0f) {
         return 8;
@@ -161,16 +152,11 @@ static void k4c_encode(uint8_t * grp, int64_t n_head, int64_t dk, uint32_t valid
             if (!(lo <= hi)) {
                 lo = hi = 0.0f;
             }
-            // rounded outward (min down, scale up): the stored range covers every value
-            ggml_fp16_t mh = GGML_FP32_TO_FP16(lo);
-            while (GGML_FP16_TO_FP32(mh) > lo) {
-                mh = k4c_f16_dn(mh);
-            }
+            // nearest f16 (rounding the min down would widen the grid of offset-dominated channels, whose |min| is
+            // large next to their range); values just outside the stored range clamp to code 0 / 15
+            const ggml_fp16_t mh = GGML_FP32_TO_FP16(lo);
             const float m = GGML_FP16_TO_FP32(mh);
-            ggml_fp16_t sh = GGML_FP32_TO_FP16((hi - m) / 15.0f);
-            while (m + 15.0f * GGML_FP16_TO_FP32(sh) < hi) {
-                sh = k4c_f16_up(sh);
-            }
+            const ggml_fp16_t sh = GGML_FP32_TO_FP16((hi - lo) / 15.0f);
             sc[c] = sh;
             mn[c] = mh;
             const float s = GGML_FP16_TO_FP32(sh);

@@ -32,11 +32,18 @@ def _possible(op, f, t):
     return t in TARGETS and f in generic.RECIPES and op in ("gemv", "verify") and sched.supports(generic.RECIPES[f])
 
 
-def _key(values_fn):
+def _key(values_fn, possible=None):
+    possible = possible or _possible
+
     def legal(op, f, t):
-        return values_fn(op, f, t) if _possible(op, f, t) else values_fn.neutral
+        return values_fn(op, f, t) if possible(op, f, t) else values_fn.neutral
 
     return legal
+
+
+def _pf_possible(op, f, t):
+    """pfhint / pfgran: every recipe the row-interleaved lowerings take (i16 / i8 as well as composed)."""
+    return t in TARGETS and f in generic.RECIPES and op in ("gemv", "verify")
 
 
 def _vals(neutral, fn):
@@ -60,9 +67,11 @@ KEYS = {
     "rpanel": (0, _vals(0, lambda op, f, t: (0, 4, 16, 64))),
 }
 AUTO = {k: d for k, (d, _) in KEYS.items()}
+PF_LAYOUTS = ("i16", "i8")  # the generic row-interleaved lowerings take pfgran / pfhint too
+PF_KEYS = ("pfgran", "pfhint")
 
 for _k, (_default, _fn) in KEYS.items():
-    hooks.new_key(_k, _key(_fn), _default)
+    hooks.new_key(_k, _key(_fn, _pf_possible if _k in PF_KEYS else None), _default)
 hooks.AUTO_VALUES.update(lanes=0, kblock=0, chains=0)
 hooks.ENUM_KEYS.update(KEYS)
 
@@ -112,8 +121,9 @@ def _reason(c):
 hooks.EXTRA_INVALID.extend(
     [
         (
-            lambda c: c["layout"] != LAYOUT and any(c[k] != AUTO[k] for k in KEYS),
-            "lanes/plane/kblock/rgroup/meta/rgpad/swizzle/chains/pfhint/pfgran/stages/kpanel/rpanel apply to layout=composed only",
+            lambda c: c["layout"] != LAYOUT and any(c[k] != AUTO[k] for k in KEYS if not (c["layout"] in PF_LAYOUTS and k in PF_KEYS)),
+            "lanes/plane/kblock/rgroup/meta/rgpad/swizzle/chains/stages/kpanel/rpanel apply to layout=composed only "
+            "(pfhint/pfgran: composed, i16 and i8)",
         ),
         (lambda c: c["layout"] == LAYOUT and c["act"] != "once", "act applies to layout=native only (use act=once)"),
         (lambda c: _reason(c) is not None, "illegal composed layout/schedule (run `kurn check` with the config for the reason)"),

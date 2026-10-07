@@ -95,4 +95,4 @@
 2 prefill-1.7B-d32768      kurn-amx-f16-t128x256    30840.0 us    4421.8 GFLOP/s     4.6 GB/s  relerr 9.6e-03 ok (3.7s)
 2 prefill-1.7B-d32768      kurn-fma-f16        96229.8 us    1417.1 GFLOP/s     1.5 GB/s  relerr 8.2e-06 ok (4.0s)
 2 prefill-1.7B-d32768      ggml-fa-f16        279549.6 us     487.8 GFLOP/s     0.5 GB/s  relerr 5.4e-06 ok (5.2s)
-# wrote /path/to/attn/kurn/benchmarks/v0.2/attn/results/prefill_1.7B_pinned.csv
+# wrote /path/to/kurn/benchmarks/v0.2/attn/results/prefill_1.7B_pinned.csv

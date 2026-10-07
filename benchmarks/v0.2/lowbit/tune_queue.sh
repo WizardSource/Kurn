@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-cd /path/to/lowbit/kurn
+ROOT="${KURN_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"
+cd "$ROOT"
 export PYTHONPATH=$PWD/src KURN_CACHE_DIR=/tmp/kurn-cache-lowbit
 R=benchmarks/v0.2/lowbit/results
 sudo -n sh -c "echo -20 > /proc/$$/autogroup" 2>/dev/null

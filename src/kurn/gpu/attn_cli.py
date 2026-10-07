@@ -9,8 +9,14 @@ kurn gpu attn verify  [SPEC | --all [--tier T]] [--quick] [--gpu]   numerics vs 
 kurn gpu attn bench   SPEC [k=v ...]                 check + time the spec's problem on the local GPU (cold regime)
 kurn gpu attn tune    SPEC [k=v,v ...]               correctness-gated sweep on the local GPU (speed or NVML energy)
 kurn gpu attn matrix  [--results DIR] [--quick]      decode matrix: model shapes x context x KV format, default kernels
+                      [--llama DIR] [--ablate 1024,16384]  + llama.cpp's flash attention per cell; Phase-2 ablations
 kurn gpu attn report  RESULTS_DIR                    markdown table of RESULTS_DIR/attn_matrix.jsonl
 kurn gpu attn harness [--arch sm_80]                 build the GPU harness; prints its path
+kurn gpu attn archs   [--archs ...] [--arch sm_XX]   what a build here embeds (SASS, PTX), what it skips and why (JSON)
+
+--archs sm_80,sm_120 (or KURN_GPU_ARCHS) sets the SASS archs of every build explicitly; an arch the local nvcc can't
+build is then an error. Without it, the three tiers are built and any the nvcc can't build is skipped with a warning
+(those GPUs JIT the embedded PTX). The nvcc that builds decides - on the kit's target box, that box's nvcc.
 
 A spec is a `.kurn` file with `op attn` and `target cuda` (see kurn.gpu.attn); SPEC may be `-` for the defaults.
 """
@@ -105,7 +111,7 @@ def cmd_verify(a):
         arch = _local_arch(a)
         configs = _configs(a, (A.tier_for(arch),))
         print(f"GPU arch {arch} -> tier {A.tier_for(arch)}: {len(configs)} configurations")
-        h = A.build_harness(arch)
+        h = A.build_harness(arch, explicit=bool(a.arch))
         for c in configs:
             try:
                 w = A.gpu_check(h, c, A.QUICK_SHAPES if a.quick else A.CHECK_SHAPES)
@@ -123,15 +129,19 @@ def cmd_verify(a):
         if cxx_problem():
             print(f"skip   CPU emulator: {cxx_problem()}")
             return 0
-        for c in configs:
+        from concurrent.futures import ThreadPoolExecutor
+
+        def one(c):  # each emulator build and run is a subprocess: configs run in parallel, reported in order
             try:
                 w = A.emu_check(c, A.QUICK_SHAPES if a.quick else A.CHECK_SHAPES, scheds=(0,) if a.quick else (0, 7))
-                ok = w["ok"]
-                print(f"{'ok    ' if ok else 'FAIL  '} {A.label(c)}  relerr={w['relerr']:.1e} (tol {A.tol(c):.0e})  [emu]")
+                return w["ok"], f"{'ok    ' if w['ok'] else 'FAIL  '} {A.label(c)}  relerr={w['relerr']:.1e} (tol {A.tol(c):.0e})  [emu]"
             except (GpuBuildError, A.EmuError) as e:
-                ok = False
-                print(f"FAIL   {A.label(c)}: {str(e).splitlines()[0]}")
-            fails += not ok
+                return False, f"FAIL   {A.label(c)}: {str(e).splitlines()[0]}"
+
+        with ThreadPoolExecutor(a.jobs or os.cpu_count() or 4) as ex:
+            for ok, line in ex.map(one, configs):
+                print(line, flush=True)
+                fails += not ok
     print(f"{len(configs)} configurations, {fails} failures ({'GPU' if a.gpu else 'CPU emulator'})")
     return 1 if fails else 0
 
@@ -139,7 +149,7 @@ def cmd_verify(a):
 def cmd_bench(a):
     spec, _, ov, _ = _load(a)
     c = A.resolve(spec, ov)
-    h = a.harness or A.build_harness(_local_arch(a))
+    h = a.harness or A.build_harness(_local_arch(a), explicit=bool(a.arch))
     chk, samples = A.gpu_run(h, A.nvcc_build(c)[0], c, secs=a.secs, reps=a.reps, cold_bytes=a.cold_bytes)
     print(json.dumps(chk))
     if samples:
@@ -150,7 +160,7 @@ def cmd_bench(a):
 def cmd_tune(a):
     spec, space, ov, lists = _load(a, allow_lists=True)
     space = {**space, **{k: [v] for k, v in ov.items()}, **lists} or {"tk": [32, 64, 128], "wn": [1, 2, 4], "split": [0, 8, 16, 32]}
-    h = a.harness or A.build_harness(_local_arch(a))
+    h = a.harness or A.build_harness(_local_arch(a), explicit=bool(a.arch))
     res = A.tune(spec, space, h, a.objective, a.secs, a.reps, a.cold_bytes)
     if not res:
         print("no configuration passed")
@@ -163,9 +173,20 @@ def cmd_tune(a):
 
 def cmd_matrix(a):
     arch = _local_arch(a)
-    h = a.harness or A.build_harness(arch)
+    h = a.harness or A.build_harness(arch, explicit=bool(a.arch))
     ctx = (1024, 16384) if a.quick else A.MATRIX_CONTEXTS
-    rows = A.matrix(h, a.results, contexts=ctx, secs=0.2 if a.quick else a.secs, reps=3 if a.quick else a.reps, arch=arch)
+    ggml = None
+    if a.llama:
+        try:
+            ggml = A.build_ggml_bench(a.llama)
+        except GpuBuildError as e:
+            print(f"llama.cpp baseline unavailable: {str(e).splitlines()[0]}", file=sys.stderr)
+            os.makedirs(a.results, exist_ok=True)
+            with open(os.path.join(a.results, "attn_baselines.jsonl"), "a") as fh:
+                fh.write(json.dumps({"impl": "ggml-cuda", "status": "not installed", "error": str(e).splitlines()[0][:200]}) + "\n")
+    ablate = tuple(int(x) for x in a.ablate.split(",")) if a.ablate else ()
+    rows = A.matrix(h, a.results, contexts=ctx, secs=0.2 if a.quick else a.secs, reps=3 if a.quick else a.reps, arch=arch,
+                    ggml=ggml, ablate=ablate)  # fmt: skip
     bad = sum(r["status"] != "ok" for r in rows)
     print(f"{len(rows)} cells, {bad} not ok -> {a.results}/attn_matrix.jsonl")
     return 1 if bad else 0
@@ -173,6 +194,13 @@ def cmd_matrix(a):
 
 def cmd_report(a):
     path = os.path.join(a.results, "attn_matrix.jsonl")
+    if any(os.path.exists(os.path.join(a.results, f)) for f in ("attn_baselines.jsonl", "attn_ablation.jsonl")):
+        from .kitreport import attn_report
+
+        with open(path) as fh:
+            bad = sum(json.loads(ln).get("status") != "ok" for ln in fh if ln.strip())
+        print(attn_report(a.results))
+        return 1 if bad else 0
     with open(path) as fh:
         rows = [json.loads(ln) for ln in fh if ln.strip()]
     bad = sum(r["status"] != "ok" for r in rows)
@@ -199,7 +227,31 @@ def cmd_report(a):
 
 
 def cmd_harness(a):
-    print(A.build_harness(_local_arch(a)))
+    print(A.build_harness(_local_arch(a), explicit=bool(a.arch)))
+
+
+def cmd_archs(a):
+    from .toolchain import nvcc, nvcc_gpu_codes, nvcc_version
+
+    num = lambda x: int(x.split("_")[1].rstrip("af"))  # noqa: E731
+    out = {"nvcc": nvcc(), "nvcc_version": nvcc_version(), "nvcc_targets": sorted(nvcc_gpu_codes() or [], key=num),
+           "requested": A._requested_archs(), "tiers": list(A.FATBIN_ARCHS)}  # fmt: skip
+    probes = {"f16": A.resolve({"kv": "f16"}), "fp8": A.resolve({"kv": "fp8", "arch": "sm_100"})}
+    for kv, c in probes.items():
+        try:
+            sass = A.target_archs(c)
+            skipped = [x for x in A.archs_for(c) if x not in sass]
+            out[kv] = {"sass": sass, "ptx": A.ptx_arch(c, sass), "skipped": skipped}
+        except (SpecError, GpuBuildError) as e:
+            out[kv] = {"error": str(e)}
+    from . import cudaenv
+
+    out["toolchain"] = cudaenv.report(run=False)
+    arch = None if a.no_gpu else _local_arch(a)
+    if arch:
+        fp8 = A.run_mode(arch, probes["fp8"]) if num(arch) >= A.FP8_ARCH_MIN else "not supported (FP8 mma.sync needs sm_89+)"
+        out["gpu"] = {"arch": arch, "tier": A.tier_for(arch), "f16": A.run_mode(arch), "fp8": fp8}
+    print(json.dumps(out, indent=1))
 
 
 def main(argv=None):
@@ -227,6 +279,7 @@ def main(argv=None):
     p.add_argument("--quick", action="store_true", help="5 shapes, one schedule")
     p.add_argument("--gpu", action="store_true", help="run on the local GPU instead of the CPU emulator")
     p.add_argument("--arch")
+    p.add_argument("--jobs", type=int, help="parallel emulator configs (default: all CPUs; the GPU runs one at a time)")
     for name, fn in (("bench", cmd_bench), ("tune", cmd_tune)):
         p = spec_cmd(name, fn)
         p.add_argument("--harness")
@@ -243,6 +296,8 @@ def main(argv=None):
     p.add_argument("--secs", type=float, default=0.4)
     p.add_argument("--reps", type=int, default=5)
     p.add_argument("--quick", action="store_true")
+    p.add_argument("--llama", help="llama.cpp checkout with a ggml-cuda build: race its flash attention on every cell")
+    p.add_argument("--ablate", help="contexts (e.g. 1024,16384) at which the Phase-2 ablation variants run too")
     p.set_defaults(fn=cmd_matrix)
     p = sub.add_parser("report")
     p.add_argument("results")
@@ -250,7 +305,16 @@ def main(argv=None):
     p = sub.add_parser("harness")
     p.add_argument("--arch")
     p.set_defaults(fn=cmd_harness)
+    p = sub.add_parser("archs")
+    p.add_argument("--arch", help="GPU arch to describe (default: the local GPU)")
+    p.add_argument("--no-gpu", action="store_true", help="don't describe a GPU (no local GPU, e.g. a dry run)")
+    p.set_defaults(fn=cmd_archs)
+    for name, sp in sub.choices.items():  # explicit SASS archs for every command that builds
+        if name not in ("check", "gen", "report"):
+            sp.add_argument("--archs", help="SASS archs to build, e.g. sm_80,sm_120 (default: all three tiers the nvcc can build)")
     a, rest = ap.parse_known_args(argv)
+    if getattr(a, "archs", None):
+        os.environ["KURN_GPU_ARCHS"] = a.archs
     for tok in rest:
         if tok.startswith("-") or "=" not in tok or not hasattr(a, "overrides"):
             ap.error(f"unrecognized argument {tok!r}")

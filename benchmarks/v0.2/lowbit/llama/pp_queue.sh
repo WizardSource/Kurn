@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-E=/path/to/lowbit/kurn/benchmarks/v0.2/lowbit/llama/run_e2e_lowbit.sh
+# Example queue: run from repo root (or set KURN_ROOT).
+ROOT="${KURN_ROOT:-$(cd "$(dirname "$0")/../../../.." && pwd)}"
+E="$ROOT/benchmarks/v0.2/lowbit/llama/run_e2e_lowbit.sh"
 export NGEN=0 NPP=128 ROUNDS=3
 $E bench ~/models/Bonsai-1.7B-Q1_0.gguf bonsai-1.7b-q1_0 "GGML_KURN_Q1_0=lut"
 $E bench ~/models/bitnet-2b4t-tq2_0.gguf bitnet-2b4t-tq2_0 "GGML_KURN_TQ2_0=lut"

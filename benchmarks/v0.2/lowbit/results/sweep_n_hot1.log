@@ -25,4 +25,4 @@
 {'format': 'q2_K', 'N': 256, 'family': 'k16', 'us': 8.877, 'ns_per_row': 34.68, 'Gweights_s': 118.1, 'max_drift_s': 0.0}
 {'format': 'q2_K', 'N': 1024, 'family': 'k16', 'us': 34.922, 'ns_per_row': 34.1, 'Gweights_s': 120.1, 'max_drift_s': 0.0}
 {'format': 'q2_K', 'N': 2048, 'family': 'k16', 'us': 76.746, 'ns_per_row': 37.47, 'Gweights_s': 109.3, 'max_drift_s': 0.0}
-wrote /path/to/lowbit/kurn/benchmarks/v0.2/lowbit/results/sweep_n_hot1.csv
+wrote /path/to/kurn/benchmarks/v0.2/lowbit/results/sweep_n_hot1.csv

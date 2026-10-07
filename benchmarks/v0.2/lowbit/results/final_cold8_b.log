@@ -16,12 +16,12 @@ tq1_0 cold 8 kurn lut:direct2 169.24 us drift 0.0000
 tq1_0 cold 8 kurn lut:tern3 124.96 us drift 0.0000
 tq1_0 cold 8 kurn addsub:sad 226.66 us drift 0.0000
 tq1_0 cold 8 ggml vec_dot 209.48 us drift 0.0000
-wrote /path/to/lowbit/kurn/benchmarks/v0.2/lowbit/results/final_cold8_tq1_0.csv
+wrote /path/to/kurn/benchmarks/v0.2/lowbit/results/final_cold8_tq1_0.csv
 q2_K cold 8 kurn k16 148.75 us drift 0.0000
 q2_K cold 8 ggml vec_dot 254.47 us drift 0.0000
 q2_K cold 8 kurn k16 142.88 us drift 0.0000
 q2_K cold 8 ggml vec_dot 190.22 us drift 0.0000
 q2_K cold 8 kurn k16 125.51 us drift 0.0000
 q2_K cold 8 ggml vec_dot 264.56 us drift 0.0000
-wrote /path/to/lowbit/kurn/benchmarks/v0.2/lowbit/results/final_cold8_q2_K.csv
+wrote /path/to/kurn/benchmarks/v0.2/lowbit/results/final_cold8_q2_K.csv
 COLD_DONE

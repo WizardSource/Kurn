@@ -23,7 +23,7 @@
 // again for every query tile.
 //
 // Environment: GGML_KURN_FA=0 (or GGML_KURN=0) turns it off; GGML_KURN_FA_MODE=fast|exact;
-// GGML_KURN_FA_ENGINE=bf16|amx|f32 (default bf16, or amx with GGML_KURN_AMX=1); GGML_KURN_FA_PACK=0
+// GGML_KURN_FA_ENGINE=bf16|amx|f32 (default amx where AMX is usable, f32 otherwise or with GGML_KURN_AMX=0); GGML_KURN_FA_PACK=0
 // turns the per-call packing off; GGML_KURN_VERBOSE=1 logs the configuration, each new node shape
 // with the kernel or the fallback reason, and call counts at exit.
 #include "kurn-attn.h"
@@ -91,9 +91,10 @@ const fa_config & cfg() {
         c.pack = env_int("GGML_KURN_FA_PACK", 1) != 0;
         c.verbose = env_int("GGML_KURN_VERBOSE", 0) != 0;
         const char * eng = getenv("GGML_KURN_FA_ENGINE");
-        // f32 by default: on Emerald Rapids its tile engine prefills faster than the AVX512-BF16 one
-        // (pp512 at depth 4096: 1.81x vs 1.38x ggml's FA) and it is exact to f32 rounding
-        int want = env_int("GGML_KURN_AMX", 0) ? 2 : 0;
+        // amx where AMX is usable (its blocks are guarded against preemption, see attn_kernel.c): about 3x
+        // the f32 engine's prefill at 8K on Qwen3-8B, KL vs F16 0.00047 vs 0.00040 at ctx 4096. Otherwise
+        // f32, which prefills faster than the AVX512-BF16 engine on Emerald Rapids and is exact to f32 rounding.
+        int want = env_int("GGML_KURN_AMX", 1) ? 2 : 0;
         if (eng && *eng) {
             want = strcmp(eng, "amx") == 0 ? 2 : strcmp(eng, "bf16") == 0 ? 1 : 0;
         }

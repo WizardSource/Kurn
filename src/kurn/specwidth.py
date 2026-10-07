@@ -1,13 +1,13 @@
 """Cost-aware speculative verify width.
 
-kurn's verify cost is a staircase, not a line. The KURN buffer type (integration/llama.cpp) runs one
-activation column on the GEMV, 2 on the 2-column verify kernel, 3-4 on the 4-column kernel, 5-8 on the
-8-column kernel, and wider batches as L2 row chunks x groups of 8 columns. A kernel compiled for `cols`
-columns computes all of them (columns beyond M repeat column 0), so 3 and 5-7 columns pay for 4 and 8.
-A drafter that ignores the staircase pays for padded columns and for the extra pass at 9+.
+kurn's verify cost is not a line. The KURN buffer type (integration/llama.cpp) runs one activation
+column on the GEMV, 2..8 on the verify kernel of exactly that width, and wider batches as L2 row
+chunks x groups of 8 columns, so there is a step at 9+ (the extra pass). Before the exact-width kernels
+(2, 4, 8 only; columns beyond M repeated column 0) 3 and 5-7 columns paid for 4 and 8: a staircase.
+A drafter that ignores the measured table pays for whatever steps the hardware and kernels have.
 
     kurn specwidth kernels [--formats q8_0,q4_0] [--shapes K:N:count,...] [--head] [--threads T] [--out costs.csv]
-        GEMV + verify 2/4/8 at every width they serve, with the buffer type's kernel configs, on a
+        GEMV + verify 2..8 at every width they serve, with the buffer type's kernel configs, on a
         model's matmul shapes (default: Qwen3-8B, 36 layers; --head adds the output head), DRAM-streaming regime
     kurn specwidth show TABLE                     print a whole-forward cost table and the widths it favours
     kurn specwidth simulate TABLE TRACE [...]     replay greedy acceptance traces: fixed widths vs the policy
@@ -38,17 +38,18 @@ import statistics
 import sys
 
 # --------------------------------------------------------------------------- kernel staircase
-VFY_COLS = (2, 4, 8)
+VFY_COLS = (2, 3, 4, 5, 6, 7, 8)
 VFY_MAX = 8
-# The buffer type's kernel keys: DEFAULT_KEYS + TUNED_KEYS of integration/llama.cpp/gen_ggml_sources.py
-# (keep in sync), so the kernel table times the kernels llama.cpp runs.
+# The buffer type's kernel keys: DEFAULT_KEYS + TUNED_KEYS + VFY_KEYS of
+# integration/llama.cpp/gen_ggml_sources.py (keep in sync), so the kernel table times the kernels llama.cpp runs.
 BUFT_DEFAULT_KEYS = {"layout": "i16", "rows": 2, "prefetch": 0}
 BUFT_TUNED_KEYS = {
-    "q8_0": {"rows": 8},
+    "q8_0": {"rows": 8, "prefetch": 4, "pfgran": "line"},
     "q4_0": {"unpack": "pair", "rows": 4},
-    "q4_K": {"unpack": "pair", "correction": "dpmin", "rows": 4},
+    "q4_K": {"unpack": "pair", "correction": "dpmin", "rows": 4, "prefetch": 4, "pfgran": "line"},
     "iq4_nl": {"unpack": "perm", "rows": 4},
 }
+BUFT_VFY_KEYS = {"q8_0": {"*": {"rows": 1, "prefetch": 8, "pfgran": "line"}, "2": {"rows": 4, "prefetch": 4}, "3": {"rows": 2}, "4": {"rows": 2}}, "q4_K": {"*": {"rows": 1, "prefetch": 4, "pfgran": "line"}, "2": {"rows": 4, "prefetch": 2}, "3": {"rows": 2, "prefetch": 2}, "4": {"rows": 2, "prefetch": 2}}}
 # One Qwen3-8B decoder layer (q, k, v, o, gate, up, down as K:N) plus the output head (151936 rows).
 QWEN3_8B_SHAPES = ((4096, 4096, 2), (4096, 1024, 2), (4096, 12288, 2), (12288, 4096, 1))
 QWEN3_8B_HEAD = (4096, 151936, 1)
@@ -72,7 +73,7 @@ def kernel_passes(M):
 
 
 def buft_configs(fmt, threads):
-    """{cols: resolved config} for the GEMV (cols 1) and the 2/4/8-column verify kernels."""
+    """{cols: resolved config} for the GEMV (cols 1) and the 2..8-column verify kernels."""
     from .spec import resolve
 
     keys = {**BUFT_DEFAULT_KEYS, **BUFT_TUNED_KEYS.get(fmt, {})}
@@ -80,9 +81,12 @@ def buft_configs(fmt, threads):
     out = {1: g}
     vkeys = {k: g[k] for k in ("unpack", "correction", "scales", "accum", "ilv") if k in g}
     for cols in VFY_COLS:
+        sched = {"rows": 1, "prefetch": g["prefetch"]}
+        for src in (BUFT_VFY_KEYS.get(fmt, {}).get("*", {}), BUFT_VFY_KEYS.get(fmt, {}).get(str(cols), {})):
+            sched.update(src)
         out[cols] = resolve(
-            {"op": "verify", "weights": fmt, "target": "avx512_vnni", "layout": g["layout"], "rows": 1, "cols": cols,
-             "prefetch": g["prefetch"], "threads": threads, **vkeys}
+            {"op": "verify", "weights": fmt, "target": "avx512_vnni", "layout": g["layout"], "cols": cols,
+             "threads": threads, **sched, **vkeys}
         )  # fmt: skip
     return out
 

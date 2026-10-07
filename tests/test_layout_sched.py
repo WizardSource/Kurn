@@ -5,6 +5,8 @@ compute the same results as the reference."""
 import ctypes
 import random
 
+import re
+
 import pytest
 
 from kurn import generic, harness, sched, spec, toolchain
@@ -126,8 +128,23 @@ def test_covering_compiles_without_warnings(c):
 def test_composed_keys_rejected_elsewhere(key):
     _, fn = ext.KEYS[key]
     v = fn("gemv", "q4_0", "avx512_vnni")[1]
+    # pfgran / pfhint also apply to i16 / i8: check them on a layout that has neither (q8_0 native)
+    w, layout = ("q8_0", "native") if key in ext.PF_KEYS else ("q4_0", "i16")
     with pytest.raises(spec.SpecError, match="layout=composed only"):
-        spec.resolve(dict(op="gemv", weights="q4_0", target="avx512_vnni", layout="i16", **{key: v}))
+        spec.resolve(dict(op="gemv", weights=w, target="avx512_vnni", layout=layout, **{key: v}))
+
+
+@pytest.mark.parametrize("fmt", ["q8_0", "q4_K", "q4_0", "mxfp4"])
+def test_i16_pfgran_line_prefetches_every_record_line(fmt):
+    from kurn.kernels import generate
+
+    base = dict(op="verify", weights=fmt, target="avx512_vnni", layout="i16", cols=3, rows=2, prefetch=4)
+    one = generate(spec.resolve(dict(base)))
+    every = generate(spec.resolve(dict(base, pfgran="line", pfhint="t1")))
+    rec = int(re.search(r"#define REC_BYTES (\d+)", every).group(1))
+    assert one.count("_mm_prefetch") == 2  # one line per record and row group
+    assert every.count("_MM_HINT_T1") >= 2 * (rec // 64) or "kg * KG_BYTES" in every
+    assert every.count("_mm_prefetch") > one.count("_mm_prefetch")
 
 
 def test_covering_set_covers_every_value():

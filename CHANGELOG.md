@@ -5,6 +5,129 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Added: GPU kit v2 - one command, one report, like-for-like attention baselines
+- `contrib/gpu-check/run_kit.sh` (QUICK=1 / full / DRYRUN=1) runs every GPU check from a copy of the kit:
+  - the toolchain preflight (split installs included);
+  - a llama.cpp ggml-cuda build;
+  - attention fatbins for all three tiers, GPU correctness, the HBM roofline, and the decode matrix with baselines
+    and ablations;
+  - the GEMM/GEMV matmul kit (`run_gpu_check.sh`, all formats incl. MXFP4 / NVFP4);
+  - the GPU pytest subset.
+
+  It writes a single `report.md` (`kurn gpu kit-report`, `kurn.gpu.kitreport`) and a tarball. It writes nothing outside
+  the kit folder: TMPDIR, kurn's cache, the ggml build and the CUDA / Python / Triton / FlashInfer caches all live
+  there, and `containment.txt` checks it. It needs no network (ggml sources and pytest wheels are bundled), no root
+  and no pip installs.
+- Attention baselines on the same problems:
+  - llama.cpp's CUDA flash attention (`data/bench_ggml_attn.cpp`). It builds the graph llama.cpp builds for decode:
+    strided K/V cache views, F16 causal mask, F32 accumulation, MLA V as a view of K. It uses kurn's data generator,
+    float64 reference, cold-KV rotation and byte count, and runs on every matrix cell
+    (`kurn gpu attn matrix --llama DIR`).
+  - FlashInfer / FlashAttention-2 decode (`bench_attn_torch.py`), if the given interpreter already has them.
+- `--ablate 1024,16384` runs each phase-2 change set back to its run-1 value, the fused merge, and the whole run-1
+  config. The report states the target before the numbers and checks it:
+  - F16/BF16 >= 75% of measured HBM read bandwidth at >= 4K;
+  - Q8_0 >= 1.5x kurn F16 at >= 8K;
+  - Q8_0 >= 1.3x the best F16 baseline (the plan's stop-or-continue rule).
+- The report lists explicitly what the box cannot test. On an A100 that is FP8 KV and sm_100 / sm_120 runtime
+  (compile + emulator only).
+- `kurn gpu ggml-build` builds ggml + ggml-cuda with cmake and kurn's CUDA resolution: preflight -I/-L, NVCC_*_FLAGS
+  dirs, build rpath. A split install (runtime in a third-party include_no_implicit/ + lib/) therefore builds, and
+  libggml-cuda finds libcublas at run time. ccache is off.
+- `make_kit.sh` adds `KIT_GGML` / `KIT_WHEELS` / `KIT_NAME`. Every zip and every file stays under 1 MB: the main zip,
+  ggml parts and wheels unzip into one folder. The kit now carries the GPU test subset. `run_gpu_check.sh` takes
+  `KIT_OUT`, `NO_ATTN`, `NO_TAR`, `NO_CLONE` and `NO_KERNELS` (used by run_kit.sh).
+- `kurn gpu attn verify` on the emulator runs configurations in parallel (`--jobs`, default all CPUs). The GPU still
+  runs one at a time.
+- Dry run from an unzipped copy, on a simulated split install (nvcc with no headers, runtime in a third-party
+  include_no_implicit/ + lib/), QUICK, 23 min:
+  - ggml-cuda built in 4 min;
+  - 586 attention fatbin configs on 3 tiers, 0 failures; emulator 161 + 44 configs, 0 failures;
+  - harnesses and the llama.cpp bench compiled;
+  - matmul kit: 500 configs ptxas + emulator, 0 failures; ggml CPU check 3/3;
+  - GPU pytest subset passed.
+
+### Changed: GPU attention, A100 phase 2 (driven by the first A100 run; correctness on the emulator, speed to be measured)
+- Q8_0 KV dequantizes in registers (`deq 1`, the new default). K and V MMA fragments are built from the raw 34-byte blocks
+  with u16 / byte shared loads, `__byte_perm` into 0x64XX f16 and one f16x2 multiply by the block scale. The result is
+  bit-identical to the old shared-memory pass (`deq 0`, kept for the kit's ablation), which cost a second pass over
+  every tile, an extra barrier and an f16 copy of K and V. Tiles land with 8-byte cp.async when rows and strides are
+  8-byte aligned (4-byte before). The Q8_0 tile drops from 76.5 to 41.7 KB. Run 1: Q8_0 2.2x slower than F16 at 16K.
+- Splits: one wave of resident CTAs (1-2 per SM, by shared memory), with at least max(tk, 64) tokens per split
+  (256 before), at most 128 splits (64 before). At 1K context a CTA streams 1-2 tiles instead of 4-8 (Llama-3-8B: 16
+  splits instead of 4). The first KV tiles are issued before q is read, so those two DRAM round trips overlap. The merge
+  kernel runs one block per (row, kv head, 128 columns), reading split weights from shared memory. The opt-in
+  `merge 1` lets the last CTA of each (row tile, kv head) merge, with no second launch; its self-resetting counters
+  assume one call of a library at a time per device. Run 1: ~21 us at 1K.
+- MLA defaults to 4 warps on sm_80 / sm_120 (tk 32 / wn 4; was wn 2). That needs 8-token QK^T warp slices (ldmatrix x2;
+  `tk / wn` must now be a multiple of 8, was 16). O takes 64 registers per thread instead of 128, at 128 threads per CTA.
+  ptxas: ~164 registers, spill-free on all three archs. Run 1: ~242 registers, 64 threads, ~200 GB/s.
+- BF16 q is split hi + lo (`qsplit 1`, now also for bf16; default where it fits), two QK^T MMAs per step, about 16 bits of
+  q. Qwen3-1.7B at 16K: relerr 1.3e-2 -> 1.8e-3 on the emulator (run 1 on the A100: 1.4e-2). The bf16 tolerance tightens
+  to 6e-3; `qsplit 0` keeps 1.5e-2.
+- `splits_for()` mirrors the kernel's split choice (checked against the emulator at 108 SMs). The emulator driver takes
+  `KGA_RUNS` (repeated calls on one workspace) and `KEMU_SMS`; tests add mutants for every new path.
+
+### Fixed: GPU builds with the CUDA runtime outside nvcc's toolkit (split installs); fail-fast preflight
+- On a box with nvcc in /usr/local/cuda-12.8 but cuda_runtime.h / cuda_fp16.h / libcudart in a monorepo third-party dir
+  (`include_no_implicit/`, `lib/`), all 537 fatbin builds and the harness failed the same way. `kurn.gpu.cudaenv` now
+  locates the runtime and checks it once before any build:
+  - It honors KURN_CUDA_INCLUDE / KURN_CUDA_LIB (':'-separated lists), CUDA_HOME / CUDA_PATH, and the -I/-L in
+    NVCC_PREPEND_FLAGS / NVCC_APPEND_FLAGS. Those flags are passed through unchanged; kurn only adds an rpath.
+  - It probes nvcc's own targets/*/{include,lib}, /usr/local/cuda and sibling cuda-* installs (same version as nvcc
+    first), and `include_no_implicit`-style layouts. KURN_CUDA_NO_PROBE=1 limits it to explicit settings.
+- Preflight (`kurn gpu doctor`, the first step of both kit scripts): compiles and links a tiny .cu (cuda_runtime.h,
+  cuda_fp16.h, -lcudart; with `--cublas`, cublas_v2.h and -lcublas) with the exact nvcc and arch flags the builds use,
+  and runs it when a GPU is present.
+  - On failure it stops with one message listing what is missing, the paths searched and the variables that fix it.
+  - Builds raise the same error at once, and `build_many` aborts on it instead of collecting one failure per config.
+- Fatbin, cubin and harness builds and cuobjdump all use the same resolution. nvcc lookup also honors CUDA_HOME /
+  CUDA_PATH, and the kit no longer overwrites KURN_NVCC.
+- Warnings when the headers' CUDART_VERSION differs from nvcc's version, and when the driver is older than the runtime.
+- The resolved toolchain (nvcc, header and library dirs, versions, how each was found) goes to run.log,
+  toolchain.json and archs.json.
+
+### Added: Blackwell tiers (sm_100 B200/GB200, sm_120 RTX 50), compile-only plus emulator
+- GPU attention has `arch` tiers sm_80 / sm_100 / sm_120 with per-tier shared-memory limits (163 / 227 / 99 KB per block)
+  and default tiles. dk=256 on sm_120 now defaults to 32-token tiles (78 KB; the 64-token tile did not fit).
+  `kernel_for(kv, dk, arch)` dispatches, and `tier_for()` maps other GPUs.
+- Fatbins carry SASS for sm_80, sm_100 and sm_120 (nvcc >= 12.8) plus PTX. The kit builds all three archs and reports
+  which arch a run used, and whether that was native SASS or PTX JIT.
+- The existing `mma.sync` GEMM/GEMV kernels compile spill-free for sm_100 (398-config covering set, 40 defaults).
+
+### Added: MXFP4 and NVFP4 weights on the GPU (all archs, A100 included)
+- GEMV: dp4a over the 2 * E2M1 int8 codebook with Q8_0 activations. MXFP4 uses the E8M0 scale per 32; NVFP4 uses
+  UE4M3 per 16, two scales per 32-value unit. Split and native layouts, including 17-byte MXFP4 blocks with byte loads.
+- Tensor-core engine, both exact against the double reference:
+  - MXFP4: codes dequantized in registers, with the E8M0 scale stored as an exact bf16 record and applied after the MMA.
+  - NVFP4: codes times UE4M3/2 multiplied into the f16 fragment before the MMA. The product is exact in f16: at most
+    6 significant bits, 2^-10 .. 2688.
+- `gemv_threads.json` entries for both, ptxas-measured on sm_80/90/100/120. `tools/gemv_threads.py --formats` measures
+  and merges selected formats.
+
+### Added: FP8 (e4m3) KV attention on sm_100 / sm_120
+- `kv fp8` runs QK^T on FP8 `mma.sync` m16n8k32 with q per-row scaled. By default (`qsplit 1`) q is split into hi + lo
+  e4m3, for about 8 bits. PV runs in f16 with V converted e4m3 -> f16 (exact).
+- Emulator, end to end vs float64: 2e-3 with `qsplit 1`, up to 9.6e-2 with `qsplit 0` on the peaked test data. Every
+  check also runs against a reference with q rounded exactly as the kernel does: <= 4.2e-4.
+- Emulator: FP8 `mma.sync` and e4m3 conversions.
+
+### Added: decode / verify kernels for native-layout Q6_K and Q5_K (`integration/llama.cpp/ggml-kurn/kurn-native-vfy.cpp`)
+- The Q6_K / Q5_K weights the KURN buffer keeps in ggml's layout (AMX-BF16 prefill) ran ggml's `vec_dot` per row and
+  column below 16 columns. The new kernels unpack each super-block once for up to 8 columns: Qwen3-8B Q6_K shapes at
+  8 columns 6.4 ms vs 15.6 (`vec_dot`) and 15.5 (ggml's AMX buffer); 1 column 3.0 vs 4.5. Q5_K 6.8 vs 22.4 / 7.5.
+- In exact mode the buffer now takes Q6_K / Q5_K too and runs every width on these kernels, which are batch invariant
+  (ggml's AMX buffer, where they went before, is not). `test_kurn_buft native` (also with `GGML_KURN_EXACT=1`).
+
+### Changed: exact-width, prefetching verify kernels in the KURN buffer type (`integration/llama.cpp`)
+- One verify kernel per width 2..8 instead of 2 / 4 / 8 (3 columns no longer pay for 4, 5-7 for 8). Same packed layout
+  and per-column arithmetic as the GEMV, so every column stays bit-identical to one-token decoding; `test_kurn_buft`
+  now checks every column of every batch width against its own GEMV (`batch invariance, all columns`).
+- Verify schedules measured per width (`VFY_KEYS`): whole-record software prefetch (`pfgran=line`, new for the
+  i16 / i8 lowerings) and up to 4 row groups per pass. Qwen3-8B shapes, 8 threads, matmuls of 8 layers: Q8_0 2..8
+  columns 25-36 ms -> 13.8-18.3 ms (stock ggml's AMX buffer 26-31 ms), Q4_K 15-25 ms -> 8.3-10.9 ms. The Q8_0 and
+  Q4_K decode GEMVs take the same prefetch: 15.0 -> 13.4 ms and 9.7 -> 8.4 ms.
+
 ### Changed: the model engine's context is sized at run time
 - `engine.c` no longer has a 2048-token compile-time `MAX_CTX`: the KV cache, RoPE table and score rows are sized from
   the request (gen: prompt + generated tokens, ppl: CTX, rounded up to 256); `KURN_CTX=n` asks for more and
@@ -21,7 +144,7 @@ All notable changes to this project are documented here. The format follows
 ### Added: k4c as a llama.cpp KV cache type (`integration/llama.cpp/k4c`)
 - `k4c/apply.sh` adds `GGML_TYPE_K4C` (per-channel 4-bit keys in 32-cell groups, read by kurn's attention):
   `-ctk k4c -ctv q4_0|q8_0` (or `-ctk k4c_q4|k4c_q8`) in llama-cli / llama-server / llama-perplexity. Keys are cached
-  after RoPE (kernel `rope_dim 0`). Qwen3-1.7B, WikiText-2 ctx 2048, KL vs F16 KV: k4c_q4 0.016 (+0.10% PPL), k4c_q8
+  after RoPE (kernel `rope_dim 0`). Qwen3-1.7B, WikiText-2 ctx 2048, KL vs F16 KV: k4c_q4 0.016 (+0.06% PPL), k4c_q8
   0.010; llama.cpp's Q4_0 KV 0.32 (+29%).
 - Group writes re-encode from exact (f16) values of recently written groups, so appends, rollbacks and clears give the
   same bytes as a prefill; session state (prompt cache, slot save / restore) stores f16 rows and restores the same
@@ -49,31 +172,6 @@ All notable changes to this project are documented here. The format follows
   draft-simple). Qwen3-8B / Qwen3-0.6B draft, 8 prompts, 256 tokens: see `benchmarks/v0.2/specwidth/results/`.
 - `kurn specwidth simulate` replays greedy acceptance traces (exact for greedy chain drafting) against fixed widths,
   p_min cutoffs and the policy.
-
-### Added: Blackwell tiers (sm_100 B200/GB200, sm_120 RTX 50), compile-only plus emulator
-- GPU attention has `arch` tiers sm_80 / sm_100 / sm_120 with per-tier shared-memory limits (163 / 227 / 99 KB per block)
-  and default tiles. dk=256 on sm_120 now defaults to 32-token tiles (78 KB; the 64-token tile did not fit).
-  `kernel_for(kv, dk, arch)` dispatches, and `tier_for()` maps other GPUs.
-- Fatbins carry SASS for sm_80, sm_100 and sm_120 (nvcc >= 12.8) plus PTX. The kit builds all three archs and reports
-  which arch a run used, and whether that was native SASS or PTX JIT.
-- The existing `mma.sync` GEMM/GEMV kernels compile spill-free for sm_100 (398-config covering set, 40 defaults).
-
-### Added: MXFP4 and NVFP4 weights on the GPU (all archs, A100 included)
-- GEMV: dp4a over the 2 * E2M1 int8 codebook with Q8_0 activations. MXFP4 uses the E8M0 scale per 32; NVFP4 uses
-  UE4M3 per 16, two scales per 32-value unit. Split and native layouts, including 17-byte MXFP4 blocks with byte loads.
-- Tensor-core engine, both exact against the double reference:
-  - MXFP4: codes dequantized in registers, with the E8M0 scale stored as an exact bf16 record and applied after the MMA.
-  - NVFP4: codes times UE4M3/2 multiplied into the f16 fragment before the MMA. The product is exact in f16: at most
-    6 significant bits, 2^-10 .. 2688.
-- `gemv_threads.json` entries for both, ptxas-measured on sm_80/90/100/120. `tools/gemv_threads.py --formats` measures
-  and merges selected formats.
-
-### Added: FP8 (e4m3) KV attention on sm_100 / sm_120
-- `kv fp8` runs QK^T on FP8 `mma.sync` m16n8k32 with q per-row scaled. By default (`qsplit 1`) q is split into hi + lo
-  e4m3, for about 8 bits. PV runs in f16 with V converted e4m3 -> f16 (exact).
-- Emulator, end to end vs float64: 2e-3 with `qsplit 1`, up to 9.6e-2 with `qsplit 0` on the peaked test data. Every
-  check also runs against a reference with q rounded exactly as the kernel does: <= 4.2e-4.
-- Emulator: FP8 `mma.sync` and e4m3 conversions.
 
 ### Added: GPU attention (`op attn`, `target cuda`), built for A100 (sm_80) and RTX 50 (sm_120)
 - Flash attention / flash-decoding with the CPU op's semantics: F16/BF16/Q8_0 KV, GQA, MLA (v aliases k), causal plus

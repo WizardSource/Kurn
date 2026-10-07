@@ -57,7 +57,12 @@ int main(int argc, char **argv) {
   if (int e = kga_check(&a)) { printf("{\"error\": \"kga_check %d\"}\n", e); return 3; }
   const size_t wsb = kga_workspace(&a);
   void *ws = wsb ? guarded(wsb) : nullptr;
-  if (kga_run(&a, ws, nullptr)) { printf("{\"error\": \"kga_run failed\"}\n"); return 4; }
+  // KGA_RUNS=n: n calls on the same workspace, the last one checked (state a call leaves behind breaks the next)
+  const int runs = getenv("KGA_RUNS") ? atoi(getenv("KGA_RUNS")) : 1;
+  for (int r = 0; r < runs; r++) {
+    memset(out, 0xFF, on * 4);
+    if (kga_run(&a, ws, nullptr)) { printf("{\"error\": \"kga_run failed\"}\n"); return 4; }
+  }
   std::vector<int64_t> toks = kgar_check_tokens(p.nq, p.nq, 1);
   std::vector<double> ref;
   kgar_reference(p, toks, ref);

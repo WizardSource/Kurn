@@ -5,7 +5,6 @@ global/shared loads, FFMA, f16x2 math, integer logic, barriers) and flags local 
 arrays). The hot loop is the backward branch whose body holds the most tensor-core / dp4a instructions.
 """
 
-import os
 import re
 import subprocess
 
@@ -101,7 +100,9 @@ def inspect(c, arch=None):
         raise GpuBuildError("nvcc not found")
     arch = arch or c["arch"]
     so, _ = nvcc_build(dict(c, arch=arch), (arch,))
-    tool = os.path.join(os.path.dirname(nvcc()), "cuobjdump")
+    from .cudaenv import cuobjdump
+
+    tool = cuobjdump()
     r = subprocess.run([tool, "-sass", so], capture_output=True, text=True)
     if r.returncode:
         raise GpuBuildError(f"cuobjdump failed: {r.stderr[-500:]}")

@@ -1,0 +1,9 @@
+own KURN q5_K M=1 T=8 L=8 ops=16: 2.843 ms (min 2.695, spread 13.4%) 105.5 GB/s  177.71 us/op
+vecdot KURN q5_K M=1 T=8 L=8 ops=16: 3.569 ms (min 3.286, spread 40.9%) 84.0 GB/s  223.06 us/op
+ggmlamx AMX q5_K M=1 T=8 L=8 ops=16: 2.987 ms (min 2.828, spread 52.9%) 100.4 GB/s  186.68 us/op
+own KURN q5_K M=4 T=8 L=8 ops=16: 4.657 ms (min 4.223, spread 13.6%) 64.4 GB/s  291.07 us/op
+vecdot KURN q5_K M=4 T=8 L=8 ops=16: 10.456 ms (min 10.152, spread 20.8%) 28.7 GB/s  653.49 us/op
+ggmlamx AMX q5_K M=4 T=8 L=8 ops=16: 7.457 ms (min 7.105, spread 36.7%) 40.2 GB/s  466.05 us/op
+own KURN q5_K M=8 T=8 L=8 ops=16: 10.135 ms (min 10.091, spread 2.9%) 29.6 GB/s  633.46 us/op
+vecdot KURN q5_K M=8 T=8 L=8 ops=16: 22.354 ms (min 21.548, spread 34.5%) 13.4 GB/s  1397.15 us/op
+ggmlamx AMX q5_K M=8 T=8 L=8 ops=16: 7.528 ms (min 6.633, spread 52.7%) 39.8 GB/s  470.49 us/op

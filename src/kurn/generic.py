@@ -35,7 +35,8 @@ schedule keys, not new code:
   accum       float (convert + FMA per 32 values) | int (integer accumulation
               across a whole scale period; one convert per period)
   rows        row groups per pass,  cols  activation columns (multi-token verify)
-  prefetch    software prefetch distance in records
+  prefetch    software prefetch distance in records; pfgran rec (one line per record) | line
+              (every line of the record; K-group lines inside the K-group loop), pfhint t0|t1|t2|nta
 
 The generated C reads only the repacked buffer, so it needs no ggml headers.
 """
@@ -43,6 +44,7 @@ The generated C reads only the repacked buffer, so it needs no ggml headers.
 from dataclasses import dataclass, field
 from typing import Optional
 
+PF_HINTS = {"t0": "_MM_HINT_T0", "t1": "_MM_HINT_T1", "t2": "_MM_HINT_T2", "nta": "_MM_HINT_NTA"}
 KV_IQ4NL = (-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113)
 KV_FP4 = (0, 1, 2, 3, 4, 6, 8, 12, 0, -1, -2, -3, -4, -6, -8, -12)  # E2M1 x 2 (ggml kvalues_fp4)
 
@@ -532,8 +534,11 @@ void *{entry}_prepare(const void *W, int64_t K, int64_t N) {{
     for g in range(G):
         lines.append(f"{ind}const uint8_t *rec{g} = pk->buf + ((size_t)(g + {g}) * pk->nrec_k + p) * REC_BYTES;")
     if PF:
+        hint = PF_HINTS[c.get("pfhint", "t0")]
+        offs = [f" + {o}" for o in range(0, rec, 64)] if c.get("pfgran", "rec") == "line" else [""]
         for g in range(G):
-            lines.append(f"{ind}_mm_prefetch((const char *)(rec{g} + {PF} * REC_BYTES), _MM_HINT_T0);")
+            for off in offs:
+                lines.append(f"{ind}_mm_prefetch((const char *)(rec{g} + {PF} * REC_BYTES{off}), {hint});")
     # per-record scale vectors
     for g in range(G):
         if two:
@@ -1189,10 +1194,14 @@ void *{entry}_prepare(const void *W, int64_t K, int64_t N) {{
     def xb(m, kk):
         return P["set1_32"](f"ld32(xq{m} + {4 * kk})")
 
+    pf_line = PF and c.get("pfgran", "rec") == "line"
+    pf_hint = PF_HINTS[c.get("pfhint", "t0")]
     for g in range(G):
         A(f"{ind}const uint8_t *rec{g} = pk->buf + {rec_addr(f'g + {g}', 'p')} * REC_BYTES;")
         if PF:
-            A(f"{ind}_mm_prefetch((const char *)(rec{g} + {PF * IL} * REC_BYTES), _MM_HINT_T0);")
+            offs = [f" + {o}" for o in range(0, hdr if groups > 1 else rec, 64)] if pf_line else [""]
+            for off in offs:
+                A(f"{ind}_mm_prefetch((const char *)(rec{g} + {PF * IL} * REC_BYTES{off}), {pf_hint});")
     # per-record scale vectors (non-two-level formats: one record = one K-group)
     if not two:
         for g in range(G):
@@ -1217,6 +1226,10 @@ void *{entry}_prepare(const void *W, int64_t K, int64_t N) {{
     else:
         ind2 = ind
         A(f"{ind2}const int64_t k = p;")
+    if pf_line and groups > 1:
+        for g in range(G):
+            for off in range(0, kgb, 64):
+                A(f"{ind2}_mm_prefetch((const char *)(rec{g} + {PF * IL} * REC_BYTES + HDR_BYTES + kg * KG_BYTES + {off}), {pf_hint});")
     for m in range(M):
         xq = f"xp[{m}] + 34 * k + 2" if r.act == "q8_0" else f"xp[{m}] + 292 * (k / 8) + 4 + 32 * (k % 8)"
         A(f"{ind2}const uint8_t *xq{m} = {xq};")

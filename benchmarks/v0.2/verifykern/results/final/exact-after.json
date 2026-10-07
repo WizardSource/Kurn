@@ -1,0 +1,170 @@
+{
+ "nodraft": [
+  {
+   "content": "<think>\n\n</think>\n\nHere's a Python function that parses an ISO 8601 date string (e.g., `\"2024-05-15T14:30:00Z\"`) into a `datetime` object, with proper error handling:\n\n```python\nfrom datetime import datetime\nfrom dateutil import parser\n\ndef parse_iso8601_date(iso_date_str):\n    \"\"\"\n    Parses an ISO 8601 date string into a datetime object.\n\n    Parameters:\n        iso_date_str (str): A string representing an ISO 8601 date (e.g",
+   "tokens": [],
+   "draft_n": null
+  },
+  {
+   "content": "<think>\n\n</think>\n\nA **CPU cache** is a small, fast memory that stores copies of data from frequently used main memory locations. It helps reduce the time it takes to access data from the main memory (RAM), which is much slower than the CPU. The cache operates based on principles like **cache lines**, **associativity**, and **eviction policies**. Let's break it down step by step.\n\n---\n\n## \ud83d\udd0d 1. **What is a Cache Line?**\n\nA **cache line** (also called a **cache block**) is the **smallest unit of data** that the cache can store. It is",
+   "tokens": [],
+   "draft_n": null
+  },
+  {
+   "content": "<think>\n\n</think>\n\n*Pride and Prejudice* by Jane Austen is a classic novel that explores themes of love, class, and social status in early 19th-century England. The story centers on the Bennet family, particularly the five unmarried daughters of Mr. and Mrs. Bennet. The central character is Elizabeth Bennet, a clever, independent, and strong-willed young woman. The novel begins with the arrival of Mr. Bingley, a wealthy single man, and his friend Mr. Darcy, who rents a house near the Bennet family. Bingley is immediately drawn to Jane Benn",
+   "tokens": [],
+   "draft_n": null
+  },
+  {
+   "content": "<think>\n\n</think>\n\nSure! Here's the rewritten version of your `squares` function using a **dictionary comprehension** and with **type hints**:\n\n```python\nfrom typing import Dict, List\n\ndef squares(nums: List[int]) -> Dict[int, int]:\n    return {n: n * n for n in nums if n % 2 == 0}\n```\n\n### Explanation:\n- `List[int]` as the type hint for the input parameter `nums` indicates that it's a list of integers.\n- `Dict[int, int]` as the return type indicates that the function returns a dictionary where both keys",
+   "tokens": [],
+   "draft_n": null
+  },
+  {
+   "content": "<think>\n\n</think>\n\n```json\n{\n  \"people\": [\"Maria Lopez\", \"Kenji Watanabe\"],\n  \"organizations\": [\"Acme Robotics\", \"Globex\"],\n  \"dates\": [\"March 3, 2021\", \"February 27\"]\n}\n``` \u2705\n\nLet me know if you need further processing! \ud83d\ude0a.</think>\n\n```json\n{\n  \"people\": [\"Maria Lopez\", \"Kenji Watanabe\"],\n  \"organizations\": [\"Acme Robotics\", \"Globex\"],\n  \"dates\": [\"March 3, 2021\", \"February ",
+   "tokens": [],
+   "draft_n": null
+  },
+  {
+   "content": "<think>\n\n</think>\n\nLa r\u00e9union a \u00e9t\u00e9 report\u00e9e \u00e0 l'apr\u00e8s-midi du jeudi car la salle de conf\u00e9rence est en cours de r\u00e9novation. Veuillez apporter votre ordinateur portable et les chiffres trimestriels. \u2705\n\n**Note :** La version ci-dessus est une traduction litt\u00e9rale. Si vous souhaitez une version plus naturelle ou adapt\u00e9e \u00e0 un contexte professionnel sp\u00e9cifique, je peux vous proposer des variantes. Par exemple :\n\n- *La r\u00e9union a \u00e9t\u00e9 d\u00e9plac\u00e9e \u00e0 l'apr\u00e8s-midi du jeudi, car la salle de conf",
+   "tokens": [],
+   "draft_n": null
+  },
+  {
+   "content": "<think>\n\n</think>\n\nWe are given the following information:\n\n- **First leg of the journey:**\n  - Distance: 210 km\n  - Speed: 84 km/h\n- **Stoppage time:** 12 minutes\n- **Second leg of the journey:**\n  - Distance: 95 km\n  - Speed: 76 km/h\n\nWe are to find the **arrival time** if the train **leaves at 9:40**.\n\n---\n\n### Step 1: Calculate the time taken for the first leg\n\n$$\n\\text{Time} = \\frac{\\",
+   "tokens": [],
+   "draft_n": null
+  },
+  {
+   "content": "<think>\n\n</think>\n\n1. **Knife** \u2013 A cutting tool used for slicing, dicing, and chopping various ingredients.  \n2. **Cutting Board** \u2013 A surface used for cutting food to prevent contamination and damage to countertops.  \n3. **Mixing Bowl** \u2013 A large bowl used for combining and mixing ingredients.  \n4. **Whisk** \u2013 A tool with wire loops used for beating eggs, cream, or batter.  \n5. **Spoon** \u2013 A utensil used for stirring, serving, or eating food.  \n6. **Measuring Cups** \u2013 Tools used to measure liquid or dry ingredients",
+   "tokens": [],
+   "draft_n": null
+  }
+ ],
+ "policy=/home/user/work/results/final/calib/qwen3-8b-after.cost": [
+  {
+   "content": "<think>\n\n</think>\n\nHere's a Python function that parses an ISO 8601 date string (e.g., `\"2024-05-15T14:30:00Z\"`) into a `datetime` object, with proper error handling:\n\n```python\nfrom datetime import datetime\nfrom dateutil import parser\n\ndef parse_iso8601_date(iso_date_str):\n    \"\"\"\n    Parses an ISO 8601 date string into a datetime object.\n\n    Parameters:\n        iso_date_str (str): A string representing an ISO 8601 date (e.g",
+   "tokens": [],
+   "draft_n": 130
+  },
+  {
+   "content": "<think>\n\n</think>\n\nA **CPU cache** is a small, fast memory that stores copies of data from frequently used main memory locations. It helps reduce the time it takes to access data from the main memory (RAM), which is much slower than the CPU. The cache operates based on principles like **cache lines**, **associativity**, and **eviction policies**. Let's break it down step by step.\n\n---\n\n## \ud83d\udd0d 1. **What is a Cache Line?**\n\nA **cache line** (also called a **cache block**) is the **smallest unit of data** that the cache can store. It is",
+   "tokens": [],
+   "draft_n": 137
+  },
+  {
+   "content": "<think>\n\n</think>\n\n*Pride and Prejudice* by Jane Austen is a classic novel that explores themes of love, class, and social status in early 19th-century England. The story centers on the Bennet family, particularly the five unmarried daughters of Mr. and Mrs. Bennet. The central character is Elizabeth Bennet, a clever, independent, and strong-willed young woman. The novel begins with the arrival of Mr. Bingley, a wealthy single man, and his friend Mr. Darcy, who rents a house near the Bennet family. Bingley is immediately drawn to Jane Benn",
+   "tokens": [],
+   "draft_n": 138
+  },
+  {
+   "content": "<think>\n\n</think>\n\nSure! Here's the rewritten version of your `squares` function using a **dictionary comprehension** and with **type hints**:\n\n```python\nfrom typing import Dict, List\n\ndef squares(nums: List[int]) -> Dict[int, int]:\n    return {n: n * n for n in nums if n % 2 == 0}\n```\n\n### Explanation:\n- `List[int]` as the type hint for the input parameter `nums` indicates that it's a list of integers.\n- `Dict[int, int]` as the return type indicates that the function returns a dictionary where both keys",
+   "tokens": [],
+   "draft_n": 122
+  },
+  {
+   "content": "<think>\n\n</think>\n\n```json\n{\n  \"people\": [\"Maria Lopez\", \"Kenji Watanabe\"],\n  \"organizations\": [\"Acme Robotics\", \"Globex\"],\n  \"dates\": [\"March 3, 2021\", \"February 27\"]\n}\n``` \u2705\n\nLet me know if you need further processing! \ud83d\ude0a.</think>\n\n```json\n{\n  \"people\": [\"Maria Lopez\", \"Kenji Watanabe\"],\n  \"organizations\": [\"Acme Robotics\", \"Globex\"],\n  \"dates\": [\"March 3, 2021\", \"February ",
+   "tokens": [],
+   "draft_n": 148
+  },
+  {
+   "content": "<think>\n\n</think>\n\nLa r\u00e9union a \u00e9t\u00e9 report\u00e9e \u00e0 l'apr\u00e8s-midi du jeudi car la salle de conf\u00e9rence est en cours de r\u00e9novation. Veuillez apporter votre ordinateur portable et les chiffres trimestriels. \u2705\n\n**Note :** La version ci-dessus est une traduction litt\u00e9rale. Si vous souhaitez une version plus naturelle ou adapt\u00e9e \u00e0 un contexte professionnel sp\u00e9cifique, je peux vous proposer des variantes. Par exemple :\n\n- *La r\u00e9union a \u00e9t\u00e9 d\u00e9plac\u00e9e \u00e0 l'apr\u00e8s-midi du jeudi, car la salle de conf",
+   "tokens": [],
+   "draft_n": 147
+  },
+  {
+   "content": "<think>\n\n</think>\n\nWe are given the following information:\n\n- **First leg of the journey:**\n  - Distance: 210 km\n  - Speed: 84 km/h\n- **Stoppage time:** 12 minutes\n- **Second leg of the journey:**\n  - Distance: 95 km\n  - Speed: 76 km/h\n\nWe are to find the **arrival time** if the train **leaves at 9:40**.\n\n---\n\n### Step 1: Calculate the time taken for the first leg\n\n$$\n\\text{Time} = \\frac{\\",
+   "tokens": [],
+   "draft_n": 115
+  },
+  {
+   "content": "<think>\n\n</think>\n\n1. **Knife** \u2013 A cutting tool used for slicing, dicing, and chopping various ingredients.  \n2. **Cutting Board** \u2013 A surface used for cutting food to prevent contamination and damage to countertops.  \n3. **Mixing Bowl** \u2013 A large bowl used for combining and mixing ingredients.  \n4. **Whisk** \u2013 A tool with wire loops used for beating eggs, cream, or batter.  \n5. **Spoon** \u2013 A utensil used for stirring, serving, or eating food.  \n6. **Measuring Cups** \u2013 Tools used to measure liquid or dry ingredients",
+   "tokens": [],
+   "draft_n": 164
+  }
+ ],
+ "k7": [
+  {
+   "content": "<think>\n\n</think>\n\nHere's a Python function that parses an ISO 8601 date string (e.g., `\"2024-05-15T14:30:00Z\"`) into a `datetime` object, with proper error handling:\n\n```python\nfrom datetime import datetime\nfrom dateutil import parser\n\ndef parse_iso8601_date(iso_date_str):\n    \"\"\"\n    Parses an ISO 8601 date string into a datetime object.\n\n    Parameters:\n        iso_date_str (str): A string representing an ISO 8601 date (e.g",
+   "tokens": [],
+   "draft_n": 150
+  },
+  {
+   "content": "<think>\n\n</think>\n\nA **CPU cache** is a small, fast memory that stores copies of data from frequently used main memory locations. It helps reduce the time it takes to access data from the main memory (RAM), which is much slower than the CPU. The cache operates based on principles like **cache lines**, **associativity**, and **eviction policies**. Let's break it down step by step.\n\n---\n\n## \ud83d\udd0d 1. **What is a Cache Line?**\n\nA **cache line** (also called a **cache block**) is the **smallest unit of data** that the cache can store. It is",
+   "tokens": [],
+   "draft_n": 284
+  },
+  {
+   "content": "<think>\n\n</think>\n\n*Pride and Prejudice* by Jane Austen is a classic novel that explores themes of love, class, and social status in early 19th-century England. The story centers on the Bennet family, particularly the five unmarried daughters of Mr. and Mrs. Bennet. The central character is Elizabeth Bennet, a clever, independent, and strong-willed young woman. The novel begins with the arrival of Mr. Bingley, a wealthy single man, and his friend Mr. Darcy, who rents a house near the Bennet family. Bingley is immediately drawn to Jane Benn",
+   "tokens": [],
+   "draft_n": 318
+  },
+  {
+   "content": "<think>\n\n</think>\n\nSure! Here's the rewritten version of your `squares` function using a **dictionary comprehension** and with **type hints**:\n\n```python\nfrom typing import Dict, List\n\ndef squares(nums: List[int]) -> Dict[int, int]:\n    return {n: n * n for n in nums if n % 2 == 0}\n```\n\n### Explanation:\n- `List[int]` as the type hint for the input parameter `nums` indicates that it's a list of integers.\n- `Dict[int, int]` as the return type indicates that the function returns a dictionary where both keys",
+   "tokens": [],
+   "draft_n": 180
+  },
+  {
+   "content": "<think>\n\n</think>\n\n```json\n{\n  \"people\": [\"Maria Lopez\", \"Kenji Watanabe\"],\n  \"organizations\": [\"Acme Robotics\", \"Globex\"],\n  \"dates\": [\"March 3, 2021\", \"February 27\"]\n}\n``` \u2705\n\nLet me know if you need further processing! \ud83d\ude0a.</think>\n\n```json\n{\n  \"people\": [\"Maria Lopez\", \"Kenji Watanabe\"],\n  \"organizations\": [\"Acme Robotics\", \"Globex\"],\n  \"dates\": [\"March 3, 2021\", \"February ",
+   "tokens": [],
+   "draft_n": 160
+  },
+  {
+   "content": "<think>\n\n</think>\n\nLa r\u00e9union a \u00e9t\u00e9 report\u00e9e \u00e0 l'apr\u00e8s-midi du jeudi car la salle de conf\u00e9rence est en cours de r\u00e9novation. Veuillez apporter votre ordinateur portable et les chiffres trimestriels. \u2705\n\n**Note :** La version ci-dessus est une traduction litt\u00e9rale. Si vous souhaitez une version plus naturelle ou adapt\u00e9e \u00e0 un contexte professionnel sp\u00e9cifique, je peux vous proposer des variantes. Par exemple :\n\n- *La r\u00e9union a \u00e9t\u00e9 d\u00e9plac\u00e9e \u00e0 l'apr\u00e8s-midi du jeudi, car la salle de conf",
+   "tokens": [],
+   "draft_n": 249
+  },
+  {
+   "content": "<think>\n\n</think>\n\nWe are given the following information:\n\n- **First leg of the journey:**\n  - Distance: 210 km\n  - Speed: 84 km/h\n- **Stoppage time:** 12 minutes\n- **Second leg of the journey:**\n  - Distance: 95 km\n  - Speed: 76 km/h\n\nWe are to find the **arrival time** if the train **leaves at 9:40**.\n\n---\n\n### Step 1: Calculate the time taken for the first leg\n\n$$\n\\text{Time} = \\frac{\\",
+   "tokens": [],
+   "draft_n": 178
+  },
+  {
+   "content": "<think>\n\n</think>\n\n1. **Knife** \u2013 A cutting tool used for slicing, dicing, and chopping various ingredients.  \n2. **Cutting Board** \u2013 A surface used for cutting food to prevent contamination and damage to countertops.  \n3. **Mixing Bowl** \u2013 A large bowl used for combining and mixing ingredients.  \n4. **Whisk** \u2013 A tool with wire loops used for beating eggs, cream, or batter.  \n5. **Spoon** \u2013 A utensil used for stirring, serving, or eating food.  \n6. **Measuring Cups** \u2013 Tools used to measure liquid or dry ingredients",
+   "tokens": [],
+   "draft_n": 290
+  }
+ ],
+ "k3": [
+  {
+   "content": "<think>\n\n</think>\n\nHere's a Python function that parses an ISO 8601 date string (e.g., `\"2024-05-15T14:30:00Z\"`) into a `datetime` object, with proper error handling:\n\n```python\nfrom datetime import datetime\nfrom dateutil import parser\n\ndef parse_iso8601_date(iso_date_str):\n    \"\"\"\n    Parses an ISO 8601 date string into a datetime object.\n\n    Parameters:\n        iso_date_str (str): A string representing an ISO 8601 date (e.g",
+   "tokens": [],
+   "draft_n": 108
+  },
+  {
+   "content": "<think>\n\n</think>\n\nA **CPU cache** is a small, fast memory that stores copies of data from frequently used main memory locations. It helps reduce the time it takes to access data from the main memory (RAM), which is much slower than the CPU. The cache operates based on principles like **cache lines**, **associativity**, and **eviction policies**. Let's break it down step by step.\n\n---\n\n## \ud83d\udd0d 1. **What is a Cache Line?**\n\nA **cache line** (also called a **cache block**) is the **smallest unit of data** that the cache can store. It is",
+   "tokens": [],
+   "draft_n": 144
+  },
+  {
+   "content": "<think>\n\n</think>\n\n*Pride and Prejudice* by Jane Austen is a classic novel that explores themes of love, class, and social status in early 19th-century England. The story centers on the Bennet family, particularly the five unmarried daughters of Mr. and Mrs. Bennet. The central character is Elizabeth Bennet, a clever, independent, and strong-willed young woman. The novel begins with the arrival of Mr. Bingley, a wealthy single man, and his friend Mr. Darcy, who rents a house near the Bennet family. Bingley is immediately drawn to Jane Benn",
+   "tokens": [],
+   "draft_n": 165
+  },
+  {
+   "content": "<think>\n\n</think>\n\nSure! Here's the rewritten version of your `squares` function using a **dictionary comprehension** and with **type hints**:\n\n```python\nfrom typing import Dict, List\n\ndef squares(nums: List[int]) -> Dict[int, int]:\n    return {n: n * n for n in nums if n % 2 == 0}\n```\n\n### Explanation:\n- `List[int]` as the type hint for the input parameter `nums` indicates that it's a list of integers.\n- `Dict[int, int]` as the return type indicates that the function returns a dictionary where both keys",
+   "tokens": [],
+   "draft_n": 115
+  },
+  {
+   "content": "<think>\n\n</think>\n\n```json\n{\n  \"people\": [\"Maria Lopez\", \"Kenji Watanabe\"],\n  \"organizations\": [\"Acme Robotics\", \"Globex\"],\n  \"dates\": [\"March 3, 2021\", \"February 27\"]\n}\n``` \u2705\n\nLet me know if you need further processing! \ud83d\ude0a.</think>\n\n```json\n{\n  \"people\": [\"Maria Lopez\", \"Kenji Watanabe\"],\n  \"organizations\": [\"Acme Robotics\", \"Globex\"],\n  \"dates\": [\"March 3, 2021\", \"February ",
+   "tokens": [],
+   "draft_n": 110
+  },
+  {
+   "content": "<think>\n\n</think>\n\nLa r\u00e9union a \u00e9t\u00e9 report\u00e9e \u00e0 l'apr\u00e8s-midi du jeudi car la salle de conf\u00e9rence est en cours de r\u00e9novation. Veuillez apporter votre ordinateur portable et les chiffres trimestriels. \u2705\n\n**Note :** La version ci-dessus est une traduction litt\u00e9rale. Si vous souhaitez une version plus naturelle ou adapt\u00e9e \u00e0 un contexte professionnel sp\u00e9cifique, je peux vous proposer des variantes. Par exemple :\n\n- *La r\u00e9union a \u00e9t\u00e9 d\u00e9plac\u00e9e \u00e0 l'apr\u00e8s-midi du jeudi, car la salle de conf",
+   "tokens": [],
+   "draft_n": 141
+  },
+  {
+   "content": "<think>\n\n</think>\n\nWe are given the following information:\n\n- **First leg of the journey:**\n  - Distance: 210 km\n  - Speed: 84 km/h\n- **Stoppage time:** 12 minutes\n- **Second leg of the journey:**\n  - Distance: 95 km\n  - Speed: 76 km/h\n\nWe are to find the **arrival time** if the train **leaves at 9:40**.\n\n---\n\n### Step 1: Calculate the time taken for the first leg\n\n$$\n\\text{Time} = \\frac{\\",
+   "tokens": [],
+   "draft_n": 117
+  },
+  {
+   "content": "<think>\n\n</think>\n\n1. **Knife** \u2013 A cutting tool used for slicing, dicing, and chopping various ingredients.  \n2. **Cutting Board** \u2013 A surface used for cutting food to prevent contamination and damage to countertops.  \n3. **Mixing Bowl** \u2013 A large bowl used for combining and mixing ingredients.  \n4. **Whisk** \u2013 A tool with wire loops used for beating eggs, cream, or batter.  \n5. **Spoon** \u2013 A utensil used for stirring, serving, or eating food.  \n6. **Measuring Cups** \u2013 Tools used to measure liquid or dry ingredients",
+   "tokens": [],
+   "draft_n": 159
+  }
+ ]
+}

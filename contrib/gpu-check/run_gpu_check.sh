@@ -13,6 +13,12 @@
 #   MARLIN_PYTHON=python  interpreter that has torch (default: python3)
 #   FORMATS=q4_0,tq2_0    restrict formats (default: all ten)
 #   CUDA_VISIBLE_DEVICES  pick the GPU (default: GPU 0)
+#   KURN_CUDA_INCLUDE=/p  CUDA runtime headers (cuda_runtime.h, cuda_fp16.h, cublas_v2.h) when they are not in nvcc's
+#   KURN_CUDA_LIB=/p      toolkit, e.g. a third_party dir with include_no_implicit/ and lib/ (':'-separated lists ok);
+#                         CUDA_HOME / CUDA_PATH and NVCC_APPEND_FLAGS / NVCC_PREPEND_FLAGS are honored too
+#   KURN_NVCC=/p/nvcc     the nvcc to use (default: CUDA_HOME/bin, then PATH, then /usr/local/cuda*)
+#   (run_kit.sh drives this script with KIT_OUT=dir NO_ATTN=1 NO_TAR=1 NO_CLONE=1: results into dir, attention left
+#    to run_kit.sh, no archive, never a network clone)
 #
 # Needs: Linux, NVIDIA driver + CUDA toolkit (nvcc) 12.x, python3 >= 3.9, g++. cmake + git for llama.cpp.
 # Installs nothing outside this folder; no root, no clock or power-limit changes. Close other GPU jobs while it runs.
@@ -20,7 +26,8 @@ set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 NAME="kurn-gpu-results-$(hostname -s)-$STAMP"
-OUT="$HERE/$NAME"
+OUT="${KIT_OUT:-$HERE/$NAME}"
+NO_ATTN=${NO_ATTN:-0}
 mkdir -p "$OUT"
 log() { echo "[$(date -u +%T)] $*" | tee -a "$OUT/run.log"; }
 QUICK=${QUICK:-0}
@@ -36,7 +43,7 @@ fi
 for d in "${CUDA_HOME:-}" /usr/local/cuda /usr/local/cuda-*; do
   if [ -n "$d" ] && [ -x "$d/bin/nvcc" ] && ! command -v nvcc >/dev/null; then export PATH="$d/bin:$PATH"; fi
 done
-if command -v nvcc >/dev/null; then export KURN_NVCC=$(command -v nvcc); fi
+if [ -z "${KURN_NVCC:-}" ] && command -v nvcc >/dev/null; then export KURN_NVCC=$(command -v nvcc); fi
 GPU=0
 if command -v nvidia-smi >/dev/null && nvidia-smi -L 2>/dev/null | grep -q GPU; then GPU=1; fi
 if [ "$GPU" = "0" ] && [ "$DRYRUN" = "0" ]; then
@@ -64,16 +71,36 @@ log "== kurn from ./kurn/src (pure Python, no dependencies, nothing installed)"
 PY=${PYTHON:-python3}
 "$PY" -c 'import sys; assert sys.version_info >= (3, 9)' || { log "python3 >= 3.9 needed"; exit 1; }
 export PYTHONPATH="$HERE/kurn/src${PYTHONPATH:+:$PYTHONPATH}"
-export KURN_CACHE_DIR="$HERE/kurn-cache"
+export KURN_CACHE_DIR="${KURN_CACHE_DIR:-$HERE/kurn-cache}"
 K() { "$PY" -m kurn "$@"; }
 K --version | tee -a "$OUT/run.log"
+
+# CUDA toolchain preflight: nvcc plus the runtime headers / libcudart it needs (they can live outside the toolkit, e.g. a
+# monorepo third_party dir with include_no_implicit/ and lib/), checked once with a tiny .cu and the exact build flags,
+# before hundreds of builds can fail the same way. Fix: KURN_CUDA_INCLUDE / KURN_CUDA_LIB (or CUDA_HOME, or
+# NVCC_APPEND_FLAGS="-I... -L...", passed through unchanged).
+if [ -n "${KURN_NVCC:-}" ]; then
+  log "== CUDA toolchain preflight (nvcc + runtime headers/libs, compile + link + cuBLAS, run on the GPU if present)"
+  PFNR=(); [ "$DRYRUN" = "1" ] && PFNR=(--no-run)
+  if K gpu doctor --cublas "${PFNR[@]}" --json "$OUT/toolchain.json" > "$OUT/toolchain.txt" 2>&1; then
+    sed 's/^/  /' "$OUT/toolchain.txt" | tee -a "$OUT/run.log"
+  else
+    sed 's/^/  /' "$OUT/toolchain.txt" | tee -a "$OUT/run.log"
+    log "stopping before any build: fix the CUDA toolchain as shown above, then re-run"
+    tar czf "$HERE/$NAME.tar.gz" -C "$HERE" "$NAME"
+    log "results: $HERE/$NAME.tar.gz"
+    exit 1
+  fi
+fi
 K gpu targets > "$OUT/targets.txt" 2>&1; head -2 "$OUT/targets.txt" | tee -a "$OUT/run.log"
 
 FORMATS=${FORMATS:-q8_0,q4_0,iq4_nl,q4_K,q2_0,tq2_0,q1_0,e8p,mxfp4,nvfp4}
 if [ "$DRYRUN" = "1" ]; then
   ARCH=sm_80
   # the targets: A100, plus B200/GB200 (sm_100) and RTX 50 (sm_120) when nvcc >= 12.8
-  ARCHS=$("$PY" -c 'from kurn.gpu.attn import fatbin_archs; print(",".join(fatbin_archs()))')
+  # (archs this nvcc can't build are skipped with a note; KURN_GPU_ARCHS=sm_80,sm_120 chooses them explicitly)
+  ARCHS=$("$PY" -c 'from kurn.gpu.attn import target_archs; print(",".join(target_archs()))' 2> "$OUT/archs_warnings.txt") || { cat "$OUT/archs_warnings.txt"; exit 1; }
+  [ -s "$OUT/archs_warnings.txt" ] && sed 's/^/note: /' "$OUT/archs_warnings.txt" | tee -a "$OUT/run.log"
 else
   ARCH=$("$PY" -c 'from kurn.gpu.harness import detect_arch; print(detect_arch() or "sm_80")')
   ARCHS=$ARCH
@@ -95,12 +122,12 @@ log "== CPU-emulator numerics (generated kernels vs the exact reference, no GPU)
 EXTRA=4; [ "$QUICK" = "1" ] && EXTRA=0
 K gpu verify --all --extra "$EXTRA" > "$OUT/verify_emu.txt" 2>&1
 tail -1 "$OUT/verify_emu.txt" | tee -a "$OUT/run.log"
-if [ -n "${KURN_NVCC:-}" ]; then
+if [ -n "${KURN_NVCC:-}" ] && [ "$NO_ATTN" != "1" ]; then
   log "== attention: sm_80 + sm_120 fatbins for the covering set (registers, spills, cuobjdump contents)"
   K gpu attn ptxas --all > "$OUT/attn_ptxas.txt" 2>&1
   tail -1 "$OUT/attn_ptxas.txt" | tee -a "$OUT/run.log"
 fi
-if [ "$DRYRUN" = "1" ]; then
+if [ "$DRYRUN" = "1" ] && [ "$NO_ATTN" != "1" ]; then
   log "== attention: CPU-emulator numerics of the default kernels"
   for kv in f16 bf16 q8_0; do for dk in 128 576; do K gpu attn verify - kv=$kv dk=$dk --quick; done; done > "$OUT/attn_verify_emu.txt" 2>&1
   grep -c "^ok" "$OUT/attn_verify_emu.txt" | sed 's/^/attention defaults ok on the emulator: /' | tee -a "$OUT/run.log"
@@ -111,7 +138,7 @@ LLAMA=""
 if [ "${NO_LLAMA:-0}" != "1" ] && [ -n "${KURN_NVCC:-}" ]; then
   if [ -n "${LLAMA_CPP_DIR:-}" ]; then
     LLAMA=$LLAMA_CPP_DIR
-  elif [ "$DRYRUN" = "0" ] && command -v git >/dev/null && command -v cmake >/dev/null; then
+  elif [ "$DRYRUN" = "0" ] && [ "${NO_CLONE:-0}" != "1" ] && command -v git >/dev/null && command -v cmake >/dev/null; then
     log "== cloning llama.cpp (shallow) for the ggml-cuda competitor"
     git clone -q --depth 1 https://github.com/ggml-org/llama.cpp "$HERE/llama.cpp" > "$OUT/llama_clone.txt" 2>&1 && LLAMA="$HERE/llama.cpp" ||
       log "clone failed (no network?): ggml-cuda will be reported as not installed. Set LLAMA_CPP_DIR to an existing checkout."
@@ -163,11 +190,13 @@ else
   tail -1 "$OUT/verify_gpu.txt" | tee -a "$OUT/run.log"
   grep FAIL "$OUT/verify_gpu.txt" | head -5 | tee -a "$OUT/run.log"
 
-  log "== attention correctness on the GPU (covering set, awkward shapes vs the float64 reference)"
-  AQ=(--quick); [ "$QUICK" = "1" ] || AQ=()
-  K gpu attn verify --all --gpu --arch "$ARCH" "${AQ[@]}" > "$OUT/attn_verify_gpu.txt" 2>&1
-  tail -1 "$OUT/attn_verify_gpu.txt" | tee -a "$OUT/run.log"
-  grep FAIL "$OUT/attn_verify_gpu.txt" | head -5 | tee -a "$OUT/run.log"
+  if [ "$NO_ATTN" != "1" ]; then
+    log "== attention correctness on the GPU (covering set, awkward shapes vs the float64 reference)"
+    AQ=(--quick); [ "$QUICK" = "1" ] || AQ=()
+    K gpu attn verify --all --gpu --arch "$ARCH" "${AQ[@]}" > "$OUT/attn_verify_gpu.txt" 2>&1
+    tail -1 "$OUT/attn_verify_gpu.txt" | tee -a "$OUT/run.log"
+    grep FAIL "$OUT/attn_verify_gpu.txt" | head -5 | tee -a "$OUT/run.log"
+  fi
 
   log "== tuning sweep for every format before the matrix (dp4a GEMV + tensor-core engine per batch range; speed and NVML energy)"
   TQ=(); [ "$QUICK" = "1" ] && TQ=(--quick)
@@ -180,9 +209,11 @@ else
     --secs 0.4 --reps 5 "${MQ[@]}" > "$OUT/matrix_report_stdout.txt" 2>&1
   tail -3 "$OUT/matrix.log" 2>/dev/null | tee -a "$OUT/run.log"
 
-  log "== attention decode matrix (Llama-3-8B / Qwen3-1.7B / MLA shapes x context x F16/BF16/Q8_0 KV, cold KV > L2)"
-  K gpu attn matrix --results "$OUT" --arch "$ARCH" "${MQ[@]}" > "$OUT/attn_matrix_stdout.txt" 2>&1
-  tail -1 "$OUT/attn_matrix_stdout.txt" | tee -a "$OUT/run.log"
+  if [ "$NO_ATTN" != "1" ]; then
+    log "== attention decode matrix (Llama-3-8B / Qwen3-1.7B / MLA shapes x context x F16/BF16/Q8_0 KV, cold KV > L2)"
+    K gpu attn matrix --results "$OUT" --arch "$ARCH" "${MQ[@]}" > "$OUT/attn_matrix_stdout.txt" 2>&1
+    tail -1 "$OUT/attn_matrix_stdout.txt" | tee -a "$OUT/run.log"
+  fi
 
   if [ "${NO_MARLIN:-0}" != "1" ]; then
     log "== Marlin (optional cross-format competitor)"
@@ -196,8 +227,11 @@ fi
 log "== summary"
 grep -A40 "^## Wins" "$OUT/report.md" 2>/dev/null | head -45 | tee -a "$OUT/run.log"
 log "done in $(( ($(date +%s) - START) / 60 )) min"
-mkdir -p "$OUT/kernels"
-cp "$KURN_CACHE_DIR"/gpu/cuda/*.cu "$OUT/kernels/" 2>/dev/null
+if [ "${NO_KERNELS:-0}" != "1" ]; then
+  mkdir -p "$OUT/kernels"
+  cp "$KURN_CACHE_DIR"/gpu/cuda/*.cu "$OUT/kernels/" 2>/dev/null
+fi
+[ "${NO_TAR:-0}" = "1" ] && exit 0
 tar czf "$HERE/$NAME.tar.gz" -C "$HERE" "$NAME"
 log "results: $HERE/$NAME.tar.gz ($(du -h "$HERE/$NAME.tar.gz" | cut -f1))"
-echo "Copy $NAME.tar.gz into the artifacts folder (e.g. the artifacts/ folder) and "
+echo "Copy $NAME.tar.gz into your local artifacts/ folder (or wherever you keep run outputs)."

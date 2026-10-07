@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Final serial pass, stage 2: kernel-level headline numbers on a quiet machine (coordinator).
+# Final serial pass, stage 2: kernel-level headline numbers on a quiet machine.
 # Re-runs each workstream's own comparison scripts (vs ggml and kurn v0.1) from this checkout.
 set -u
 K=$(cd "$(dirname "$0")/../../.." && pwd)

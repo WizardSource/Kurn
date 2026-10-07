@@ -129,4 +129,5 @@ def test_legal_config_count():
     # + compress (e8p gemv)
     # + 60: unpack=pair verify kernels with rows * cols up to 8 (single accumulator chain, WS-I)
     # + 4: rows=8 for the Q8_0 i16 GEMV (v0.1 vnni16's pass width; prefetch 0/8 x act/weight correction)
-    assert counts[False] == 912 + 178 + 488 + 12 + 60 + 4 and counts[True] == 8
+    # + 680: exact-width verify kernels (cols 3, 5, 6, 7 next to 2, 4, 8) for the KURN buffer type
+    assert counts[False] == 912 + 178 + 488 + 12 + 60 + 4 + 680 and counts[True] == 8

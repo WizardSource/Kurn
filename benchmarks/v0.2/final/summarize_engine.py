@@ -1,4 +1,4 @@
-"""Summarize the coordinator's quiet-machine engine rows: the rows appended to WS-E's committed
+"""Summarize the quiet-machine engine rows: the rows appended to WS-E's committed
 results CSVs after the integration commit (`git show HEAD:<csv>` gives the committed row count).
 
     python summarize_engine.py gen_qwen3 gen_olmoe ...

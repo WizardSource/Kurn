@@ -4,7 +4,8 @@
 # - copies ggml-k4c.c (GGML_TYPE_K4C: per-channel 4-bit keys in 32-cell groups) into ggml/src/
 # - applies llama-k4c.patch: the type and its codec API in ggml, SET_ROWS into K4C caches and supports_op in
 #   ggml-cpu (K4C keys are read only by kurn's FLASH_ATTN_EXT), the KV cache (no Hadamard rotation, no K-shift,
-#   session state as f16 rows re-quantized on load), the context checks and -ctk k4c / k4c_q4 / k4c_q8
+#   session state as f16 rows re-quantized on load), the context checks, -ctk k4c / k4c_q4 / k4c_q8 and
+#   llama-bench -ctk k4c
 # Use: -ctk k4c -ctv q4_0 (kurn's k4c_q4) or -ctv q8_0 (k4c_q8); -ctk k4c_q4 / k4c_q8 set both.
 # Idempotent. Rebuild with: cmake --build build -j
 set -euo pipefail

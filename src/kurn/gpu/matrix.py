@@ -71,12 +71,12 @@ def write_plan(path, kernels, formats, shapes=MODEL["shapes"], batches=BATCHES, 
     return path
 
 
-def build_kernels(configs, log=print):
+def build_kernels(configs, log=print, fallback=False):
     """{fmt: {name: (config, lo, hi)}} -> {fmt: {name: (lib, lo, hi)}} (nvcc, parallel)."""
     from .toolchain import build_many
 
     flat = [(f, n, c, lo, hi) for f, d in configs.items() for n, (c, lo, hi) in d.items()]
-    built = build_many([c for _, _, c, _, _ in flat], lambda c: nvcc_build(c)[0])
+    built = build_many([c for _, _, c, _, _ in flat], lambda c: nvcc_build(c, fallback=fallback)[0])
     out = {}
     for (f, n, _c, lo, hi), (_, lib) in zip(flat, built):
         if isinstance(lib, Exception):

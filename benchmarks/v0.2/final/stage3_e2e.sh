@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Final serial pass, stage 3: end to end in llama.cpp on a quiet machine (coordinator).
+# Final serial pass, stage 3: end to end in llama.cpp on a quiet machine.
 #   1. rebuild ~/src/llama-kurn from this checkout's integration/llama.cpp (KURN buffer type, AMX opt-in)
 #   2. format matrix: ggml default (AMX/CPU_REPACK) vs --repack 0 vs kurn; decode/prefill tok/s, J/token,
 #      ub-1 and batched perplexity, RSS (WS-H harness)

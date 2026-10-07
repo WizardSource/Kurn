@@ -70,7 +70,7 @@ rep2 mxfp4 perm r2                cold T=8    105.38 us    84.8 GB/s busy 0.00 d
 rep2 nvfp4 perm r2                hot  T=1      8.53 us    69.7 GB/s busy 0.00 drift +0.000
 rep2 nvfp4 perm r2                cold T=8    121.09 us    78.1 GB/s busy 0.02 drift +0.000
 
-median of 3 (2026-10-03 13:22), wrote /path/to/final/kurn/benchmarks/v0.2/fourbit/results/headline.csv
+median of 3 (2026-10-03 13:22), wrote /path/to/kurn/benchmarks/v0.2/fourbit/results/headline.csv
 config                       regime          us    GB/s  %roof  uJ/call  spread
 q8_0 vnni16 a64 r8           hot/1        6.86   163.1      -     37.5    0.2%
 q8_0 vnni16 a64 r8           cold/8      167.70   106.4    83%   7326.3   22.0%
@@ -226,7 +226,7 @@ rep2 q4_0 verify mask16 c8        cold T=8    216.39 us    44.4 GB/s busy 0.00 d
 rep2 q4_0 verify i16 c8           hot  T=1     35.53 us    17.8 GB/s busy 0.00 drift +0.000
 rep2 q4_0 verify i16 c8           cold T=8    199.40 us    48.2 GB/s busy 0.00 drift +0.000
 
-median of 3 (2026-10-03 13:27), wrote /path/to/final/kurn/benchmarks/v0.2/fourbit/results/compare.csv
+median of 3 (2026-10-03 13:27), wrote /path/to/kurn/benchmarks/v0.2/fourbit/results/compare.csv
 config                       regime          us    GB/s  %roof  uJ/call  spread
 mxfp4 lut r1                 hot/1        9.48    59.3      -     51.9    3.0%
 mxfp4 lut r1                 cold/8      141.40    63.2    49%   6173.7    8.2%

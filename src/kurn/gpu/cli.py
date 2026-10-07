@@ -15,6 +15,10 @@ kurn gpu report RESULTS_DIR                       wins/ties/losses report.md + d
 kurn gpu dispatch FMT BATCH [--table T]           what kernel_for() picks
 kurn gpu kit-tune [--quick] [--out tuned.json]    brief tuning of the kernels the matrix races (hand-run kit)
 kurn gpu attn ...                                 the attention op (see `kurn gpu attn -h`)
+kurn gpu doctor [--json F] [--cublas] [--no-run]  locate nvcc + the CUDA runtime, then preflight (compile, link, run a
+                                                  tiny .cu with the exact build flags); fails fast with the fix
+kurn gpu ggml-build --src DIR --build DIR         build llama.cpp's ggml with CUDA using kurn's toolchain resolution
+kurn gpu kit-report RESULTS_DIR                   the single report.md of a run_kit.sh (kit v2) results dir
 """
 
 import argparse
@@ -141,9 +145,9 @@ def cmd_verify(a):
         from .toolchain import build_many, nvcc_build
 
         arch = _arch(a)
-        h = build_harness(arch)
+        h = build_harness(arch, explicit=bool(a.arch))
         fails = 0
-        for c, lib in build_many([dict(c, arch=arch) for c in configs], lambda c: nvcc_build(c)[0]):
+        for c, lib in build_many([dict(c, arch=arch) for c in configs], lambda c: nvcc_build(c, fallback=not a.arch)[0]):
             if isinstance(lib, Exception):
                 fails += 1
                 print(f"FAIL   {c['op']} {c['weights']} {gspec.label(c)}: {str(lib).splitlines()[0]}")
@@ -196,13 +200,13 @@ def cmd_sass(a):
 def cmd_harness(a):
     from .harness import build_harness
 
-    print(build_harness(_arch(a), a.llama, a.out_dir))
+    print(build_harness(_arch(a), a.llama, a.out_dir, explicit=bool(a.arch)))
 
 
 def cmd_info(a):
     from .harness import build_harness, info, roofline
 
-    h = a.harness or build_harness(_arch(a))
+    h = a.harness or build_harness(_arch(a), explicit=bool(getattr(a, "arch", None)))
     print(json.dumps(roofline(h) if a.cmd == "roofline" else info(h), indent=1))
 
 
@@ -217,7 +221,7 @@ def cmd_tune(a):
 
         space = dict(BRIEF[sp.get("op", "gemv")])
     arch = _arch(a)
-    h = a.harness or build_harness(arch)
+    h = a.harness or build_harness(arch, explicit=bool(a.arch))
     shape = tuple(int(x) for x in a.shape.split("x"))
     res, front = tune(sp, space, h, shape, a.objective, a.secs, a.reps, a.out, sample=a.brief, arch=arch)
     if not res:
@@ -238,7 +242,7 @@ def cmd_matrix(a):
 
     arch = _arch(a)
     os.makedirs(a.results, exist_ok=True)
-    h = a.harness or build_harness(arch, a.llama)
+    h = a.harness or build_harness(arch, a.llama, explicit=bool(a.arch))
     fmts = a.formats.split(",") if a.formats else list(gspec.FORMATS)
     with open(os.path.join(a.results, "info.json"), "w") as fh:
         json.dump(info(h), fh)
@@ -253,7 +257,7 @@ def cmd_matrix(a):
         for f, d in tuned.items():
             for n, (cfg, lo, hi) in d.items():
                 kernels.setdefault(f, {})[n] = (dict(parse_config(cfg), arch=arch), lo, hi)
-    libs = matrix.build_kernels({f: kernels[f] for f in fmts if f in kernels})
+    libs = matrix.build_kernels({f: kernels[f] for f in fmts if f in kernels}, fallback=not a.arch)
     batches = (1, 16) if a.quick else matrix.BATCHES
     plan = matrix.write_plan(os.path.join(a.results, "plan.txt"), libs, fmts, batches=batches,
                              reps=3 if a.quick else a.reps, secs=0.2 if a.quick else a.secs)  # fmt: skip
@@ -270,6 +274,29 @@ def cmd_report(a):
 
     md, _ = write(a.results, a.formats.split(",") if a.formats else None, dry=a.dry)
     print(md)
+
+
+def cmd_doctor(a):
+    from . import cudaenv
+    from .attn import fatbin_flags
+    from .toolchain import GpuBuildError
+
+    if a.no_run:
+        run = False
+    else:
+        run = None  # on the GPU when one is present
+    try:
+        flags = fatbin_flags()  # the attention fatbin's -gencode list: the kit's builds use exactly these
+    except GpuBuildError as e:
+        print(f"kurn gpu doctor: {e}", file=sys.stderr)
+        flags = None
+    rep = cudaenv.report(flags, run=run, cublas=a.cublas)
+    rep["arch_flags"] = flags
+    if a.json:
+        with open(a.json, "w") as fh:
+            json.dump(rep, fh, indent=1)
+    print("\n".join(cudaenv.summary(rep)))
+    return 2 if "error" in rep["preflight"] else 0
 
 
 def cmd_dispatch(a):
@@ -294,6 +321,19 @@ def main(argv=None):
         from .attn_cli import main as attn_main
 
         return attn_main(argv[1:])
+    if argv[:1] == ["ggml-build"]:
+        from .ggmlbuild import main as ggml_main
+
+        return ggml_main(argv[1:])
+    if argv[:1] == ["kit-report"]:
+        from .kitreport import write
+
+        if len(argv) != 2:
+            print("usage: kurn gpu kit-report RESULTS_DIR", file=sys.stderr)
+            return 2
+        write(argv[1])
+        print(os.path.join(argv[1], "report.md"))
+        return 0
     ap = argparse.ArgumentParser(prog="kurn gpu", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("targets")
@@ -365,6 +405,11 @@ def main(argv=None):
     p.add_argument("--formats")
     p.add_argument("--dry", action="store_true")
     p.set_defaults(fn=cmd_report)
+    p = sub.add_parser("doctor")
+    p.add_argument("--json", help="write the resolved toolchain and preflight result here")
+    p.add_argument("--cublas", action="store_true", help="also check cublas_v2.h / -lcublas (the GEMM harness needs them)")
+    p.add_argument("--no-run", action="store_true", help="compile and link only, even if a GPU is present")
+    p.set_defaults(fn=cmd_doctor)
     p = sub.add_parser("dispatch")
     p.add_argument("fmt")
     p.add_argument("batch", type=int)

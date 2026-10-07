@@ -9,15 +9,18 @@ recipe (kurn.ext) therefore gets a llama.cpp kernel without touching this file.
 
 For every format this writes into DIR (normally ggml/src/ggml-cpu/kurn/):
   kurn_<fmt>_gemv.c        decode GEMV (one activation column) + packing glue
-  kurn_<fmt>_vfy{2,4,8}.c  multi-column kernels (2-8 activation columns), same
-                           packed layout and the same per-column arithmetic
+  kurn_<fmt>_vfy{2..8}.c   multi-column kernels, one per exact width (2-8 activation
+                           columns), same packed layout and the same per-column arithmetic
 plus kurn.h, kurn_decls.h (prototypes) and kurn_dispatch.h (table: ggml type -> entry points).
 
     python gen_ggml_sources.py DIR [--ggml-h ggml/include/ggml.h] [--config tuned.json] [--only q8_0,q4_0]
 
 --config is JSON {format: {codegen keys}} (e.g. picked with `kurn tune` or the e2e
 harness); the verify kernels inherit the GEMV's algorithm keys so the arithmetic of
-a column never depends on how many columns are computed together.
+a column never depends on how many columns are computed together. Only their schedule
+differs: {format: {"vfy": {"<cols>" | "*": {"rows": G, "prefetch": P, "pfgran": "line"}}}}
+sets the row groups per pass, the software prefetch distance (records) and granularity of
+each width (defaults: VFY_KEYS).
 """
 
 import argparse
@@ -34,7 +37,7 @@ from kurn.toolchain import data_path
 
 TARGET = "avx512_vnni"
 LAYOUT = "i16"
-VFY_COLS = (2, 4, 8)
+VFY_COLS = (2, 3, 4, 5, 6, 7, 8)
 ACT_TYPES = {"q8_0": ("GGML_TYPE_Q8_0", 32), "q8_K": ("GGML_TYPE_Q8_K", 256)}
 DEFAULT_KEYS = {"layout": LAYOUT, "rows": 2, "prefetch": 0}
 # Per-format defaults measured through the buffer type (benchmarks/v0.2/q4fix, Qwen3-1.7B shapes,
@@ -42,11 +45,28 @@ DEFAULT_KEYS = {"layout": LAYOUT, "rows": 2, "prefetch": 0}
 # prefetchers need (1 stream: 42 GB/s, 4: 80 GB/s on the dev VM); the pair / perm unpacks halve
 # the ALU work per 64-byte load. --config overrides these.
 TUNED_KEYS = {
-    "q8_0": {"rows": 8},  # v0.1 vnni16's tuned pass width, on the i16 records
+    # v0.1 vnni16's tuned pass width on the i16 records, plus every line 4 records ahead: GEMV 13.4 vs
+    # 15.0 ms (opbench, Qwen3-8B shapes, 6 A/B rounds)
+    "q8_0": {"rows": 8, "prefetch": 4, "pfgran": "line"},
     "q4_0": {"unpack": "pair", "rows": 4},
-    "q4_K": {"unpack": "pair", "correction": "dpmin", "rows": 4},
+    # every line of the super-block record 4 records ahead: GEMV 8.4 vs 9.7 ms (opbench, Qwen3-8B shapes, 6 A/B rounds)
+    "q4_K": {"unpack": "pair", "correction": "dpmin", "rows": 4, "prefetch": 4, "pfgran": "line"},
     "iq4_nl": {"unpack": "perm", "rows": 4},
 }
+# Verify-kernel schedule per format and width: row groups per pass, prefetch distance (records),
+# prefetch granularity and hint.
+VFY_SCHED_KEYS = ("rows", "prefetch", "pfgran", "pfhint")
+# Measured through the buffer type (opbench, Qwen3-8B shapes, 8 threads, Emerald Rapids): one weight
+# stream per core with the hardware prefetchers alone ran at 45-65 GB/s against 107 for the 8-stream
+# GEMV. Every line of the record P records ahead (pfgran=line) plus as many row groups as the
+# register budget allows (rows * cols <= 8) brings 2-8 columns to 75-110 GB/s. "*" first, then the
+# width; formats without an entry take VFY_DEFAULT, rows capped at the GEMV's.
+VFY_KEYS = {
+    "q8_0": {"*": {"rows": 1, "prefetch": 8, "pfgran": "line"}, "2": {"rows": 4, "prefetch": 4}, "3": {"rows": 2}, "4": {"rows": 2}},
+    "q4_K": {"*": {"rows": 1, "prefetch": 4, "pfgran": "line"}, "2": {"rows": 4, "prefetch": 2}, "3": {"rows": 2, "prefetch": 2},
+             "4": {"rows": 2, "prefetch": 2}},
+}
+VFY_DEFAULT = {"*": {"rows": 1, "prefetch": 8, "pfgran": "line"}, "2": {"rows": 4}, "3": {"rows": 2}, "4": {"rows": 2}}
 GUARD = "#if defined(__AVX512F__) && defined(__AVX512BW__) && defined(__AVX512VNNI__)"
 # The generated kernels keep per-call activation buffers on the stack: K/32 <= 1024.
 MAX_K = 32768
@@ -115,7 +135,27 @@ void {entry}_kurn_pack(const void *W, int64_t K, int64_t N, void *dst) {{
 """
 
 
+def vfy_schedule(fmt, cols, vcfg, gemv_rows, gemv_prefetch=0):
+    """Row groups per pass and prefetch distance of the `cols`-column kernel. More row groups than
+    the GEMV's would read past the padding groups its packing adds."""
+    s = {"rows": 1, "prefetch": gemv_prefetch}
+    for src in (VFY_KEYS.get(fmt, VFY_DEFAULT),):
+        s.update(src.get("*", {}))
+        s.update(src.get(str(cols), {}))
+    s["rows"] = min(int(s["rows"]), int(gemv_rows))
+    s.update(vcfg.get("*", {}))
+    s.update(vcfg.get(str(cols), vcfg.get(cols, {})))
+    if not 1 <= int(s["rows"]) <= int(gemv_rows):
+        raise ValueError(f"{fmt}: vfy{cols} rows={s['rows']} must be in 1..{gemv_rows} (the GEMV's rows)")
+    bad = set(s) - set(VFY_SCHED_KEYS)
+    if bad:
+        raise ValueError(f"{fmt}: vfy{cols}: unknown schedule keys {sorted(bad)} (expected {VFY_SCHED_KEYS})")
+    return {k: int(v) if k in ("rows", "prefetch") else v for k, v in s.items()}
+
+
 def build(fmt, keys):
+    keys = dict(keys)
+    vcfg = keys.pop("vfy", {})
     c = spec.resolve({"op": "gemv", "weights": fmt, "target": TARGET, **keys})
     if c["layout"] != LAYOUT:
         raise ValueError(f"{fmt}: the buffer type needs layout={LAYOUT}, got {c['layout']}")
@@ -129,6 +169,7 @@ def build(fmt, keys):
     vkeys = {k: c[k] for k in ("unpack", "correction", "scales", "accum", "ilv") if k in c}
     vbase = kernel({"op": "verify", "weights": fmt}).entry
     vfy = {}
+    c = dict(c, vfy_sched={})
     for cols in VFY_COLS:
         vc = spec.resolve(
             {
@@ -136,9 +177,8 @@ def build(fmt, keys):
                 "weights": fmt,
                 "target": TARGET,
                 "layout": LAYOUT,
-                "rows": 1,
                 "cols": cols,
-                "prefetch": c["prefetch"],
+                **vfy_schedule(fmt, cols, vcfg, c["rows"], c["prefetch"]),
                 **vkeys,
             }
         )
@@ -146,6 +186,7 @@ def build(fmt, keys):
         new = f"{vbase}{cols}"
         src = re.sub(rf"\b{vbase}(_prepare|_packed|_packed_x|_xprep|_xprep_bytes)?\b", rf"{new}\1", src)
         vfy[cols] = (new, src)
+        c["vfy_sched"][cols] = (vc["rows"], vc["prefetch"], vc.get("pfgran", "rec"))
     return c, entry, gemv, vfy, g1
 
 
@@ -217,6 +258,7 @@ def main(argv=None):
                     "int64_t, int64_t, int64_t, int64_t);"
                 )
         desc = " ".join(f"{k}={c[k]}" for k in ("layout", "rows", "prefetch", "unpack", "correction", "scales", "accum", "ilv"))
+        desc += " vfy=" + ",".join(f"{m}:{g}/{p}{'l' if gr == 'line' else ''}" for m, (g, p, gr) in c["vfy_sched"].items())
         rec_rows = 32 if c["unpack"] == "pair" else 16  # pair records hold rows r and r + 16 in one byte
         align = rec_rows * int(c.get("ilv", 1))
         rows.append(
@@ -228,7 +270,7 @@ def main(argv=None):
                 f"{entry}_xprep_bytes, {entry}_xprep, {entry}_packed_x, {entry}1_packed_x, "
                 f"{{ {', '.join(n + '_packed_x' for n in vfy_names)} }} }},"
                 if xp
-                else "NULL, NULL, NULL, NULL, { NULL, NULL, NULL } },"
+                else "NULL, NULL, NULL, NULL, { " + ", ".join(["NULL"] * len(VFY_COLS)) + " } },"
             )
         )
         print(f"{fmt}: {desc}")
@@ -244,7 +286,8 @@ def main(argv=None):
         '#include "kurn_decls.h"',
         *cpp_open,
         f"#define KURN_MAX_K {MAX_K}",
-        "#define KURN_VFY_MAX 8",
+        f"#define KURN_VFY_MAX {max(VFY_COLS)}",
+        f"#define KURN_VFY_N {len(VFY_COLS)}",
         "typedef void (*kurn_gemv_fn)(const void *, const void *, float *, int64_t, int64_t, int64_t);",
         "typedef void (*kurn_vfy_fn)(const void *, const void *, float *, int64_t, int64_t, int64_t, int64_t, int64_t);",
         "// shared activation prep: xprep(X, K, C, m0, m1, k0, k1, ws) fills the per-block activation tables of",
@@ -268,7 +311,7 @@ def main(argv=None):
         "    kurn_gemv_x_fn gemv_x, gemv1_x;",
         f"    kurn_vfy_x_fn vfy_x[{len(VFY_COLS)}];",
         "} kurn_kernel;",
-        f"static const int kurn_vfy_cols[{len(VFY_COLS)}] = {{ {', '.join(map(str, VFY_COLS))} }};",
+        f"static const int kurn_vfy_cols[KURN_VFY_N] = {{ {', '.join(map(str, VFY_COLS))} }};",
         "static const kurn_kernel kurn_kernels[] = {",
         *rows,
         "};",

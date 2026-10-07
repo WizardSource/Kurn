@@ -90,6 +90,6 @@ def main(argv=None):
     ap.add_argument("--quick", action="store_true")
     a = ap.parse_args(argv)
     arch = a.arch or detect_arch() or "sm_80"
-    h = a.harness or build_harness(arch)
+    h = a.harness or build_harness(arch, explicit=bool(a.arch))
     tune_all(h, arch, a.formats.split(",") if a.formats else None, a.quick, a.out)
     return 0

@@ -117,6 +117,16 @@ static int cmd_run(int argc, char **argv) {
   if (p.mla) p.nhkv = 1;
   kgar_make(p, seed);
 
+  // the driver must support the CUDA release the harness and kernels were built with (cudart is linked statically)
+  int drv = 0, rt = 0;
+  cudaDriverGetVersion(&drv);
+  cudaRuntimeGetVersion(&rt);
+  if (drv < rt) {
+    char b[256];
+    snprintf(b, sizeof b, "the NVIDIA driver supports CUDA %d.%d but kurn was built with CUDA %d.%d: update the driver or build with "
+             "an older toolkit (KURN_NVCC)", drv / 1000, drv % 1000 / 10, rt / 1000, rt % 1000 / 10);
+    fail(b);
+  }
   int dev = 0;
   CK(cudaGetDevice(&dev));
   cudaDeviceProp prop;
@@ -154,7 +164,10 @@ static int cmd_run(int argc, char **argv) {
   CK(cudaMemset(dout, 0xFF, on * 4));
   if (int e = run(&args[0], ws, st)) {
     char b[160];
-    snprintf(b, sizeof b, "kga_run failed (%d)%s", e, e == -4 ? ": tile exceeds this GPU's shared memory per block" : "");
+    snprintf(b, sizeof b, "kga_run failed (%d)%s", e,
+             e == -4 ? ": tile exceeds this GPU's shared memory per block"
+             : e == -3 ? ": launch failed (no SASS for this GPU and its driver can't JIT the embedded PTX? see `kurn gpu attn archs`)"
+                       : "");
     fail(b);
   }
   CK(cudaStreamSynchronize(st));
@@ -172,9 +185,9 @@ static int cmd_run(int argc, char **argv) {
   }
   const bool ok = err <= tol && err_q8 <= tol_q8;
   printf("{\"kind\": \"check\", \"config\": \"%s\", \"device\": \"%s\", \"sm\": %d, \"sms\": %d, \"relerr\": %.4e, \"tol\": %.1e, "
-         "\"relerr_q8\": %.4e, \"status\": \"%s\", \"splits\": %d, \"workspace\": %zu}\n",
+         "\"relerr_q8\": %.4e, \"status\": \"%s\", \"splits\": %d, \"workspace\": %zu, \"driver_cuda\": %d, \"runtime_cuda\": %d}\n",
          config.c_str(), prop.name, prop.major * 10 + prop.minor, prop.multiProcessorCount, err, tol, err_q8, ok ? "ok" : "FAIL",
-         splits(&args[0]), wsb);
+         splits(&args[0]), wsb, drv, rt);
   fflush(stdout);
   if (secs <= 0) return ok ? 0 : 1;
 

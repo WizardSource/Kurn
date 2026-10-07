@@ -141,7 +141,7 @@ rep 3 kurn spec-td2 p2: {'tok_s': 5.395183269369821, 'n': 194, 'n_drafted': 635,
                           got ...'iately drawn to Jane Bennet, the eldest daughter, while Darcy, who is proud and '
   stock spec-td2 p2 differs at char 504: ref ...'o rents a house near the Bennet family. Bingley is immediately drawn to Jane Ben'
                           got ...'o rents a house near the Bennet family. Mr. Bingley is immediately drawn to the '
-wrote /path/to/final/kurn/benchmarks/v0.2/final/results/spec_8b.csv (15:50:20)
+wrote /path/to/kurn/benchmarks/v0.2/final/results/spec_8b.csv (15:50:20)
 | build | config | prompt | tok/s | J/token | accept % | identical to greedy |
 |---|---|---|---|---|---|---|
 | stock | greedy | 0 | 10.58 | 3.335 |  | True |

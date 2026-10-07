@@ -29,9 +29,10 @@ kurn verify examples/q8_0_gemv_vnni16.kurn                               # numer
 kurn tune   examples/q8_0_gemv_vnni16.kurn --regime cold --objective energy
 ```
 
-Status: **0.3.0.dev3, alpha research code.** It contains the 0.2.2 CPU release plus the CUDA backend. CPU results come
-from one machine (see [Results](#results) and its caveats). The CUDA backend has **no GPU measurements yet** (see
-[CUDA backend](#cuda-backend-target-cuda)).
+Status: **0.3.0.dev3, alpha research code.** CPU path: buffer type, attention, AMX-BF16 prefill, exact-width verify
+kernels, native Q6_K/Q5_K, k4c KV and speculative verify-width in llama.cpp. CUDA: decode GEMV/GEMM, attention
+(sm_80/sm_100/sm_120), FP8 KV, MXFP4/NVFP4, split-install `cudaenv` preflight and kit v2 — verified on the CPU
+emulator and compile-checked; **no GPU measurements yet**. Walkthrough: [docs/kurn-quickstart.md](docs/kurn-quickstart.md).
 
 ## Why
 
@@ -326,6 +327,17 @@ kurn gpu dispatch q4_0 1 --table out/dispatch.json       # what kernel_for() pic
 - **Win rule:** a KURN win needs a > 2σ margin over the best competitor. `kernel_for()` returns the competitor's kernel
   everywhere else.
 
+`run_kit.sh` (kit v2) runs all of it in one command and writes one `report.md`:
+- the toolchain preflight;
+- a llama.cpp ggml-cuda build from bundled sources (`kurn gpu ggml-build`, no network);
+- attention correctness and the decode matrix against llama.cpp's CUDA flash attention
+  ([`bench_ggml_attn.cpp`](src/kurn/gpu/data/bench_ggml_attn.cpp): same data and timing), plus FlashInfer /
+  FlashAttention-2 if installed and ablations;
+- the matmul kit above, including MXFP4 / NVFP4;
+- the GPU pytest subset.
+
+Everything is written inside the kit folder.
+
 The plan, competitor analysis and success and kill criteria are in the Project's KURN GPU plan document (kept outside this
 repository).
 
@@ -484,7 +496,7 @@ src/kurn/data/       kurn.h (kernel ABI), bench.c (standalone harness)
 src/kurn/gpu/        target cuda: spec.py, codegen.py (CUDA C++), emu.py + data/kurn_cuemu.h (CPU warp emulator),
                      toolchain.py (nvcc, ptxas, occupancy), harness.py + data/bench_gpu.cu, tune.py, matrix.py,
                      report.py (2-sigma win rule), dispatch.py (kernel_for), kit.py, cli.py (`kurn gpu ...`)
-benchmarks/v0.2/     per-workstream benchmark scripts, results CSVs, benchlock.sh, final/ (coordinator re-measurement)
+benchmarks/v0.2/     per-workstream benchmark scripts, results CSVs, benchlock.sh, final/ (re-measurement)
 tools/               offline-check/ (one-command correctness, roofline, tune and AMX check for a new host),
                      make_release.sh (builds the release zip and checks it is self-contained)
 examples/            q8_0_gemv_vnni16.kurn, q4_K_gemv.kurn, q8_0_gemm_amx.kurn, moe_expert_gemv.kurn; gpu/*.kurn
@@ -501,7 +513,8 @@ Environment variables (details in [`src/kurn/toolchain.py`](src/kurn/toolchain.p
 | `KURN_CROSS_CC` | AArch64 cross compiler for `neon` on x86 (default: `aarch64-linux-gnu-gcc`, then `zig cc`) |
 | `KURN_QEMU` | command prefix that runs AArch64 binaries on x86 (default: `qemu-aarch64 -L /usr/aarch64-linux-gnu`) |
 | `KURN_CACHE_DIR` | build cache (default: `~/.cache/kurn`) |
-| `KURN_NVCC` | nvcc for `target cuda` (default: `nvcc` on PATH, then `/usr/local/cuda*/bin/nvcc`) |
+| `KURN_NVCC` | nvcc for `target cuda` (default: `$CUDA_HOME/bin`, `$CUDA_PATH/bin`, `nvcc` on PATH, then `/usr/local/cuda*/bin/nvcc`) |
+| `KURN_CUDA_INCLUDE`, `KURN_CUDA_LIB` | CUDA runtime headers / libraries when they are not in nvcc's toolkit (split installs; `:`-separated lists). `kurn gpu doctor` checks them before any build. `CUDA_HOME` / `CUDA_PATH` and `NVCC_APPEND_FLAGS` / `NVCC_PREPEND_FLAGS` (passed through unchanged) work too; `KURN_CUDA_NO_PROBE=1` turns off probing of other installs |
 | `KURN_CXX` | host C++ compiler for the CUDA CPU emulator (default: `$CXX`, then g++, clang++) |
 | `KEMU_SEED` | randomize the CUDA emulator's thread schedule (exposes shared-memory races) |
 | `KURN_GPU_DISPATCH` | `dispatch.json` used by `kurn.gpu.dispatch.kernel_for()` |

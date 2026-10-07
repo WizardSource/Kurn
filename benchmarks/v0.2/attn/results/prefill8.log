@@ -95,4 +95,4 @@
 2 prefill-8B-d32768        kurn-amx-f16-t128x256    54898.6 us    4968.0 GFLOP/s     2.8 GB/s  relerr 1.4e-02 FAIL (5.1s)
 2 prefill-8B-d32768        kurn-fma-f16       165023.6 us    1652.7 GFLOP/s     0.9 GB/s  relerr 5.2e-06 ok (5.2s)
 2 prefill-8B-d32768        ggml-fa-f16        567141.3 us     480.9 GFLOP/s     0.3 GB/s  relerr 6.0e-06 ok (8.2s)
-# wrote /path/to/attn/kurn/benchmarks/v0.2/attn/results/prefill_8B.csv
+# wrote /path/to/kurn/benchmarks/v0.2/attn/results/prefill_8B.csv

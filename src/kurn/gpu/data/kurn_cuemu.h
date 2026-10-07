@@ -559,6 +559,16 @@ inline void kemu_cp_async4(void *dst, const void *src, int src_size) {
   if (src_size) memcpy(e.src, src, src_size);
   kemu_cp_issue(e);
 }
+// cp.async.ca 8-byte copy (zero-filled when src_size == 0), deferred until wait_group
+inline void kemu_cp_async8(void *dst, const void *src, int src_size) {
+  if ((uintptr_t)dst % 8 || (src_size && (uintptr_t)src % 8)) kemu::fail("misaligned cp.async (8-byte copies need 8-byte alignment)");
+  kemu::CpAsync e;
+  e.dst = dst;
+  e.n = 8;
+  memset(e.src, 0, 16);
+  if (src_size) memcpy(e.src, src, src_size);
+  kemu_cp_issue(e);
+}
 inline void kemu_cp_commit() {
   kemu::Thread *t = kemu::ctx().cur;
   t->groups.push_back(t->open);

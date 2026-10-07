@@ -32,7 +32,7 @@ q1_0 addsub:mask 2 0 16.35 us
 q1_0 addsub:sad 2 0 15.91 us
 q1_0 addsub:mask 2 8 16.64 us
 q1_0 addsub:sad 2 8 15.70 us
-wrote /path/to/lowbit/kurn/benchmarks/v0.2/lowbit/results/screen_hot1_q1_0.csv
+wrote /path/to/kurn/benchmarks/v0.2/lowbit/results/screen_hot1_q1_0.csv
 q2_0 i16:mask/float 1 0 10.51 us
 q2_0 i16:mask/float 1 8 9.79 us
 q2_0 i16:mask/float 2 0 9.17 us
@@ -81,7 +81,7 @@ q2_0 addsub:mask 2 0 26.92 us
 q2_0 addsub:sad 2 0 26.87 us
 q2_0 addsub:mask 2 8 27.34 us
 q2_0 addsub:sad 2 8 26.36 us
-wrote /path/to/lowbit/kurn/benchmarks/v0.2/lowbit/results/screen_hot1_q2_0.csv
+wrote /path/to/kurn/benchmarks/v0.2/lowbit/results/screen_hot1_q2_0.csv
 tq2_0 i16:mask/float 1 0 10.43 us
 tq2_0 i16:mask/float 1 8 11.51 us
 tq2_0 i16:mask/float 2 0 9.91 us
@@ -146,7 +146,7 @@ tq2_0 addsub:mask 2 0 24.10 us
 tq2_0 addsub:sad 2 0 22.41 us
 tq2_0 addsub:mask 2 8 24.42 us
 tq2_0 addsub:sad 2 8 22.38 us
-wrote /path/to/lowbit/kurn/benchmarks/v0.2/lowbit/results/screen_hot1_tq2_0.csv
+wrote /path/to/kurn/benchmarks/v0.2/lowbit/results/screen_hot1_tq2_0.csv
 tq1_0 i16:mask/float 1 0 9.85 us
 tq1_0 i16:mask/float 1 8 10.58 us
 tq1_0 i16:mask/float 2 0 8.77 us
@@ -199,11 +199,11 @@ tq1_0 addsub:mask 2 0 23.83 us
 tq1_0 addsub:sad 2 0 22.17 us
 tq1_0 addsub:mask 2 8 22.89 us
 tq1_0 addsub:sad 2 8 23.67 us
-wrote /path/to/lowbit/kurn/benchmarks/v0.2/lowbit/results/screen_hot1_tq1_0.csv
+wrote /path/to/kurn/benchmarks/v0.2/lowbit/results/screen_hot1_tq1_0.csv
 q2_K k16 1 0 11.27 us
 q2_K k16 1 8 12.12 us
 q2_K k16 2 0 11.22 us
 q2_K k16 2 8 10.41 us
 q2_K k16 4 0 10.09 us
 q2_K k16 4 8 10.46 us
-wrote /path/to/lowbit/kurn/benchmarks/v0.2/lowbit/results/screen_hot1_q2_K.csv
+wrote /path/to/kurn/benchmarks/v0.2/lowbit/results/screen_hot1_q2_K.csv

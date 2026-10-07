@@ -28,7 +28,7 @@ def _llama_dir():
 def test_patch_and_apply_script_are_consistent():
     patch = (K4C / "llama-k4c.patch").read_text()
     for f in ("ggml/include/ggml.h", "ggml/src/ggml.c", "ggml/src/ggml-cpu/ops.cpp", "ggml/src/ggml-cpu/ggml-cpu.cpp",
-              "src/llama-kv-cache.cpp", "src/llama-context.cpp", "common/arg.cpp"):
+              "src/llama-kv-cache.cpp", "src/llama-context.cpp", "common/arg.cpp", "tools/llama-bench/llama-bench.cpp"):
         assert f"+++ b/{f}" in patch
     assert "GGML_TYPE_K4C" in patch and "ggml_set_rows_k4c" in patch and "ggml-k4c.c" in patch
     assert "ggml_k4c_update_group" in (K4C / "ggml-k4c.c").read_text()

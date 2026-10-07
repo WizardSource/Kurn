@@ -1,0 +1,34 @@
+# kurn verify cost table: target models/Qwen3-8B-Q8_0.gguf, draft models/Qwen3-0.6B-Q8_0.gguf
+# threads 8 (draft 8), kv 140 tokens, median of 5 reps; GGML_KURN=1 GGML_KURN_AMX=0
+verify 1 75.3251
+verify 2 75.3979
+verify 3 82.2258
+verify 4 84.9515
+verify 5 98.6030
+verify 6 99.3507
+verify 7 100.4810
+verify 8 92.9390
+verify 9 121.5949
+verify 10 126.6433
+verify 11 128.5329
+verify 12 130.4778
+verify 13 141.0377
+verify 14 144.5222
+verify 15 148.9564
+verify 16 151.0447
+draft 1 9.0445
+draft 2 9.5523
+draft 3 10.2061
+draft 4 10.5832
+draft 5 11.6899
+draft 6 11.9522
+draft 7 9.1498
+draft 8 12.3110
+draft 9 13.7105
+draft 10 13.9902
+draft 11 14.3084
+draft 12 14.4739
+draft 13 15.1491
+draft 14 15.3986
+draft 15 15.8177
+draft 16 15.9591

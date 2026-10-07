@@ -1,0 +1,162 @@
+diff --git a/ggml/src/ggml-cpu/ggml-cpu.c b/ggml/src/ggml-cpu/ggml-cpu.c
+index 8620c6c7a..ccefb3736 100644
+--- a/ggml/src/ggml-cpu/ggml-cpu.c
++++ b/ggml/src/ggml-cpu/ggml-cpu.c
+@@ -35,6 +35,11 @@
+ #include <limits.h>
+ #include <stdarg.h>
+ #include <signal.h>
++#if defined(__x86_64__)
++#include <x86intrin.h>
++#else
++static inline uint64_t __rdtsc(void) { return (uint64_t) ggml_time_us(); }
++#endif
+ #if defined(__gnu_linux__)
+ #include <syscall.h>
+ #endif
+@@ -3060,6 +3065,80 @@ struct ggml_cplan ggml_graph_plan(
+ }
+ 
+ 
++// GGML_OPPROF=1: per node type, thread cycles spent computing and waiting at the barrier after the
++// node, for graphs whose largest MUL_MAT has more than 8 activation rows (prefill); printed at exit.
++#define OPPROF_MAXT 64
++#define OPPROF_KEYS 256
++struct opprof_ent { char key[96]; uint64_t comp, wait, n; };
++struct opprof_thr { struct opprof_ent e[OPPROF_KEYS]; uint64_t graphs, wall; };
++static struct opprof_thr * opprof_t = NULL;
++static int opprof_on = -1;
++
++static void opprof_key(const struct ggml_tensor * node, char * buf, size_t n) {
++    const char * name = ggml_op_desc(node);
++    if (node->op == GGML_OP_MUL_MAT || node->op == GGML_OP_MUL_MAT_ID) {
++        const struct ggml_tensor * w = node->src[0];
++        const char * bt = w->buffer ? ggml_backend_buffer_name(w->buffer) : "-";
++        snprintf(buf, n, "%s %s %s %lldx%lld", name, ggml_type_name(w->type), bt, (long long) w->ne[0], (long long) w->ne[1]);
++    } else if (node->op == GGML_OP_FLASH_ATTN_EXT) {
++        snprintf(buf, n, "%s kv=%s", name, ggml_type_name(node->src[1]->type));
++    } else {
++        snprintf(buf, n, "%s", name);
++    }
++}
++
++static struct opprof_ent * opprof_get(struct opprof_thr * t, const char * key) {
++    uint32_t h = 2166136261u;
++    for (const char * p = key; *p; p++) h = (h ^ (uint8_t) *p) * 16777619u;
++    for (int i = 0; i < OPPROF_KEYS; i++) {
++        struct opprof_ent * e = &t->e[(h + i) % OPPROF_KEYS];
++        if (!e->key[0]) { snprintf(e->key, sizeof(e->key), "%s", key); return e; }
++        if (!strcmp(e->key, key)) return e;
++    }
++    return &t->e[h % OPPROF_KEYS];
++}
++
++static int opprof_cmp(const void * a, const void * b) {
++    const struct opprof_ent * x = a, * y = b;
++    const uint64_t sx = x->comp + x->wait, sy = y->comp + y->wait;
++    return sx < sy ? 1 : sx > sy ? -1 : 0;
++}
++
++static void opprof_dump(void) {
++    if (!opprof_t) return;
++    static struct opprof_ent all[OPPROF_KEYS];
++    int na = 0;
++    uint64_t tot = 0, wall = opprof_t[0].wall;
++    for (int t = 0; t < OPPROF_MAXT; t++) {
++        for (int i = 0; i < OPPROF_KEYS; i++) {
++            const struct opprof_ent * e = &opprof_t[t].e[i];
++            if (!e->key[0]) continue;
++            int j = 0;
++            for (; j < na && strcmp(all[j].key, e->key); j++) {}
++            if (j == na) { all[na] = *e; na++; } else { all[j].comp += e->comp; all[j].wait += e->wait; all[j].n += e->n; }
++            tot += e->comp + e->wait;
++        }
++    }
++    qsort(all, na, sizeof(all[0]), opprof_cmp);
++    uint64_t c = 0, w = 0;
++    for (int j = 0; j < na; j++) { c += all[j].comp; w += all[j].wait; }
++    fprintf(stderr, "opprof: %llu prefill graphs, thread-0 wall %.3f Gcyc; all threads: compute %.3f Gcyc, barrier wait %.3f Gcyc (%.1f%%)\n",
++            (unsigned long long) opprof_t[0].graphs, 1e-9 * wall, 1e-9 * c, 1e-9 * w, 100.0 * w / (c + w + 1));
++    fprintf(stderr, "opprof: %-60s %8s %10s %10s %6s\n", "node", "count", "comp Gcyc", "wait Gcyc", "share");
++    for (int j = 0; j < na; j++) {
++        fprintf(stderr, "opprof: %-60s %8llu %10.3f %10.3f %5.1f%%\n", all[j].key, (unsigned long long) all[j].n, 1e-9 * all[j].comp,
++                1e-9 * all[j].wait, 100.0 * (all[j].comp + all[j].wait) / (tot + 1));
++    }
++}
++
++static bool opprof_graph_is_prefill(const struct ggml_cgraph * g) {
++    for (int i = 0; i < g->n_nodes; i++) {
++        const struct ggml_tensor * n = g->nodes[i];
++        if ((n->op == GGML_OP_MUL_MAT || n->op == GGML_OP_MUL_MAT_ID) && ggml_nrows(n->src[1]) > 8) return true;
++    }
++    return false;
++}
++
+ // Try to fuse the current node with subsequent nodes for better performance.
+ // Returns the number of nodes skipped by fusion (>=1), or 0 if no fusion was applied.
+ static bool ggml_cpu_disable_fusion = false;  // initialized once in ggml_cpu_init(), read-only afterwards
+@@ -3126,6 +3205,14 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
+     GGML_PRINT_DEBUG("thread #%d compute-start cplan %p last-graph %d\n", state->ith, (const void *)cplan, state->last_graph);
+ #endif
+ 
++    struct opprof_thr * opt = NULL;
++    uint64_t op_g0 = 0;
++    if (opprof_on && opprof_t && state->ith < OPPROF_MAXT && opprof_graph_is_prefill(cgraph)) {
++        opt = &opprof_t[state->ith];
++        opt->graphs++;
++        op_g0 = __rdtsc();
++    }
++
+     for (int node_n = 0; node_n < cgraph->n_nodes && atomic_load_explicit(&tp->abort, memory_order_relaxed) != node_n; node_n++) {
+         struct ggml_tensor * node = cgraph->nodes[node_n];
+ 
+@@ -3138,6 +3225,9 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
+             continue;
+         }
+ 
++        const uint64_t op_t0 = opt ? __rdtsc() : 0;
++        const int node_first = node_n;
++
+         // TODO: move fused-op detection into ggml_graph_plan so fusion decisions are made once at planning time
+         // Try fused ops, fall back to normal compute
+         const int n_fused = ggml_cpu_try_fuse_ops(cgraph, node_n, &params, cplan);
+@@ -3153,9 +3243,24 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
+             tp->ec    = GGML_STATUS_ABORTED;
+         }
+ 
++        const uint64_t op_t1 = opt ? __rdtsc() : 0;
+         if (node_n + 1 < cgraph->n_nodes) {
+             ggml_barrier(state->threadpool);
+         }
++        if (opt) {
++            char key[96];
++            opprof_key(cgraph->nodes[node_first], key, sizeof(key));
++            if (n_fused > 0) {
++                strncat(key, " +fused", sizeof(key) - strlen(key) - 1);
++            }
++            struct opprof_ent * e = opprof_get(opt, key);
++            e->comp += op_t1 - op_t0;
++            e->wait += __rdtsc() - op_t1;
++            e->n++;
++        }
++    }
++    if (opt) {
++        opt->wall += __rdtsc() - op_g0;
+     }
+ 
+ #ifdef GGML_USE_OPENMP
+@@ -3928,6 +4033,14 @@ void ggml_cpu_init(void) {
+             const char * env = getenv("GGML_CPU_DISABLE_FUSION");
+             ggml_cpu_disable_fusion = (env != NULL && atoi(env) == 1);
+         }
++        {
++            const char * env = getenv("GGML_OPPROF");
++            opprof_on = env != NULL && atoi(env) == 1;
++            if (opprof_on) {
++                opprof_t = calloc(OPPROF_MAXT, sizeof(struct opprof_thr));
++                atexit(opprof_dump);
++            }
++        }
+ 
+         is_first_call = false;
+     }

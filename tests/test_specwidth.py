@@ -30,11 +30,11 @@ def f32(x):
 
 
 def test_kernel_staircase():
-    assert [sw.kernel_cols(m) for m in range(1, 9)] == [1, 2, 4, 4, 8, 8, 8, 8]
+    assert [sw.kernel_cols(m) for m in range(1, 9)] == [1, 2, 3, 4, 5, 6, 7, 8]
     assert sw.kernel_passes(8) == [8]
     assert sw.kernel_passes(9) == [8, 1]
     assert sw.kernel_passes(12) == [8, 4]
-    assert sw.kernel_passes(19) == [8, 8, 4]
+    assert sw.kernel_passes(19) == [8, 8, 3]
     with pytest.raises(ValueError):
         sw.kernel_cols(9)
 
@@ -45,13 +45,16 @@ def test_buft_keys_match_the_generator():
     assert sw.BUFT_DEFAULT_KEYS == gen.DEFAULT_KEYS
     assert sw.BUFT_TUNED_KEYS == gen.TUNED_KEYS
     assert sw.VFY_COLS == gen.VFY_COLS
+    assert sw.BUFT_VFY_KEYS == gen.VFY_KEYS
 
 
 def test_buft_configs_resolve():
     c = sw.buft_configs("q8_0", 8)
     assert c[1]["op"] == "gemv" and c[1]["rows"] == 8
-    assert [c[k]["cols"] for k in (2, 4, 8)] == [2, 4, 8]
-    assert all(c[k]["rows"] == 1 and c[k]["layout"] == "i16" for k in (2, 4, 8))
+    assert [c[k]["cols"] for k in sw.VFY_COLS] == list(range(2, 9))
+    assert all(c[k]["layout"] == "i16" and c[k]["rows"] * k <= 8 for k in sw.VFY_COLS)
+    assert [c[k]["rows"] for k in (2, 3, 4, 8)] == [4, 2, 2, 1]  # the buffer type's measured schedule
+    assert all(c[k]["pfgran"] == "line" for k in sw.VFY_COLS)
 
 
 def test_cost_table_roundtrip(tmp_path):

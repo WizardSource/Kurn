@@ -151,3 +151,8 @@ def test_buffer_type_checker_smoke(tmp_path):
     if "not available" in r.stdout:
         pytest.skip("KURN buffer type not compiled in")
     assert r.returncode == 0, r.stdout[-4000:]
+    # native-layout Q6_K / Q5_K (kurn-native-vfy.cpp): below the AMX-BF16 threshold, and at every width in exact
+    # mode (no AMX tiles are used by either run: the native kernels are AVX-512 only)
+    for env in ({"GGML_KURN_EXACT": "1", "GGML_KURN_AMX": "0"}, {}):
+        r = subprocess.run([str(exe), "native"], capture_output=True, text=True, timeout=1200, env={**os.environ, **env})
+        assert r.returncode == 0, (env, r.stdout[-4000:])

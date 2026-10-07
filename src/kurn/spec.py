@@ -94,7 +94,7 @@ def _rows(op, f, t):
 
 def _cols(op, f, t):
     if op == "verify":
-        return (2, 4, 8)
+        return (2, 3, 4, 5, 6, 7, 8)
     if t == "amx":
         return (1, 2)
     return (2, 4, 6) if op == "gemm" else (1,)

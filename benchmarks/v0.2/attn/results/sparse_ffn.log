@@ -34,4 +34,4 @@
 2 sparse-pred-r128 density 0.306     189.6 us    70.7 GB/s ok
 2 sparse-gate      density 0.100     147.4 us   108.9 GB/s ok
 2 sparse-pred-r128 density 0.103      85.2 us    61.6 GB/s ok
-wrote /path/to/attn/kurn/benchmarks/v0.2/attn/sparse/../results/sparse_ffn.csv
+wrote /path/to/kurn/benchmarks/v0.2/attn/sparse/../results/sparse_ffn.csv

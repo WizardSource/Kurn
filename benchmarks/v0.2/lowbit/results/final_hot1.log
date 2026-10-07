@@ -16,7 +16,7 @@ q1_0 hot 1 kurn lut:direct6m 7.24 us drift 0.0000
 q1_0 hot 1 kurn i16:mask/float 8.81 us drift 0.0000
 q1_0 hot 1 kurn addsub:sad 13.67 us drift 0.0000
 q1_0 hot 1 ggml vec_dot 29.46 us drift 0.0000
-wrote /path/to/lowbit/kurn/benchmarks/v0.2/lowbit/results/final_hot1_q1_0.csv
+wrote /path/to/kurn/benchmarks/v0.2/lowbit/results/final_hot1_q1_0.csv
 q2_0 hot 1 kurn i16:mask/float 7.68 us drift 0.0000
 q2_0 hot 1 kurn lut:serial5 10.56 us drift 0.0000
 q2_0 hot 1 kurn lut:serial4 11.45 us drift 0.0000
@@ -35,7 +35,7 @@ q2_0 hot 1 kurn lut:serial4 11.42 us drift 0.0000
 q2_0 hot 1 kurn lut:serial6m 11.80 us drift 0.0000
 q2_0 hot 1 kurn addsub:sad 23.29 us drift 0.0000
 q2_0 hot 1 ggml vec_dot 364.63 us drift 0.0004
-wrote /path/to/lowbit/kurn/benchmarks/v0.2/lowbit/results/final_hot1_q2_0.csv
+wrote /path/to/kurn/benchmarks/v0.2/lowbit/results/final_hot1_q2_0.csv
 tq2_0 hot 1 kurn i16:mask/int 7.77 us drift 0.0000
 tq2_0 hot 1 kurn lut:serial5 9.70 us drift 0.0000
 tq2_0 hot 1 kurn lut:serial6m 10.14 us drift 0.0000
@@ -54,7 +54,7 @@ tq2_0 hot 1 kurn lut:serial6m 10.45 us drift 0.0003
 tq2_0 hot 1 kurn lut:serial4 11.68 us drift 0.0000
 tq2_0 hot 1 kurn addsub:sad 20.30 us drift 0.0000
 tq2_0 hot 1 ggml vec_dot 14.89 us drift 0.0000
-wrote /path/to/lowbit/kurn/benchmarks/v0.2/lowbit/results/final_hot1_tq2_0.csv
+wrote /path/to/kurn/benchmarks/v0.2/lowbit/results/final_hot1_tq2_0.csv
 tq1_0 hot 1 kurn i16:mask/int 7.13 us drift 0.0000
 tq1_0 hot 1 kurn lut:serial4 9.58 us drift 0.0000
 tq1_0 hot 1 kurn lut:direct2 10.66 us drift 0.0000
@@ -73,11 +73,11 @@ tq1_0 hot 1 kurn lut:direct2 10.87 us drift 0.0000
 tq1_0 hot 1 kurn lut:tern3 15.53 us drift 0.0000
 tq1_0 hot 1 kurn addsub:sad 21.45 us drift 0.0000
 tq1_0 hot 1 ggml vec_dot 34.71 us drift 0.0000
-wrote /path/to/lowbit/kurn/benchmarks/v0.2/lowbit/results/final_hot1_tq1_0.csv
+wrote /path/to/kurn/benchmarks/v0.2/lowbit/results/final_hot1_tq1_0.csv
 q2_K hot 1 kurn k16 8.80 us drift 0.0000
 q2_K hot 1 ggml vec_dot 23.48 us drift 0.0000
 q2_K hot 1 kurn k16 8.81 us drift 0.0000
 q2_K hot 1 ggml vec_dot 24.16 us drift 0.0000
 q2_K hot 1 kurn k16 9.23 us drift 0.0000
 q2_K hot 1 ggml vec_dot 22.46 us drift 0.0000
-wrote /path/to/lowbit/kurn/benchmarks/v0.2/lowbit/results/final_hot1_q2_K.csv
+wrote /path/to/kurn/benchmarks/v0.2/lowbit/results/final_hot1_q2_K.csv

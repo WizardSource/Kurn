@@ -479,3 +479,17 @@ index 52cc8cd32..28b606ba7 100644
      // sinfo_in, when set, replaces the find_slot call: the cells are given by the caller
      bool state_read_meta(llama_io_read_i & io, uint32_t strm, uint32_t cell_count,       slot_info & sinfo, llama_seq_id dest_seq_id = -1, const slot_info * sinfo_in = nullptr);
      bool state_read_data(llama_io_read_i & io, uint32_t strm, uint32_t cell_count, const slot_info & sinfo);
+diff --git a/tools/llama-bench/llama-bench.cpp b/tools/llama-bench/llama-bench.cpp
+index 8361e6ae6..e1844aa0f 100644
+--- a/tools/llama-bench/llama-bench.cpp
++++ b/tools/llama-bench/llama-bench.cpp
+@@ -518,6 +518,9 @@ static ggml_type ggml_type_from_name(const std::string & s) {
+     if (s == "iq4_nl") {
+         return GGML_TYPE_IQ4_NL;
+     }
++    if (s == "k4c") {  // K only (kurn k4c), with -ctv q4_0 / q8_0
++        return GGML_TYPE_K4C;
++    }
+ 
+     return GGML_TYPE_COUNT;
+ }

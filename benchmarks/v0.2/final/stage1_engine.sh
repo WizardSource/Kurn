@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Final serial pass, stage 1: whole-step engine vs llama.cpp on a quiet machine (coordinator).
+# Final serial pass, stage 1: whole-step engine vs llama.cpp on a quiet machine.
 # Runs WS-E's measure.sh batches from this checkout; results land in benchmarks/v0.2/engine/results/.
 set -u
 cd "$(dirname "$0")/../../.."

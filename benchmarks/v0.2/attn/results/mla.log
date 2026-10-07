@@ -71,7 +71,7 @@
 2 decode-mla-h128-d32768   ggml-mla-fa-f16     58472.4 us     156.1 GFLOP/s     0.7 GB/s  relerr 4.7e-03 ok (17.9s)
 2 decode-gqa-1.7B-d32768   kurn-f16             2027.2 us     132.4 GFLOP/s    66.2 GB/s  relerr 1.2e-06 ok (3.0s)
 2 decode-gqa-1.7B-d32768   ggml-fa-f16         12356.4 us      21.7 GFLOP/s    10.9 GB/s  relerr 2.1e-03 ok (3.7s)
-# wrote /path/to/attn/kurn/benchmarks/v0.2/attn/results/mla.csv
+# wrote /path/to/kurn/benchmarks/v0.2/attn/results/mla.csv
 # suite d64: 2 cases, reps 3, threads 8, load 34.83
 0 prefill-d64-g4-d4096     kurn-amx-f16         3226.6 us    2496.2 GFLOP/s     2.6 GB/s  relerr 6.0e-03 ok (2.2s)
 0 prefill-d64-g4-d4096     ggml-fa-f16         28567.1 us     281.9 GFLOP/s     0.3 GB/s  relerr 1.2e-06 ok (0.7s)
@@ -91,4 +91,4 @@
 2 decode-d64-g4-d8192      kurn-f16              197.9 us     169.6 GFLOP/s    42.4 GB/s  relerr 5.1e-07 ok (1.1s)
 2 decode-d64-g4-d8192      ggml-fa-f16           848.8 us      39.5 GFLOP/s     9.9 GB/s  relerr 2.6e-03 ok (1.1s)
 2 decode-d64-g4-d8192      ggml-nofa-f16        1966.8 us      17.1 GFLOP/s     4.3 GB/s  relerr 5.3e-04 ok (1.4s)
-# wrote /path/to/attn/kurn/benchmarks/v0.2/attn/results/d64.csv
+# wrote /path/to/kurn/benchmarks/v0.2/attn/results/d64.csv

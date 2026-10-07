@@ -50,14 +50,25 @@ def ggml_paths(llama_dir):
     return [inc], os.path.dirname(sorted(libs)[0])
 
 
-def build_harness(arch, llama_dir=None, out_dir=None):
-    """nvcc the harness for `arch` (optionally linked with llama.cpp's ggml-cuda). Returns its path."""
+def build_harness(arch, llama_dir=None, out_dir=None, explicit=False):
+    """nvcc the harness for `arch` (optionally linked with llama.cpp's ggml-cuda). Returns its path. An arch this nvcc
+    can't build gets PTX of an older arch plus a warning, or an error when `explicit`ly requested."""
     n = nvcc()
     if not n:
         raise GpuBuildError("nvcc not found (install the CUDA toolkit or set KURN_NVCC)")
     names = ("bench_gpu.cu", "kurn_gpu.h", "kurn_gpu_ref.h")
     src = b"".join(open(data_path(x), "rb").read() for x in names)
-    args = [n, "-O3", "-std=c++17", *arch_flags([arch]), "-I", os.path.dirname(data_path("kurn_gpu.h"))]
+    from .cudaenv import build_flags
+
+    args = [
+        n,
+        "-O3",
+        "-std=c++17",
+        *arch_flags([arch], fallback=not explicit),
+        "-I",
+        os.path.dirname(data_path("kurn_gpu.h")),
+        *build_flags(cublas=True),
+    ]  # the harness links cuBLAS: the preflight checks cublas_v2.h / -lcublas as well
     link = ["-lcublas", "-ldl"]
     gp = ggml_paths(llama_dir)
     if llama_dir and not gp:

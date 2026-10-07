@@ -16,7 +16,7 @@ q2_0 cold 8 kurn lut:serial4 154.96 us drift 0.0030
 q2_0 cold 8 kurn lut:serial6m 302.19 us drift 0.0000
 q2_0 cold 8 kurn addsub:sad 330.97 us drift 0.0000
 q2_0 cold 8 ggml vec_dot 1506.07 us drift 0.0000
-wrote /path/to/lowbit/kurn/benchmarks/v0.2/lowbit/results/final_cold8_q2_0.csv
+wrote /path/to/kurn/benchmarks/v0.2/lowbit/results/final_cold8_q2_0.csv
 tq2_0 cold 8 kurn i16:mask/int 176.09 us drift 0.0000
 tq2_0 cold 8 kurn lut:serial5 195.58 us drift 0.0000
 tq2_0 cold 8 kurn lut:serial6m 188.51 us drift 0.0000
@@ -35,4 +35,4 @@ tq2_0 cold 8 kurn lut:serial6m 188.19 us drift 0.0000
 tq2_0 cold 8 kurn lut:serial4 184.57 us drift 0.0000
 tq2_0 cold 8 kurn addsub:sad 163.56 us drift 0.0000
 tq2_0 cold 8 ggml vec_dot 181.70 us drift 0.0000
-wrote /path/to/lowbit/kurn/benchmarks/v0.2/lowbit/results/final_cold8_tq2_0.csv
+wrote /path/to/kurn/benchmarks/v0.2/lowbit/results/final_cold8_tq2_0.csv

@@ -119,4 +119,4 @@
 2 decode-8B-d32768         ggml-fa-f16         20936.6 us      25.6 GFLOP/s     6.4 GB/s  relerr 2.0e-03 ok (4.0s)
 2 decode-8B-d32768         ggml-fa-q8_0        16355.2 us      32.8 GFLOP/s     4.4 GB/s  relerr 1.4e-02 ok (4.5s)
 2 decode-8B-d32768         ggml-nofa-f16        9380.8 us      57.2 GFLOP/s    14.3 GB/s  relerr 3.8e-04 ok (4.2s)
-# wrote /path/to/attn/kurn/benchmarks/v0.2/attn/results/decode.csv
+# wrote /path/to/kurn/benchmarks/v0.2/attn/results/decode.csv
