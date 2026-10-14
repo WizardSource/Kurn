@@ -224,6 +224,48 @@ llama-server -m TARGET.gguf -md DRAFT.gguf --spec-type draft-simple --spec-draft
 With `GGML_KURN_FA_MODE=exact` (kurn attention, see above) speculative output equals the no-draft output: Qwen3-1.7B /
 Qwen3-0.6B draft in llama-server, 8 prompts x 4 draft configs, 0 of 32 runs differ (ggml's FA: 22, kurn fast mode: 21).
 
+## Memory system: huge pages, NUMA placement, energy (`memsys/`)
+
+`apply.sh` installs `memsys/ggml-kurn-mem.{c,h}` into ggml-base; `memsys/apply.sh` adds the llama.cpp side.
+
+- **Huge pages.** The KURN buffer (repacked weights), every CPU backend buffer (KV cache incl. k4c, compute
+  buffers, CPU / CPU_REPACK weights) and the CPU backend's work buffer are mapped with `ggml_kurn_mem_alloc`:
+  hugetlb 1 GB pages for whole GBs, 2 MB hugetlb for the rest while the pools have free pages, then THP
+  (`madvise(MADV_HUGEPAGE)`), then 4 KB. Each allocation of at least 4 MiB is logged
+  (`kurn mem: kv 1.12 GiB -> hugetlb 1G x1 + hugetlb 2M x62`); `llama-bench` prints a per-tag summary per test.
+  - `GGML_KURN_HUGEPAGES=auto|1g|2m|thp|4k|off` or `--hugepages MODE` (llama-cli / llama-server / ...);
+    `off` = ggml's allocator, `4k` = small pages even with THP=always.
+  - `GGML_KURN_HUGEPAGES_MIN=bytes` (default 4 MiB), `GGML_KURN_MEM_VERBOSE=1`.
+  - Pools: `sudo sysctl vm.nr_hugepages=N` (2 MB) and
+    `echo N | sudo tee /sys/kernel/mm/hugepages/hugepages-1048576kB/nr_hugepages` (1 GB; reserve early, or at boot
+    with `hugepagesz=1G hugepages=N`). Without pools, `auto` lands on THP.
+  - The model file's mmap (weights KURN does not repack, e.g. token embeddings) stays on page-cache pages.
+- **NUMA** (multi-node hosts; a no-op on one node). `GGML_KURN_NUMA=auto|on|off` or `--kurn-numa`:
+  - every KURN weight is split by rows into one shard per node (multiples of 128 rows, in proportion to each node's
+    CPUs); each shard's pages are bound to its node before the repack touches them;
+  - threads are pinned per node (thread ith of nth on node n for ith in that node's proportional block); a node's
+    threads take rows of their own shard only, on a per-node chunk counter (row_chunks within the shard). Every row
+    is still computed by one thread over all of K, so results are bit-identical to single-node runs, exact mode included;
+  - KV: with several streams (llama-server slots, `--kv-unified` off) stream s of every layer is bound to node
+    s % n, and kurn attention runs stream s on that node's threads (exact mode: unchanged output; fast mode: KV splits
+    follow the node's thread count). One stream (single-user decode) stays interleaved over all nodes: a per-node
+    split of one sequence would need a head-major KV layout or a node-aware attention split (attention / KV owners);
+  - compute buffers, the work buffer and other weights are interleaved over the nodes; per-thread scratch is
+    first-touched by its pinned owner;
+  - 1 GB pages are not used under NUMA placement (shards are bound at 2 MB granularity);
+  - ggml's `--numa` turns kurn's placement off (both pin threads), unless `--kurn-numa on` / `GGML_KURN_NUMA=on`;
+  - `GGML_KURN_NUMA_FAKE=N` splits the allowed CPUs into N "nodes" (policies target each group's real node) to test
+    the threading on one node; `GGML_KURN_NUMA_PIN=0` leaves pinning to the caller.
+- **Energy.** `llama-bench --energy` adds `cpu_joules`, `gpu_joules` and `tokens_per_joule` (`tok/J` in markdown):
+  CPU RAPL package + DRAM (`/sys/class/powercap/intel-rapl*`, or perf's `power` PMU), GPU NVML total energy. Hosts
+  without counters, or with counters that do not advance (cloud VMs read 0), report `unavailable` with the reason on
+  stderr. Bare metal: `sudo llama-bench -m MODEL -p 512 -n 128 --energy` (RAPL needs root, or
+  `sudo chmod a+r /sys/class/powercap/intel-rapl:*/energy_uj`, or `kernel.perf_event_paranoid=0`).
+  `kurn energy probe|run|sample` does the same for any command; the GPU kit (`contrib/gpu-check/run_kit.sh`) samples
+  NVML for the whole run and reports joules per step and decode joules per token.
+- **Tests.** `memsys/test_kurn_mem.c` (allocation modes, thread / row split, policy calls), run per mode and
+  topology; `test_kurn_buft` under `GGML_KURN_NUMA_FAKE=2|3|4` checks the per-node row scheduling bit for bit.
+
 ## AMX caveat
 
 On the KVM guest used for development, AMX tile registers are not reliably preserved across context switches: with
