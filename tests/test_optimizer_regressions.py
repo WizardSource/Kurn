@@ -192,10 +192,18 @@ def test_finalist_harness_error_does_not_abort_other_candidates(monkeypatch):
 def test_confirmation_one_failure_disqualifies(monkeypatch):
     a = {"c": spec.resolve(BASE), "so": "a"}
     b = {"c": spec.resolve({**BASE,"rows":2}), "so": "b"}
-    outputs = iter([{"us":10}, {"us":1}, {"us":10}, None, {"us":10}, {"us":1}])
-    monkeypatch.setattr(tune, "_measure", lambda *args: next(outputs))
+    calls = {"a": 0, "b": 0}
+
+    def measure(c, so, *args):
+        calls[so] += 1
+        if so == "b" and calls["b"] == 2:
+            return None
+        return {"us": 10 if so == "a" else 1}
+
+    monkeypatch.setattr(tune, "_measure", measure)
     am, bm = tune._confirm(a,b,"hot","us",.01,(),None,0)
     assert am == 10 and math.isinf(bm)
+    assert b["_valid"] is False and b["_gate"] == 0
 
 
 @pytest.mark.parametrize("runtime,values", [("threads",[1,2]), ("wait",["spin","sleep"])])
