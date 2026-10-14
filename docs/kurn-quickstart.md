@@ -11,7 +11,7 @@ This checkout is 0.3.0.dev3 plus, in this order (0001–0062 are on upstream `ma
 - **0059–0061:** GPU attention A100 phase 2. Q8_0 KV dequantizes in registers, splits are short, MLA runs on 4 warps, and BF16 q is split hi + lo. This is driven by the first A100 run; speed still needs the A100.
 - **0062:** GPU kit v2. `run_kit.sh` runs everything in one command and writes one report, with llama.cpp / FlashInfer / FlashAttention-2 attention baselines.
 
-The consolidated series (`integration/next`, patches 0063–0113) adds, in this order:
+The consolidated series (`integration/next`, patches 0063–0114) adds, in this order:
 
 - **0063:** README fix (the kit's report.md is an output, not a path in the tree).
 - **gpu-packed, 0064–0070** (gpu-packed 0063–0069, emulator- and SASS-verified, A100 speed pending):
@@ -36,11 +36,11 @@ The consolidated series (`integration/next`, patches 0063–0113) adds, in this 
   - native k4c session state.
 - **kvz, 0098–0104:** lossless entropy-coded KV in session state (`llama-server --cache-kvz`), including k4c native records as raw blocks.
 - **Memory system, 0105–0109:** huge pages, socket-local NUMA placement, energy reporting (`--hugepages`, `--kurn-numa`, `llama-bench --energy`, NVML energy in the GPU kit).
-- **0110–0113:**
+- **0110–0114:**
   - the cost-table header records `GGML_KURN_FA_MODE`;
   - exact-mode cost tables recalibrated after kv-backlog;
   - TQ2_0 in the fused-path self-test;
-  - this quickstart.
+  - this quickstart (two commits).
 
 Each step below was run in order on 2026-10-07, on a fresh directory with a new venv, a fresh llama.cpp clone and models downloaded from Hugging Face. Steps 2, 3, 6 and 7 were re-run on 2026-10-14 on the consolidated tree; the speeds in steps 4 and 5 are from 2026-10-07. The machine was an 8-vCPU Emerald Rapids KVM guest (AMX, no GPU) with Ubuntu 24.04, gcc 13.3 and cmake 3.28. Step 7 ran as a dry run: CUDA 12.8 compilers, no GPU.
 
@@ -92,7 +92,7 @@ pip install pytest pytest-xdist numpy
 KURN_LLAMA_CPP=$PWD/../llama-kurn pytest -q -n 8   # after step 3, so the llama.cpp tests run too
 ```
 
-- Result here (consolidated tree, CUDA 12.8 on `PATH`): **12,221 passed, 66 skipped, 0 failed**, in about 14 minutes on 8 vCPUs.
+- Result here (consolidated tree, CUDA 12.8 on `PATH`): **12,228 passed, 66 skipped, 0 failed**, in about 12 minutes on 8 vCPUs.
 - Without nvcc, the GPU-compile tests skip.
 - An aarch64 cross gcc and qemu-user also un-skip the NEON tests.
 
