@@ -47,3 +47,19 @@ def test_k4c_cache_and_attention(tmp_path):
     assert "0 failed" in r.stdout
     r = subprocess.run([str(exe), "invariance"], capture_output=True, text=True, timeout=600, env=dict(env, GGML_KURN_FA_MODE="exact"))
     assert r.returncode == 0, r.stdout[-2000:]
+    # K-shift from 4-bit values only (no exact values kept): looser bound on the stored keys
+    r = subprocess.run([str(exe), "shift", "3"], capture_output=True, text=True, timeout=600, env=dict(env, GGML_K4C_EXACT_MB="0"))
+    assert r.returncode == 0, r.stdout[-2000:]
+
+
+@pytest.mark.skipif(_llama_dir() is None or not os.environ.get("KURN_LLAMA_MODEL"),
+                    reason="needs a built checkout (KURN_LLAMA_CPP) and a Qwen3-class GGUF (KURN_LLAMA_MODEL) plus KURN_LLAMA_TEXT")
+def test_kshift_through_llama(tmp_path):
+    """llama.cpp's K-shift graph on a K4C cache (context shift / --cache-reuse): KL to F16 after the shift ~ without it."""
+    d, bindir = _llama_dir()
+    exe = tmp_path / "test_kshift"
+    subprocess.run(["g++", "-O2", "-std=c++17", f"-I{d}/include", f"-I{d}/ggml/include", str(K4C / "test_kshift.cpp"), f"-L{bindir}",
+                    "-lllama", "-lggml", "-lggml-base", f"-Wl,-rpath,{bindir}", "-o", str(exe)], check=True)  # fmt: skip
+    r = subprocess.run([str(exe), os.environ["KURN_LLAMA_MODEL"], os.environ["KURN_LLAMA_TEXT"], "k4c_q4", "k4c_q8"], capture_output=True,
+                       text=True, timeout=1800)  # fmt: skip
+    assert r.returncode == 0, r.stdout[-3000:]

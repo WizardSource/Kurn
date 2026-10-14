@@ -187,12 +187,17 @@ on average); kurn's attention reads the groups directly (`kurn-attn.cpp`, kernel
 - **Session state** (prompt cache, `--slot-save-path` save / restore, `llama_state_seq_*`): K4C keys are written as f16
   rows and re-quantized into whatever cells they are restored to; with the f16 table this restores the same codes. With
   `GGML_KURN_FA_MODE=exact`, llama-server's cached, restored and recomputed continuations are bit-identical.
-- **Not supported:** K-shift (context shift, `--cache-reuse`: `get_can_shift()` is false), the non-FA path, V types
-  other than Q4_0 / Q8_0, MLA models, cache sizes that are not a multiple of 32, non-CPU buffers.
+- **K-shift** (llama-server's context shift, `--cache-reuse`, `llama_memory_seq_add` / `seq_div`): the shifted cells are
+  read as floats (`ggml_get_rows_k4c`: the exact f16 values while the codec keeps them, else the 4-bit ones), rotated
+  by their position delta with the f16 cache's RoPE and written back (`ggml_set_rows_k4c`), which re-encodes their
+  groups. `test_kshift.cpp` runs it through llama.cpp: KL to F16 KV after a shift is within noise of the KL without one.
+- **Not supported:** the non-FA path, V types other than Q4_0 / Q8_0, MLA models, cache sizes that are not a multiple
+  of 32, non-CPU buffers.
 
 `k4c/test_k4c.c` checks writes in llama.cpp's patterns (prefill ending inside a group, appends, rollback, out-of-order
 rows, clears), byte-identical groups for prefill vs appends + rollback, FA on K4C against ggml on the dequantized keys,
-and batch invariance in exact mode; `tests/test_llama_k4c.py` runs it against a built checkout.
+batch invariance in exact mode and K-shift against keys written at the shifted positions; `k4c/test_kshift.cpp` checks
+K-shift end to end through libllama; `tests/test_llama_k4c.py` runs both against a built checkout.
 
 ## Speculative decoding: cost-aware verify width (`spec-width/`)
 

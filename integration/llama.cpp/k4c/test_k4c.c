@@ -4,10 +4,14 @@
 //     leaves unwritten rows empty, and clearing rows does not touch the others;
 //   - FLASH_ATTN_EXT on the K4C cache (kurn's k4c kernels, V Q4_0 or Q8_0) matches ggml's FA on the same keys
 //     dequantized to F16 (mixed K/V types, so ggml computes it);
-//   - `invariance`: with GGML_KURN_FA_MODE=exact, every row of a batch equals the same row computed alone.
+//   - `invariance`: with GGML_KURN_FA_MODE=exact, every row of a batch equals the same row computed alone;
+//   - `shift`: K-shift of a K4C cache (get_rows_k4c -> RoPE by the shift -> set_rows_k4c, as llama.cpp's K-shift graph
+//     does) against the same keys written at the shifted positions; also run with GGML_K4C_EXACT_MB=0 (no exact
+//     values: the shift starts from the 4-bit keys).
 //
 //   test_k4c [threads]          exit code = number of failing checks
 //   test_k4c invariance         run with GGML_KURN_FA_MODE=exact
+//   test_k4c shift [maxratio]   K-shift checks only (exit code = failures)
 //
 // Build against a llama.cpp checkout with apply.sh and k4c/apply.sh applied:
 //   gcc -O2 -I$L/ggml/include test_k4c.c -L$L/build/bin -lggml -lggml-base -lggml-cpu -lm -Wl,-rpath,$L/build/bin
@@ -254,6 +258,120 @@ static void history(void) {
     cache_free(&b);
 }
 
+
+// keys = RoPE(kpre[i], pos[i]) written to cells[i] (and V rows), through ggml's RoPE as llama.cpp's graph does
+static void write_roped(cache_t *c, const float *kpre, const int *pos, const int *cells, int n) {
+    struct ggml_init_params ip = { 16 * ggml_tensor_overhead() + ggml_graph_overhead(), NULL, true };
+    struct ggml_context *g = ggml_init(ip);
+    struct ggml_tensor *src = ggml_new_tensor_3d(g, GGML_TYPE_F32, c->dk, c->nhkv, n);
+    struct ggml_tensor *p = ggml_new_tensor_1d(g, GGML_TYPE_I32, n);
+    struct ggml_tensor *idx = ggml_new_tensor_1d(g, GGML_TYPE_I32, n);
+    struct ggml_tensor *r = ggml_rope_ext(g, src, p, NULL, c->dk, GGML_ROPE_TYPE_NEOX, 0, 1e6f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f);
+    struct ggml_tensor *r2 = ggml_reshape_2d(g, r, c->n_embd, n);
+    struct ggml_tensor *wk = ggml_set_rows_k4c(g, c->kc, r2, idx, c->dk);
+    struct ggml_tensor *wv = ggml_set_rows(g, c->vc, ggml_reshape_2d(g, src, c->n_embd, n), idx)  /* V: position-independent */;
+    struct ggml_cgraph *gf = ggml_new_graph(g);
+    ggml_build_forward_expand(gf, wk);
+    ggml_build_forward_expand(gf, wv);
+    ggml_backend_buffer_t b = ggml_backend_alloc_ctx_tensors(g, c->be);
+    ggml_backend_tensor_set(src, kpre, 0, ggml_nbytes(src));
+    ggml_backend_tensor_set(p, pos, 0, ggml_nbytes(p));
+    ggml_backend_tensor_set(idx, cells, 0, ggml_nbytes(idx));
+    ggml_backend_graph_compute(c->be, gf);
+    for (int i = 0; i < n; i++) c->written[cells[i]] = 1;
+    ggml_backend_buffer_free(b);
+    ggml_free(g);
+}
+
+// llama.cpp's K4C K-shift: rows -> floats -> RoPE by delta -> rows
+static void shift_cells(cache_t *c, const int *cells, const int *delta, int n) {
+    struct ggml_init_params ip = { 16 * ggml_tensor_overhead() + ggml_graph_overhead(), NULL, true };
+    struct ggml_context *g = ggml_init(ip);
+    struct ggml_tensor *idx = ggml_new_tensor_1d(g, GGML_TYPE_I32, n);
+    struct ggml_tensor *d = ggml_new_tensor_1d(g, GGML_TYPE_I32, n);
+    struct ggml_tensor *kf = ggml_reshape_3d(g, ggml_get_rows_k4c(g, c->kc, idx, c->dk), c->dk, c->nhkv, n);
+    struct ggml_tensor *r = ggml_rope_ext_inplace(g, kf, d, NULL, c->dk, GGML_ROPE_TYPE_NEOX, 0, 1e6f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f);
+    struct ggml_tensor *w = ggml_set_rows_k4c(g, c->kc, ggml_reshape_2d(g, r, c->n_embd, n), idx, c->dk);
+    struct ggml_cgraph *gf = ggml_new_graph(g);
+    ggml_build_forward_expand(gf, w);
+    ggml_backend_buffer_t b = ggml_backend_alloc_ctx_tensors(g, c->be);
+    ggml_backend_tensor_set(idx, cells, 0, ggml_nbytes(idx));
+    ggml_backend_tensor_set(d, delta, 0, ggml_nbytes(d));
+    ggml_backend_graph_compute(c->be, gf);
+    ggml_backend_buffer_free(b);
+    ggml_free(g);
+}
+
+static double nmse(const float *a, const float *b, int64_t n) {
+    double e = 0, s = 0;
+    for (int64_t i = 0; i < n; i++) { e += (a[i] - b[i]) * (a[i] - b[i]); s += b[i] * b[i]; }
+    return e / s;
+}
+
+// context shift: cells [keep, n) move back by `disc` positions (llama-server's n_discard), compared with a cache that
+// holds the same keys written at their final positions
+static void shift_case(double maxratio) {
+    const int n = 200, keep = 40, disc = 37;
+    cache_t a, b;
+    cache_init(&a, 128, 8, 2, GGML_TYPE_Q8_0);
+    cache_init(&b, 128, 8, 2, GGML_TYPE_Q8_0);
+    float *kpre = malloc(sizeof(float) * n * a.n_embd), *exact = malloc(sizeof(float) * n * a.n_embd);
+    for (int64_t i = 0; i < (int64_t)n * a.n_embd; i++) kpre[i] = key_value(i % a.n_embd);
+    int cells[KV], p0[KV], p1[KV], moved[KV], delta[KV], nm = 0;
+    for (int i = 0; i < n; i++) {
+        cells[i] = i;
+        p0[i] = i + (i >= keep ? disc : 0);  // positions before the shift
+        p1[i] = i;                           // after
+        if (i >= keep) { moved[nm] = i; delta[nm] = -disc; nm++; }
+    }
+    write_roped(&a, kpre, p0, cells, 100);  // prefill then the rest in one-token steps, as a server fills a cache
+    for (int i = 100; i < n; i++) write_roped(&a, kpre + (size_t)i * a.n_embd, p0 + i, cells + i, 1);
+    shift_cells(&a, moved, delta, nm);
+    write_roped(&b, kpre, p1, cells, n);
+    // exact keys at the final positions: RoPE in a third, f32 cache-less graph = what b quantized
+    {
+        cache_t f;
+        cache_init(&f, 128, 8, 2, GGML_TYPE_Q8_0);
+        struct ggml_init_params ip = { 8 * ggml_tensor_overhead() + ggml_graph_overhead(), NULL, true };
+        struct ggml_context *g = ggml_init(ip);
+        struct ggml_tensor *src = ggml_new_tensor_3d(g, GGML_TYPE_F32, 128, 8, n), *p = ggml_new_tensor_1d(g, GGML_TYPE_I32, n);
+        struct ggml_tensor *r = ggml_rope_ext(g, src, p, NULL, 128, GGML_ROPE_TYPE_NEOX, 0, 1e6f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f);
+        struct ggml_cgraph *gf = ggml_new_graph(g);
+        ggml_build_forward_expand(gf, r);
+        ggml_backend_buffer_t bb = ggml_backend_alloc_ctx_tensors(g, f.be);
+        ggml_backend_tensor_set(src, kpre, 0, ggml_nbytes(src));
+        ggml_backend_tensor_set(p, p1, 0, ggml_nbytes(p));
+        ggml_backend_graph_compute(f.be, gf);
+        ggml_backend_tensor_get(r, exact, 0, ggml_nbytes(r));
+        ggml_backend_buffer_free(bb);
+        ggml_free(g);
+        cache_free(&f);
+    }
+    float *ra = malloc(sizeof(float) * n * a.n_embd), *rb = malloc(sizeof(float) * n * a.n_embd);
+    for (int i = 0; i < n; i++) {
+        ggml_k4c_get_row(group(&a, i / GGML_K4C_GROUP), 8, 128, i % GGML_K4C_GROUP, ra + (size_t)i * a.n_embd);
+        ggml_k4c_get_row(group(&b, i / GGML_K4C_GROUP), 8, 128, i % GGML_K4C_GROUP, rb + (size_t)i * a.n_embd);
+    }
+    const double ea = nmse(ra, exact, (int64_t)n * a.n_embd), eb = nmse(rb, exact, (int64_t)n * a.n_embd);
+    char what[160];
+    snprintf(what, sizeof what, "k4c shift: stored keys vs exact, shifted %.5f / written at final positions", ea);
+    check(ea <= maxratio * eb && isfinite(ea), what, eb);
+    // attention over both caches (V identical): output NMSE between them, and of each against F16 keys
+    const int nq = 8;
+    float *q = malloc(sizeof(float) * 128 * nq * a.nh), *oa = malloc(sizeof(float) * 128 * a.nh * nq), *ob = malloc(sizeof(float) * 128 * a.nh * nq);
+    int lim[8];
+    for (int t = 0; t < nq; t++) lim[t] = n - 1;
+    fill_q(q, 128 * nq * a.nh);
+    attention(&a, q, nq, lim, 0, oa);
+    attention(&b, q, nq, lim, 0, ob);
+    const double eo = nmse(oa, ob, (int64_t)128 * a.nh * nq);
+    snprintf(what, sizeof what, "k4c shift: attention output NMSE, shifted vs written at final positions");
+    check(eo < 2e-3 && isfinite(eo), what, eo);
+    free(kpre); free(exact); free(ra); free(rb); free(q); free(oa); free(ob);
+    cache_free(&a);
+    cache_free(&b);
+}
+
 static int invariance(void) {
     cache_t c;
     cache_init(&c, 128, 8, 2, GGML_TYPE_Q4_0);
@@ -280,12 +398,17 @@ static int invariance(void) {
 
 int main(int argc, char **argv) {
     if (argc > 1 && !strcmp(argv[1], "invariance")) return invariance();
+    if (argc > 1 && !strcmp(argv[1], "shift")) {
+        shift_case(argc > 2 ? atof(argv[2]) : 1.25);
+        return nfail;
+    }
     if (argc > 1) threads = atoi(argv[1]);
     run_case(128, 8, 2, GGML_TYPE_Q4_0);
     run_case(128, 2, 4, GGML_TYPE_Q8_0);
     run_case(64, 4, 1, GGML_TYPE_Q4_0);
     run_case(256, 1, 8, GGML_TYPE_Q8_0);
     history();
+    shift_case(1.25);
     printf("k4c: %d passed, %d failed\n", npass, nfail);
     return nfail;
 }

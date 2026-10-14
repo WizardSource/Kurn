@@ -247,6 +247,31 @@ bool ggml_k4c_get_row_src(const void * group, int64_t n_head, int64_t dk, int r,
     return exact || ggml_k4c_get_row(group, n_head, dk, r, dst);
 }
 
+void ggml_k4c_get_group_src(const void * group, int64_t n_head, int64_t dk, uint32_t rows, float * dst) {
+    const int64_t n = n_head * dk;
+    ggml_critical_section_start();
+    const k4c_exact_t * e = k4c_find(group);
+    const uint32_t exact = e && e->n == n && e->hash == k4c_hash((const uint8_t *) group, (size_t) n * 20) ? e->valid & rows : 0;
+    for (int r = 0; r < K4C_G; r++) {
+        if (exact >> r & 1) {
+            ggml_fp16_to_fp32_row(e->x + r * n, dst + r * n, n);
+        }
+    }
+    ggml_critical_section_end();
+    for (int r = 0; r < K4C_G; r++) {
+        if ((rows & ~exact) >> r & 1) {
+            ggml_k4c_get_row(group, n_head, dk, r, dst + r * n);
+        }
+    }
+}
+
+struct ggml_tensor * ggml_get_rows_k4c(struct ggml_context * ctx, struct ggml_tensor * a, struct ggml_tensor * b, int dk) {
+    GGML_ASSERT(a->type == GGML_TYPE_K4C && dk > 0 && dk % 32 == 0 && a->ne[0] % dk == 0);
+    struct ggml_tensor * r = ggml_get_rows(ctx, a, b);
+    ggml_set_op_params_i32(r, 0, dk);  // the CPU reader needs the head dim, as the writer does
+    return r;
+}
+
 struct ggml_tensor * ggml_set_rows_k4c(struct ggml_context * ctx, struct ggml_tensor * a, struct ggml_tensor * b,
                                        struct ggml_tensor * c, int dk) {
     GGML_ASSERT(a->type == GGML_TYPE_K4C && dk > 0 && dk % 32 == 0 && a->ne[0] % dk == 0);

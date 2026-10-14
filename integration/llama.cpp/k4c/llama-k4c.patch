@@ -1,5 +1,5 @@
 diff --git a/common/arg.cpp b/common/arg.cpp
-index 8c9bc2cdb..fd8479568 100644
+index fe67d7c29..75fb131f8 100644
 --- a/common/arg.cpp
 +++ b/common/arg.cpp
 @@ -311,6 +311,7 @@ const std::vector<ggml_type> kv_cache_types = {
@@ -23,7 +23,7 @@ index 8c9bc2cdb..fd8479568 100644
          }
      ).set_env("LLAMA_ARG_CACHE_TYPE_K"));
 diff --git a/ggml/include/ggml.h b/ggml/include/ggml.h
-index 224bdef92..a088fe07d 100644
+index 224bdef92..2925bb9e0 100644
 --- a/ggml/include/ggml.h
 +++ b/ggml/include/ggml.h
 @@ -430,7 +430,8 @@ extern "C" {
@@ -36,7 +36,7 @@ index 224bdef92..a088fe07d 100644
      };
  
      // [TAG_GGML_PREC]
-@@ -2942,6 +2943,20 @@ extern "C" {
+@@ -2942,6 +2943,25 @@ extern "C" {
      // some quantization type cannot be used without an importance matrix
      GGML_API bool ggml_quantize_requires_imatrix(enum ggml_type type);
  
@@ -50,6 +50,11 @@ index 224bdef92..a088fe07d 100644
 +    GGML_API bool ggml_k4c_get_row(const void * group, int64_t n_head, int64_t dk, int r, float * dst);
 +    // the value last written to row r while the codec still has it (recently written groups), else ggml_k4c_get_row
 +    GGML_API bool ggml_k4c_get_row_src(const void * group, int64_t n_head, int64_t dk, int r, float * dst);
++    // rows of a group (bit r of `rows`) into dst[r * n_head * dk ...]: the values last written while the codec still has
++    // them, else dequantized
++    GGML_API void ggml_k4c_get_group_src(const void * group, int64_t n_head, int64_t dk, uint32_t rows, float * dst);
++    // ggml_get_rows (F32 result) from a K4C cache with heads of dk channels; rows come from ggml_k4c_get_group_src
++    GGML_API struct ggml_tensor * ggml_get_rows_k4c(struct ggml_context * ctx, struct ggml_tensor * a, struct ggml_tensor * b, int dk);
 +    // ggml_set_rows into a K4C cache with heads of dk channels
 +    GGML_API struct ggml_tensor * ggml_set_rows_k4c(struct ggml_context * ctx, struct ggml_tensor * a, struct ggml_tensor * b,
 +                                                    struct ggml_tensor * c, int dk);
@@ -70,7 +75,7 @@ index 947732000..22bd42c76 100644
              gguf.cpp)
  
 diff --git a/ggml/src/ggml-cpu/ggml-cpu.cpp b/ggml/src/ggml-cpu/ggml-cpu.cpp
-index 66e31d513..0aedf9037 100644
+index 66e31d513..41a1f3b15 100644
 --- a/ggml/src/ggml-cpu/ggml-cpu.cpp
 +++ b/ggml/src/ggml-cpu/ggml-cpu.cpp
 @@ -4,6 +4,7 @@
@@ -85,11 +90,11 @@ index 66e31d513..0aedf9037 100644
          }
      }
  
-+    // K4C keys: written by SET_ROWS, read only by kurn's FLASH_ATTN_EXT (ggml has no kernel for them)
++    // K4C keys: written by SET_ROWS, read by kurn's FLASH_ATTN_EXT and by GET_ROWS (K-shift); no other ggml kernel
 +    if (op->op == GGML_OP_FLASH_ATTN_EXT && op->src[1]->type == GGML_TYPE_K4C) {
 +        return ggml_kurn_flash_attn_ext_supported(op);
 +    }
-+    if (op->op != GGML_OP_SET_ROWS && op->op != GGML_OP_FLASH_ATTN_EXT) {
++    if (op->op != GGML_OP_SET_ROWS && op->op != GGML_OP_FLASH_ATTN_EXT && op->op != GGML_OP_GET_ROWS) {
 +        for (int i = 0; i < GGML_MAX_SRC; i++) {
 +            if ((op->src[i] && op->src[i]->type == GGML_TYPE_K4C) || op->type == GGML_TYPE_K4C) {
 +                return false;
@@ -101,10 +106,59 @@ index 66e31d513..0aedf9037 100644
          case GGML_OP_CPY:
          case GGML_OP_SET_ROWS:
 diff --git a/ggml/src/ggml-cpu/ops.cpp b/ggml/src/ggml-cpu/ops.cpp
-index e502283b1..5802cb5dc 100644
+index e502283b1..e3d53a7b8 100644
 --- a/ggml/src/ggml-cpu/ops.cpp
 +++ b/ggml/src/ggml-cpu/ops.cpp
-@@ -5514,9 +5514,50 @@ static void ggml_compute_forward_set_rows_impl(
+@@ -5369,12 +5369,48 @@ static void ggml_compute_forward_get_rows_f32(
+     }
+ }
+ 
++// K4C rows: each thread reads whole groups (one exact-value lookup per group); head dim in op_params[0]
++static void ggml_compute_forward_get_rows_k4c(const ggml_compute_params * params, ggml_tensor * dst) {
++    const ggml_tensor * src0 = dst->src[0];
++    const ggml_tensor * src1 = dst->src[1];
++    const int64_t dk = ggml_get_op_params_i32(dst, 0);
++    const int64_t n_embd = src0->ne[0];
++    GGML_ASSERT(src1->type == GGML_TYPE_I32 && dst->type == GGML_TYPE_F32 && dk > 0 && n_embd % dk == 0);
++    GGML_ASSERT(src0->ne[2] == 1 && src0->ne[3] == 1 && src1->ne[1] == 1 && src0->ne[1] % GGML_K4C_GROUP == 0);
++    std::vector<std::pair<int64_t, int64_t>> mine; // (row, destination row) of the groups this thread owns
++    for (int64_t i = 0; i < src1->ne[0]; i++) {
++        const int64_t r = *(const int32_t *) ((const char *) src1->data + i*src1->nb[0]);
++        GGML_ASSERT(r >= 0 && r < src0->ne[1]);
++        if ((r / GGML_K4C_GROUP) % params->nth == params->ith) {
++            mine.emplace_back(r, i);
++        }
++    }
++    std::stable_sort(mine.begin(), mine.end(), [](const auto & a, const auto & b) { return a.first / GGML_K4C_GROUP < b.first / GGML_K4C_GROUP; });
++    std::vector<float> rows((size_t) GGML_K4C_GROUP * n_embd);
++    for (size_t j = 0; j < mine.size();) {
++        const int64_t g = mine[j].first / GGML_K4C_GROUP;
++        uint32_t want = 0;
++        for (size_t k = j; k < mine.size() && mine[k].first / GGML_K4C_GROUP == g; k++) {
++            want |= 1u << (mine[k].first % GGML_K4C_GROUP);
++        }
++        ggml_k4c_get_group_src((const char *) src0->data + g*GGML_K4C_GROUP*src0->nb[1], n_embd/dk, dk, want, rows.data());
++        for (; j < mine.size() && mine[j].first / GGML_K4C_GROUP == g; j++) {
++            memcpy((char *) dst->data + mine[j].second*dst->nb[1], rows.data() + (mine[j].first % GGML_K4C_GROUP) * n_embd, sizeof(float) * n_embd);
++        }
++    }
++}
++
+ void ggml_compute_forward_get_rows(
+         const ggml_compute_params * params,
+         ggml_tensor * dst) {
+ 
+     const ggml_tensor * src0 = dst->src[0];
+ 
++    if (src0->type == GGML_TYPE_K4C) {
++        ggml_compute_forward_get_rows_k4c(params, dst);
++        return;
++    }
++
+     switch (src0->type) {
+         case GGML_TYPE_Q1_0:
+         case GGML_TYPE_Q2_0:
+@@ -5514,9 +5550,50 @@ static void ggml_compute_forward_set_rows_impl(
      }
  }
  
@@ -155,7 +209,7 @@ index e502283b1..5802cb5dc 100644
  
      const ggml_tensor * src0 = dst->src[0];
      const ggml_tensor * src1 = dst->src[1];
-@@ -6168,6 +6209,7 @@ void ggml_compute_forward_clamp(
+@@ -6168,6 +6245,7 @@ void ggml_compute_forward_clamp(
          case GGML_TYPE_I32:
          case GGML_TYPE_I64:
          case GGML_TYPE_F64:
@@ -208,7 +262,7 @@ index 4f04db0ee..27aadf87e 100644
          if (params.flash_attn_type == LLAMA_FLASH_ATTN_TYPE_AUTO) {
              LLAMA_LOG_INFO("%s: enabling flash_attn since it is required for quantized V cache\n", __func__);
 diff --git a/src/llama-kv-cache.cpp b/src/llama-kv-cache.cpp
-index 1d0554fa1..67f38ae6c 100644
+index 1d0554fa1..71cd8c535 100644
 --- a/src/llama-kv-cache.cpp
 +++ b/src/llama-kv-cache.cpp
 @@ -99,6 +99,14 @@ llama_kv_cache::llama_kv_cache(
@@ -320,18 +374,7 @@ index 1d0554fa1..67f38ae6c 100644
      // If we freed up a slot, set head to it so searching can start there.
      if (new_head != cells.size() && new_head < head) {
          head = new_head;
-@@ -1186,6 +1221,10 @@ void llama_kv_cache::apply_ubatch(const slot_info & sinfo, const llama_ubatch &
- }
- 
- bool llama_kv_cache::get_can_shift() const {
-+    // K4C stores the rotated keys of 32-cell groups; shifting would need a dequantize-rotate-requantize pass
-+    if (!layers.empty() && layers[0].k && layers[0].k->type == GGML_TYPE_K4C) {
-+        return false;
-+    }
-     // Step35 uses per-layer RoPE dims; K-shift assumes a single global n_rot.
-     if (model.arch == LLM_ARCH_STEP35) {
-         return false;
-@@ -1357,6 +1396,9 @@ ggml_tensor * llama_kv_cache::cpy_k(ggml_context * ctx, ggml_tensor * k_cur, ggm
+@@ -1357,6 +1392,9 @@ ggml_tensor * llama_kv_cache::cpy_k(ggml_context * ctx, ggml_tensor * k_cur, ggm
      }
  
      // store the current K values into the cache
@@ -341,7 +384,73 @@ index 1d0554fa1..67f38ae6c 100644
      return ggml_set_rows(ctx, k, k_cur, k_idxs);
  }
  
-@@ -2241,6 +2283,78 @@ void llama_kv_cache::state_write_meta(llama_io_write_i & io, const cell_ranges_t
+@@ -1992,6 +2030,11 @@ public:
+ 
+     ggml_tensor * k_shift; // I32 [kv_size*n_stream]
+ 
++    // K4C layers: the used cells with a nonzero shift (global rows of the merged streams) and their shifts
++    ggml_tensor * k4c_rows = nullptr; // I32 [n]
++    ggml_tensor * k4c_pos  = nullptr; // I32 [n]
++    std::vector<int32_t> k4c_rows_v, k4c_pos_v;
++
+     // note: assumes k_rot^2 == I
+     ggml_tensor * k_rot = nullptr;
+ 
+@@ -2001,10 +2044,15 @@ public:
+ void llm_graph_input_k_shift::set_input(const llama_ubatch * ubatch) {
+     GGML_UNUSED(ubatch);
+ 
+-    if (k_shift) {
++    if (k_shift && k_shift->buffer) { // not part of the graph when every layer is K4C
+         kv_self->set_input_k_shift(k_shift);
+     }
+ 
++    if (k4c_rows && k4c_rows->buffer) {
++        ggml_backend_tensor_set(k4c_rows, k4c_rows_v.data(), 0, ggml_nbytes(k4c_rows));
++        ggml_backend_tensor_set(k4c_pos,  k4c_pos_v.data(),  0, ggml_nbytes(k4c_pos));
++    }
++
+     if (k_rot && k_rot->buffer) {
+         kv_self->set_input_k_rot(k_rot);
+     }
+@@ -2045,6 +2093,36 @@ ggml_cgraph * llama_kv_cache::build_graph_shift(llm_graph_result * res, llama_co
+ 
+         ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
+ 
++        if (layer.k->type == GGML_TYPE_K4C) {
++            // K4C: read the shifted cells as floats (exact values while the codec has them), rotate them by their shift
++            // with the same RoPE as the f16 cache, and write them back (their groups are re-encoded)
++            if (!inp->k4c_rows) {
++                for (uint32_t s = 0; s < n_stream; ++s) {
++                    const auto & cells = v_cells[s];
++                    for (uint32_t i = 0; i < cells.size(); ++i) {
++                        if (!cells.is_empty(i) && cells.get_shift(i) != 0) {
++                            inp->k4c_rows_v.push_back((int32_t) (s*cells.size() + i));
++                            inp->k4c_pos_v.push_back(cells.get_shift(i));
++                        }
++                    }
++                }
++                if (inp->k4c_rows_v.empty()) {
++                    break; // nothing to rotate
++                }
++                inp->k4c_rows = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, (int64_t) inp->k4c_rows_v.size());
++                inp->k4c_pos  = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, (int64_t) inp->k4c_pos_v.size());
++                ggml_set_input(inp->k4c_rows);
++                ggml_set_input(inp->k4c_pos);
++            }
++            const int64_t n = inp->k4c_rows->ne[0];
++            ggml_tensor * k2d = ggml_reshape_2d(ctx, layer.k, n_embd_k_gqa, (int64_t) get_size()*n_stream);
++            ggml_tensor * kf  = ggml_get_rows_k4c(ctx, k2d, inp->k4c_rows, (int) n_embd_head_k);
++            kf = ggml_reshape_3d(ctx, kf, n_embd_head_k, n_head_kv, n);
++            kf = build_rope_shift(cparams, ctx, kf, inp->k4c_pos, nullptr, rope_factors, freq_base_l, freq_scale_l, il);
++            ggml_build_forward_expand(gf, ggml_set_rows_k4c(ctx, k2d, ggml_reshape_2d(ctx, kf, n_embd_k_gqa, n), inp->k4c_rows, (int) n_embd_head_k));
++            continue;
++        }
++
+         ggml_tensor * k =
+             ggml_view_3d(ctx, layer.k,
+                 n_rot, n_head_kv, get_size()*n_stream,
+@@ -2241,6 +2319,80 @@ void llama_kv_cache::state_write_meta(llama_io_write_i & io, const cell_ranges_t
      }
  }
  
@@ -351,18 +460,20 @@ index 1d0554fa1..67f38ae6c 100644
 +    const size_t gbytes = GGML_K4C_GROUP * ggml_row_size(k->type, n_embd);
 +    const bool host = k->buffer && ggml_backend_buffer_is_host(k->buffer); // in place: the codec keys its exact values by address
 +    std::vector<uint8_t> grp(gbytes);
-+    std::vector<float> f(n_embd);
++    std::vector<float> f((size_t) GGML_K4C_GROUP * n_embd);
 +    std::vector<ggml_fp16_t> h(n_embd);
 +    int64_t g_cur = -1;
 +    for (const auto & range : cr.data) {
 +        for (uint32_t i = range.first; i < range.second; ++i) {
 +            const int64_t g = i / GGML_K4C_GROUP;
-+            if (g != g_cur && !host) {
-+                ggml_backend_tensor_get(k, grp.data(), g * gbytes, gbytes);
++            if (g != g_cur) {
++                if (!host) {
++                    ggml_backend_tensor_get(k, grp.data(), g * gbytes, gbytes);
++                }
++                ggml_k4c_get_group_src(host ? (const char *) k->data + g * gbytes : (const char *) grp.data(), n_embd / dk, dk, 0xFFFFFFFFu, f.data());
++                g_cur = g;
 +            }
-+            g_cur = g;
-+            ggml_k4c_get_row_src(host ? (const char *) k->data + g * gbytes : (const char *) grp.data(), n_embd / dk, dk, i % GGML_K4C_GROUP, f.data());
-+            ggml_fp32_to_fp16_row(f.data(), h.data(), n_embd);
++            ggml_fp32_to_fp16_row(f.data() + (size_t) (i % GGML_K4C_GROUP) * n_embd, h.data(), n_embd);
 +            io.write(h.data(), h.size() * sizeof(ggml_fp16_t));
 +        }
 +    }
@@ -420,7 +531,7 @@ index 1d0554fa1..67f38ae6c 100644
  void llama_kv_cache::state_write_data(llama_io_write_i & io, const cell_ranges_t & cr) const {
      const auto & cells = v_cells[cr.strm];
  
-@@ -2263,6 +2377,14 @@ void llama_kv_cache::state_write_data(llama_io_write_i & io, const cell_ranges_t
+@@ -2263,6 +2415,14 @@ void llama_kv_cache::state_write_data(llama_io_write_i & io, const cell_ranges_t
          const int32_t k_type_i = (int32_t) k->type;
          io.write(&k_type_i, sizeof(k_type_i));
  
@@ -435,7 +546,7 @@ index 1d0554fa1..67f38ae6c 100644
          // Write row size of key
          const uint64_t k_size_row = ggml_row_size(k->type, n_embd_k_gqa);
          io.write(&k_size_row, sizeof(k_size_row));
-@@ -2580,6 +2702,14 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+@@ -2580,6 +2740,14 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
          // Read row size of key
          uint64_t k_size_row_ref;
          io.read(&k_size_row_ref, sizeof(k_size_row_ref));
@@ -450,7 +561,7 @@ index 1d0554fa1..67f38ae6c 100644
          const size_t k_size_row = ggml_row_size(k->type, n_embd_k_gqa);
          if (k_size_row != k_size_row_ref) {
              LLAMA_LOG_ERROR("%s: mismatched key row size (%zu != %zu, layer %d)\n", __func__, k_size_row, (size_t) k_size_row_ref, il);
-@@ -2729,6 +2859,11 @@ void llama_kv_cache::state_clear(llama_seq_id seq_id, uint32_t strm, const slot_
+@@ -2729,6 +2897,11 @@ void llama_kv_cache::state_clear(llama_seq_id seq_id, uint32_t strm, const slot_
  
          auto * k = layer.k_stream[strm];
  

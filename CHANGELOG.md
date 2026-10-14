@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Added: K-shift for k4c KV caches (llama-server context shift and --cache-reuse)
+- `get_can_shift()` is no longer false for K4C. The K-shift graph reads the shifted cells (`ggml_get_rows_k4c`: the
+  codec's exact f16 values for recently written groups, else the 4-bit values), applies the f16 cache's RoPE by the
+  position delta and writes them back (`ggml_set_rows_k4c`). Session-state writes read whole groups at once.
+- Qwen3-1.7B through libllama (`k4c/test_kshift.cpp`, A + B + C with B removed and C shifted, 200 scored tokens), KL to
+  F16 KV under the same operation: k4c_q4 0.024 fresh / 0.028 after the shift, k4c_q8 0.014 / 0.020, q8_0 0.0009 /
+  0.0011 (the shift itself moves F16 by 0.068). llama-server: context shift in a 1024-token context and `--cache-reuse 64`
+  (1 prompt token processed instead of 1,061) behave as with F16 KV.
+
 ### Added: Hadamard-rotated V in kurn's engine and attention harness
 - Engine (`KURN_KV` quantized formats): `KURN_VROT=n` (default 64, 0 = off) rotates each V row by the normalized
   Walsh-Hadamard matrix in n-blocks before Q4_0 / Q8_0 quantization and rotates each head's attention output back,
