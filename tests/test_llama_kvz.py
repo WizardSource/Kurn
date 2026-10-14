@@ -79,9 +79,11 @@ def test_state_roundtrip(tmp_path):
     exe = tmp_path / "test_kvz_state"
     subprocess.run(["g++", "-O2", "-std=c++17", f"-I{d}/include", f"-I{d}/ggml/include", str(KVZ / "test_kvz_state.cpp"), f"-L{bindir}",
                     "-lllama", "-lggml", "-lggml-base", f"-Wl,-rpath,{bindir}", "-o", str(exe)], check=True)  # fmt: skip
-    r = subprocess.run([str(exe), str(_model()), "700"], capture_output=True, text=True, timeout=3600)
-    assert r.returncode == 0, r.stdout[-4000:]
-    assert " 0 failed" in r.stdout
+    # k4c state as native group records (default) and as f16 rows (LLAMA_K4C_STATE=f16, alignment-independent)
+    for env in ({}, {"LLAMA_K4C_STATE": "f16"}):
+        r = subprocess.run([str(exe), str(_model()), "700"], capture_output=True, text=True, timeout=3600, env={**os.environ, **env})
+        assert r.returncode == 0, (env, r.stdout[-4000:])
+        assert " 0 failed" in r.stdout, env
 
 
 @pytest.mark.skipif(_llama_dir() is None or _model() is None, reason="needs a kvz llama.cpp build (KURN_LLAMA_CPP) and a model (KURN_KVZ_MODEL)")

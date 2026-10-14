@@ -1,5 +1,5 @@
 diff --git a/common/arg.cpp b/common/arg.cpp
-index 75fb131f8..1fea471ec 100644
+index 0d892c444..973fdb4ad 100644
 --- a/common/arg.cpp
 +++ b/common/arg.cpp
 @@ -1721,6 +1721,15 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
@@ -75,7 +75,7 @@ index afdaddc79..8c906af56 100644
      llama-kv-cache-dsa.cpp
      llama-kv-cache-dsa-iswa.cpp
 diff --git a/src/llama-context.cpp b/src/llama-context.cpp
-index 27aadf87e..4a042900c 100644
+index 3c9bf471d..8855c6f1b 100644
 --- a/src/llama-context.cpp
 +++ b/src/llama-context.cpp
 @@ -2683,6 +2683,10 @@ public:
@@ -107,7 +107,7 @@ index 27aadf87e..4a042900c 100644
  
      const size_t res = file.tell();
      GGML_ASSERT(res == sizeof(uint32_t) * 3 + sizeof(llama_token) * n_token_count + io.n_bytes());
-@@ -4368,10 +4372,14 @@ size_t llama_state_seq_set_data_ext(llama_context * ctx, const uint8_t * src, si
+@@ -4373,10 +4377,14 @@ size_t llama_state_seq_set_data_ext(llama_context * ctx, const uint8_t * src, si
  }
  
  size_t llama_state_seq_save_file(llama_context * ctx, const char * filepath, llama_seq_id seq_id, const llama_token * tokens, size_t n_token_count) {
@@ -152,10 +152,10 @@ index 0aca73310..b145c63e6 100644
  };
  
 diff --git a/src/llama-kv-cache.cpp b/src/llama-kv-cache.cpp
-index 67f38ae6c..c51d57455 100644
+index 4af9a6b65..551ecc842 100644
 --- a/src/llama-kv-cache.cpp
 +++ b/src/llama-kv-cache.cpp
-@@ -4,13 +4,16 @@
+@@ -4,6 +4,7 @@
  #include "llama-io.h"
  #include "llama-model.h"
  #include "llama-context.h"
@@ -163,16 +163,15 @@ index 67f38ae6c..c51d57455 100644
  
  #include <algorithm>
  #include <cassert>
- #include <cmath>
- #include <cstring>
-+#include <functional>
+@@ -12,6 +13,7 @@
+ #include <functional>
  #include <limits>
  #include <map>
 +#include <memory>
  #include <stdexcept>
  #include <unordered_map>
  
-@@ -2110,8 +2113,6 @@ void llama_kv_cache::state_write(llama_io_write_i & io, llama_seq_id seq_id, lla
+@@ -2147,8 +2149,6 @@ void llama_kv_cache::state_write(llama_io_write_i & io, llama_seq_id seq_id, lla
          return;
      }
  
@@ -181,7 +180,7 @@ index 67f38ae6c..c51d57455 100644
      io.write(&n_stream, sizeof(n_stream));
  
      for (uint32_t s = 0; s < n_stream; ++s) {
-@@ -2170,7 +2171,7 @@ void llama_kv_cache::state_write(llama_io_write_i & io, llama_seq_id seq_id, lla
+@@ -2207,7 +2207,7 @@ void llama_kv_cache::state_write(llama_io_write_i & io, llama_seq_id seq_id, lla
          }
  
          state_write_meta(io, cr, seq_id);
@@ -190,7 +189,7 @@ index 67f38ae6c..c51d57455 100644
      }
  }
  
-@@ -2283,6 +2284,149 @@ void llama_kv_cache::state_write_meta(llama_io_write_i & io, const cell_ranges_t
+@@ -2320,6 +2320,175 @@ void llama_kv_cache::state_write_meta(llama_io_write_i & io, const cell_ranges_t
      }
  }
  
@@ -337,10 +336,36 @@ index 67f38ae6c..c51d57455 100644
 +    }
 +}
 +
++// one block of opaque bytes (k4c native group records), stored by kvz as KVZ_RAW
++static void llama_kvz_write_raw(llama_io_write_i & io, const uint8_t * data, size_t n) {
++    if (io.size_only()) {
++        static const uint8_t unread = 0;
++        io.write(&unread, sizeof(uint64_t) + kvz_bound(n));
++        return;
++    }
++    uint8_t * dst = llama_kvz_buf(1, kvz_bound(n));
++    const uint64_t size = kvz_encode(KVZ_RAW, data, 1, n, dst, 1);
++    io.write(&size, sizeof(size));
++    io.write(dst, size);
++}
++
++static void llama_kvz_read_raw(llama_io_read_i & io, uint8_t * data, size_t n) {
++    uint64_t size;
++    io.read(&size, sizeof(size));
++    if (size > kvz_bound(n)) {
++        throw std::runtime_error("kvz: block size out of range");
++    }
++    uint8_t * src = llama_kvz_buf(1, size);
++    io.read(src, size);
++    if (!kvz_decode(src, size, data, 1, n, 1)) {
++        throw std::runtime_error("kvz: corrupt KV block");
++    }
++}
++
  // K4C keys in session state: f16 rows (state_write_k4c), re-quantized into the destination groups on read.
  void llama_kv_cache::state_write_k4c(llama_io_write_i & io, ggml_tensor * k, uint32_t il, const cell_ranges_t & cr) const {
      const int64_t dk = hparams.n_embd_head_k(il), n_embd = hparams.n_embd_k_gqa(il);
-@@ -2355,14 +2499,21 @@ void llama_kv_cache::k4c_clear_cells(ggml_tensor * k, uint32_t il, const std::ve
+@@ -2559,14 +2728,21 @@ void llama_kv_cache::k4c_clear_cells(ggml_tensor * k, uint32_t il, const std::ve
      }
  }
  
@@ -364,20 +389,39 @@ index 67f38ae6c..c51d57455 100644
  
      // Iterate and write all the keys first, each row is a cell
      // Get whole range at a time
-@@ -2381,7 +2532,11 @@ void llama_kv_cache::state_write_data(llama_io_write_i & io, const cell_ranges_t
-             // K4C groups span 32 cells: write the dequantized rows as f16 (re-quantized on read, wherever they land)
-             const uint64_t k_size_row = (uint64_t) n_embd_k_gqa * sizeof(ggml_fp16_t);
-             io.write(&k_size_row, sizeof(k_size_row));
--            state_write_k4c(io, k, il, cr);
-+            if (kvz) {
-+                llama_kvz_write(io, k->type, n_cells, k_size_row, [&](llama_io_write_i & o) { state_write_k4c(o, k, il, cr); });
-+            } else {
-+                state_write_k4c(io, k, il, cr);
-+            }
+@@ -2584,19 +2760,28 @@ void llama_kv_cache::state_write_data(llama_io_write_i & io, const cell_ranges_t
+         if (k->type == GGML_TYPE_K4C) {
+             // K4C groups span 32 cells. The row size field says which form follows: K4C's own row size = native group
+             // records (u64 byte count, then the records); n_embd * 2 = f16 rows (the form before; LLAMA_K4C_STATE=f16
+-            // still writes it, for older readers)
++            // still writes it, for older readers). With kvz the records are stored as one raw kvz block: they are
++            // already 4-bit codes, and kvz's f16 plane model only fits the f16-row form, which it still codes.
+             static const bool f16_rows = getenv("LLAMA_K4C_STATE") && !strcmp(getenv("LLAMA_K4C_STATE"), "f16");
+             if (f16_rows) {
+                 const uint64_t k_size_row = (uint64_t) n_embd_k_gqa * sizeof(ggml_fp16_t);
+                 io.write(&k_size_row, sizeof(k_size_row));
+-                state_write_k4c(io, k, il, cr);
++                if (kvz) {
++                    llama_kvz_write(io, k->type, n_cells, k_size_row, [&](llama_io_write_i & o) { state_write_k4c(o, k, il, cr); });
++                } else {
++                    state_write_k4c(io, k, il, cr);
++                }
+             } else {
+                 const uint64_t k_size_row = ggml_row_size(k->type, n_embd_k_gqa);
+                 io.write(&k_size_row, sizeof(k_size_row));
+                 const std::vector<uint8_t> rec = state_write_k4c_native(k, il, cr);
+                 const uint64_t n = rec.size();
+                 io.write(&n, sizeof(n));
+-                io.write(rec.data(), rec.size());
++                if (kvz) {
++                    llama_kvz_write_raw(io, rec.data(), rec.size());
++                } else {
++                    io.write(rec.data(), rec.size());
++                }
+             }
              continue;
          }
- 
-@@ -2390,10 +2545,17 @@ void llama_kv_cache::state_write_data(llama_io_write_i & io, const cell_ranges_t
+@@ -2606,10 +2791,17 @@ void llama_kv_cache::state_write_data(llama_io_write_i & io, const cell_ranges_t
          io.write(&k_size_row, sizeof(k_size_row));
  
          // Read each range of cells of k_size length and write out
@@ -399,7 +443,7 @@ index 67f38ae6c..c51d57455 100644
          }
      }
  
-@@ -2417,10 +2579,17 @@ void llama_kv_cache::state_write_data(llama_io_write_i & io, const cell_ranges_t
+@@ -2633,10 +2825,17 @@ void llama_kv_cache::state_write_data(llama_io_write_i & io, const cell_ranges_t
              io.write(&v_size_row, sizeof(v_size_row));
  
              // Read each range of cells of v_size length and write out
@@ -421,7 +465,7 @@ index 67f38ae6c..c51d57455 100644
              }
          }
      } else {
-@@ -2667,6 +2836,9 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+@@ -2883,6 +3082,9 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
      io.read(&v_trans, sizeof(v_trans));
      io.read(&n_layer, sizeof(n_layer));
  
@@ -431,20 +475,34 @@ index 67f38ae6c..c51d57455 100644
      if (n_layer != layers.size()) {
          LLAMA_LOG_ERROR("%s: mismatched layer count (%u instead of %u)\n", __func__, n_layer, (uint32_t) layers.size());
          return false;
-@@ -2707,7 +2879,11 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
-                 LLAMA_LOG_ERROR("%s: mismatched k4c key row size (layer %d)\n", __func__, il);
-                 return false;
+@@ -2920,7 +3122,12 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+         io.read(&k_size_row_ref, sizeof(k_size_row_ref));
+         if (k->type == GGML_TYPE_K4C) {
+             if (k_size_row_ref == (uint64_t) n_embd_k_gqa * sizeof(ggml_fp16_t)) {
+-                state_read_k4c(io, k, il, sinfo.idxs[0], cell_count); // f16 rows (older files, LLAMA_K4C_STATE=f16)
++                // f16 rows (older files, LLAMA_K4C_STATE=f16); kvz codes them with its f16 plane model
++                if (kvz) {
++                    llama_kvz_read(io, cell_count, k_size_row_ref, [&](llama_io_read_i & i) { state_read_k4c(i, k, il, sinfo.idxs[0], cell_count); });
++                } else {
++                    state_read_k4c(io, k, il, sinfo.idxs[0], cell_count);
++                }
+                 continue;
              }
--            state_read_k4c(io, k, il, sinfo.idxs[0], cell_count);
+             if (k_size_row_ref != ggml_row_size(k->type, n_embd_k_gqa)) {
+@@ -2930,7 +3137,11 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+             uint64_t n_rec = 0;
+             io.read(&n_rec, sizeof(n_rec));
+             std::vector<uint8_t> rec(n_rec);
+-            io.read(rec.data(), rec.size());
 +            if (kvz) {
-+                llama_kvz_read(io, cell_count, k_size_row_ref, [&](llama_io_read_i & i) { state_read_k4c(i, k, il, sinfo.idxs[0], cell_count); });
++                llama_kvz_read_raw(io, rec.data(), rec.size());
 +            } else {
-+                state_read_k4c(io, k, il, sinfo.idxs[0], cell_count);
++                io.read(rec.data(), rec.size());
 +            }
-             continue;
-         }
-         const size_t k_size_row = ggml_row_size(k->type, n_embd_k_gqa);
-@@ -2716,8 +2892,15 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+             if (!state_read_k4c_native(rec, k, il, sinfo.idxs[0], cell_count)) {
+                 LLAMA_LOG_ERROR("%s: malformed k4c key records (layer %d)\n", __func__, il);
+                 return false;
+@@ -2943,8 +3154,15 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
              return false;
          }
  
@@ -462,7 +520,7 @@ index 67f38ae6c..c51d57455 100644
          }
      }
  
-@@ -2750,8 +2933,15 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+@@ -2977,8 +3195,15 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
                  return false;
              }
  
@@ -481,7 +539,7 @@ index 67f38ae6c..c51d57455 100644
          }
      } else {
 diff --git a/src/llama-kv-cache.h b/src/llama-kv-cache.h
-index 28b606ba7..17e314cd6 100644
+index 780ce3db1..23a71d627 100644
 --- a/src/llama-kv-cache.h
 +++ b/src/llama-kv-cache.h
 @@ -347,7 +347,7 @@ private:
