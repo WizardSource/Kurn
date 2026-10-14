@@ -669,7 +669,8 @@ int main(int argc, char **argv) {
     if (fused) {
         const int exact = getenv("GGML_KURN_EXACT") && atoi(getenv("GGML_KURN_EXACT"));
         const int amx = __builtin_cpu_supports("amx-bf16");
-        const enum ggml_type ts[] = {GGML_TYPE_Q8_0, GGML_TYPE_Q4_K, GGML_TYPE_Q4_0, GGML_TYPE_Q6_K};
+        // TQ2_0 runs as TQ2_0 records, or as bitmap + signs with GGML_KURN_TBM=1 (kurn-tbm.cpp through run())
+        const enum ggml_type ts[] = {GGML_TYPE_Q8_0, GGML_TYPE_Q4_K, GGML_TYPE_Q4_0, GGML_TYPE_Q6_K, GGML_TYPE_TQ2_0};
         const int64_t ms[] = {1, 2, 3, 5, 8, 9, 16, 31, 32, 64, 129};
         for (size_t ti = 0; ti < sizeof ts / sizeof *ts; ti++) {
             const enum ggml_type t = ts[ti];
@@ -678,12 +679,12 @@ int main(int argc, char **argv) {
             const int nfail0 = nfail, npass0 = npass;
             for (size_t mi = 0; mi < sizeof ms / sizeof *ms; mi++) {
                 // KL mode: the AMX-BF16 path (Q8_0 / Q4_K from 32 columns, Q6_K from 16) outside exact mode
-                const int kl = amx && !exact && t != GGML_TYPE_Q4_0 && ms[mi] >= (t == GGML_TYPE_Q6_K ? 16 : 32);
-                case_fused(be, t, t == GGML_TYPE_Q4_0 ? 2048 : 4096, 1536, ms[mi], 1 + (int)(mi * 3) % 8, kl);
+                const int kl = amx && !exact && t != GGML_TYPE_Q4_0 && t != GGML_TYPE_TQ2_0 && ms[mi] >= (t == GGML_TYPE_Q6_K ? 16 : 32);
+                case_fused(be, t, t == GGML_TYPE_Q4_0 || t == GGML_TYPE_TQ2_0 ? 2048 : 4096, 1536, ms[mi], 1 + (int)(mi * 3) % 8, kl);
             }
             case_fused(be, t, 2048, 6144, 1, 8, 0);
             for (size_t mi = 0; mi < sizeof ms / sizeof *ms; mi += 2)
-                case_qkv(be, t, t == GGML_TYPE_Q4_0 ? 2048 : 4096, 2048, 768, ms[mi], 1 + (int)(mi * 5) % 8);
+                case_qkv(be, t, t == GGML_TYPE_Q4_0 || t == GGML_TYPE_TQ2_0 ? 2048 : 4096, 2048, 768, ms[mi], 1 + (int)(mi * 5) % 8);
             printf("%-7s %4d passed, %d failed (fused gate+up+swiglu, q+k+v%s)\n", ggml_type_name(t), npass - npass0, nfail - nfail0,
                    exact ? ", exact mode" : "");
         }
