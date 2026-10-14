@@ -1,0 +1,186 @@
+{
+ "probs_pre_draft_equal_plain": [
+  true,
+  true,
+  true
+ ],
+ "probs_pre_arms_equal_plain": [
+  true,
+  true,
+  true
+ ],
+ "probs_pre_accepted_draft_tokens": [
+  39,
+  49,
+  44,
+  38,
+  47,
+  43
+ ],
+ "probs_pre_empty_entries": 0,
+ "probs_post_draft_equal_plain": [
+  true,
+  true,
+  true
+ ],
+ "probs_post_arms_equal_plain": [
+  true,
+  true,
+  true
+ ],
+ "probs_post_accepted_draft_tokens": [
+  39,
+  49,
+  44,
+  38,
+  46,
+  43
+ ],
+ "probs_post_empty_entries": 0,
+ "chains": {
+  "plain": [
+   "4f47a25191fcf9c8df1d2f4be999c0c498fe372270b6320b7c6e3cde44ee5572",
+   "1f076c597e33cc1343dc3642465e8d9c109a7e0546412c1ea4fe8a1b60074974",
+   "93f60ea1d8aae4f6fb89dd32f8ded762f83b76889d5a08cbae77ea9098fbdf57"
+  ],
+  "draft": [
+   "4f47a25191fcf9c8df1d2f4be999c0c498fe372270b6320b7c6e3cde44ee5572",
+   "1f076c597e33cc1343dc3642465e8d9c109a7e0546412c1ea4fe8a1b60074974",
+   "93f60ea1d8aae4f6fb89dd32f8ded762f83b76889d5a08cbae77ea9098fbdf57"
+  ],
+  "arms": [
+   "4f47a25191fcf9c8df1d2f4be999c0c498fe372270b6320b7c6e3cde44ee5572",
+   "1f076c597e33cc1343dc3642465e8d9c109a7e0546412c1ea4fe8a1b60074974",
+   "93f60ea1d8aae4f6fb89dd32f8ded762f83b76889d5a08cbae77ea9098fbdf57"
+  ],
+  "concurrent_np4": [
+   "4f47a25191fcf9c8df1d2f4be999c0c498fe372270b6320b7c6e3cde44ee5572",
+   "1f076c597e33cc1343dc3642465e8d9c109a7e0546412c1ea4fe8a1b60074974",
+   "93f60ea1d8aae4f6fb89dd32f8ded762f83b76889d5a08cbae77ea9098fbdf57"
+  ],
+  "threads4": [
+   "4f47a25191fcf9c8df1d2f4be999c0c498fe372270b6320b7c6e3cde44ee5572",
+   "1f076c597e33cc1343dc3642465e8d9c109a7e0546412c1ea4fe8a1b60074974",
+   "93f60ea1d8aae4f6fb89dd32f8ded762f83b76889d5a08cbae77ea9098fbdf57"
+  ],
+  "fast_mode": [
+   "4ec353d7678fbbc45316604afb57d83f35437f4e58b9bdea45b1021eeb956e11",
+   "ff4e75745d9be6123dc33096c1c7440c1746452205012fc41ec5fba496fac23a",
+   "e463203c331da32065c707c446302d8131c6b5aaf67bcaf6409eb66d85fa7913"
+  ]
+ },
+ "chain_draft_equal_plain": [
+  true,
+  true,
+  true
+ ],
+ "chain_arms_equal_plain": [
+  true,
+  true,
+  true
+ ],
+ "chain_concurrent_np4_equal_plain": [
+  true,
+  true,
+  true
+ ],
+ "chain_threads4_equal_plain": [
+  true,
+  true,
+  true
+ ],
+ "chain_fast_mode_differs": [
+  true,
+  true,
+  true
+ ],
+ "resume_position_plain": [
+  true,
+  true,
+  true
+ ],
+ "resume_position_arms": [
+  true,
+  true,
+  true
+ ],
+ "resume_sequential_plain": [
+  false,
+  false,
+  false
+ ],
+ "resume_sequential_arms": [
+  false,
+  false,
+  false
+ ],
+ "resume_sequential_note": "expected to differ: the sequential stream restarts at the resumed request",
+ "manifest": {
+  "version": 1,
+  "llama_build": "b11370-6aa42cf04",
+  "model": {
+   "path": "/tmp/models/Qwen3-1.7B-Q8_0.gguf",
+   "bytes": 1834426016,
+   "sha256": "061b54daade076b5d3362dac252678d17da8c68f07560be70818cace6590cb1a"
+  },
+  "draft_model": {
+   "path": "/tmp/models/Qwen3-0.6B-Q8_0.gguf",
+   "bytes": 639446688,
+   "sha256": "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031"
+  },
+  "env": {
+   "KURN_MANIFEST_SHA256": "1",
+   "GGML_KURN_FA_MODE": "exact"
+  },
+  "cpu": {
+   "model_name": "Intel(R) Xeon(R) Processor",
+   "flags_sha256": "deb6fef689a3a04a6a9d4873f693947f35f88043fc715ddb9a3dee90dad63dd4"
+  },
+  "threads": 8,
+  "threads_batch": 8,
+  "n_ctx": 8192,
+  "n_batch": 2048,
+  "n_ubatch": 512,
+  "n_parallel": 4,
+  "cache_type_k": "f16",
+  "cache_type_v": "f16",
+  "flash_attn": "auto",
+  "spec_types": "none,ngram-simple,draft-simple",
+  "spec_draft_n_max": 8,
+  "spec_width_table": {
+   "path": "/tmp/models/q17.cost",
+   "sha256": "ac9e3e5fbf2c69b8f4b8cc6a547158b19ab66ca5e1b7ab38f510525b6d27667a"
+  },
+  "spec_lazy_sync": true,
+  "sampling": {
+   "seed": 7,
+   "rng": "sequential",
+   "temp": 0.800000011920929,
+   "top_k": 40,
+   "top_p": 0.949999988079071,
+   "min_p": 0.05000000074505806,
+   "samplers": [
+    "penalties",
+    "dry",
+    "top_n_sigma",
+    "top_k",
+    "typ_p",
+    "top_p",
+    "min_p",
+    "xtc",
+    "temperature"
+   ],
+   "n_probs": 0,
+   "post_sampling_probs": false
+  }
+ },
+ "manifest_stable": true,
+ "manifest_model_sha256_matches": true,
+ "manifest_fields_present": true,
+ "status": {
+  "probs": true,
+  "chain": true,
+  "resume": true,
+  "manifest": true
+ }
+}

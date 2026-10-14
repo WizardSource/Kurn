@@ -1,0 +1,12 @@
+A/A 0: new gate None ratio 1.002 CI [0.963, 1.032] pairs 14; old rule ADMIT (0.975)
+A/A 1: new gate 0 ratio 1.006 CI [0.981, 1.073] pairs 12; old rule reject (0.982)
+A/A 2: new gate 0 ratio 1.000 CI [0.983, 1.115] pairs 6; old rule reject (1.000)
+A/A 3: new gate None ratio 0.996 CI [0.969, 1.010] pairs 14; old rule reject (0.995)
+A/A 4: new gate 0 ratio 1.002 CI [0.986, 1.025] pairs 6; old rule reject (1.081)
+A/A 5: new gate 0 ratio 1.002 CI [0.981, 1.027] pairs 8; old rule reject (1.125)
+A/A 6: new gate 0 ratio 1.007 CI [0.985, 1.127] pairs 6; old rule ADMIT (0.861)
+A/A 7: new gate 0 ratio 1.013 CI [0.992, 1.046] pairs 8; old rule reject (1.011)
+A/A 8: new gate None ratio 1.000 CI [0.944, 1.080] pairs 14; old rule reject (0.987)
+A/A 9: new gate 0 ratio 0.991 CI [0.985, 1.025] pairs 6; old rule reject (0.996)
+{"trials": 10, "new_admits": 0, "old_admits": 2}
+AA_DONE

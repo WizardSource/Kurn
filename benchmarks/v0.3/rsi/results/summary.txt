@@ -1,0 +1,21 @@
+refine  none            tok/s   46.6   41.8   45.2   42.5   48.1   40.2 median   43.8  x1.00  identical 6/6  end-to-end s 9.38
+refine  draft_selector  tok/s   80.3   70.8   72.9   74.0   70.9   72.4 median   72.6  x1.66  identical 6/6  end-to-end s 6.15
+refine  ngram           tok/s  188.1  162.0  163.8           median  163.8  x3.74  identical 3/3  end-to-end s 3.01
+refine  ngram_selector  tok/s  186.8  172.0  174.4  150.8  170.5  171.2 median  171.6  x3.91  identical 6/6  end-to-end s 2.92
+refine  union_naive     tok/s  155.3  144.0  147.1           median  147.1  x3.35  identical 3/3  end-to-end s 3.53
+refine  arms_v1_eager   tok/s  145.7  106.8  138.1           median  138.1  x3.15  identical 3/3  end-to-end s 3.67
+refine  arms_v1         tok/s  168.8  127.2  142.9           median  142.9  x3.26  identical 3/3  end-to-end s 3.29
+refine  arms            tok/s  175.2  175.1  165.5           median  175.1  x3.99  identical 3/3  end-to-end s 2.89
+think   none            tok/s   60.1   52.5   55.4   52.9   58.7   55.3 median   55.4  x1.00  identical 6/6  end-to-end s 6.98
+think   draft_selector  tok/s   53.5   50.3   59.2   58.1   58.1   59.6 median   58.1  x1.05  identical 6/6  end-to-end s 6.67
+think   ngram           tok/s   71.0   65.9   63.9           median   65.9  x1.19  identical 3/3  end-to-end s 5.87
+think   ngram_selector  tok/s   71.0   69.2   67.8   65.5   73.8   67.0 median   68.5  x1.24  identical 6/6  end-to-end s 5.65
+think   union_naive     tok/s   36.4   32.8   37.8           median   36.4  x0.66  identical 3/3  end-to-end s 10.59
+think   arms_v1_eager   tok/s   68.3   59.9   59.0           median   59.9  x1.08  identical 3/3  end-to-end s 6.50
+think   arms_v1         tok/s   73.6   53.4   69.9           median   69.9  x1.26  identical 3/3  end-to-end s 5.53
+think   arms            tok/s   66.7   63.1   65.1           median   65.1  x1.18  identical 3/3  end-to-end s 5.97
+eight   none            tok/s   13.8                         median   13.8  x1.00  identical 16/16  end-to-end s 18.58
+eight   draft_selector  tok/s   28.4                         median   28.4  x2.06  identical 16/16  end-to-end s 8.55
+eight   union_naive     tok/s   17.6                         median   17.6  x1.27  identical 8/8  end-to-end s 13.87
+eight   arms_v1         tok/s   28.7                         median   28.7  x2.08  identical 16/16  end-to-end s 8.54
+eight   arms            tok/s   28.8                         median   28.8  x2.09  identical 8/8  end-to-end s 8.31
