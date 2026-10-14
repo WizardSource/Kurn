@@ -5,6 +5,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Added: RSI build - retrieval drafts in the verify selector, speculative probabilities, replay primitives
+- `integration/llama.cpp/rsi/` (`apply.sh`, `llama-rsi.patch`, `kurn-replay.h`, `rsi_check.py`):
+  - n-gram / trajectory retrieval drafts and the draft model are two arms of the cost-aware selector
+    (`kurn::arm_selector`, Python twin `kurn.specwidth.ArmSelector`), chosen per step;
+  - lazy draft-model sync;
+  - correct `completion_probabilities` for accepted speculative tokens (were `logprob 0`, empty top);
+  - per-request `kurn_replay` (run manifest + sha256 hash chain over tokens and probabilities) and
+    `kurn_rng_position` (position-keyed sampling).
+- Qwen3-1.7B Q8_0 on 8 vCPUs, exact mode, outputs bit-identical to plain decoding:
+  - repair turn 175 vs 44 tok/s (4.0x);
+  - long thinking trace +18%.
+- Qwen3-8B + 0.6B draft: 2.09x, unchanged from the draft-only selector.
+
+### Changed: autotuner confirmation is a paired-CI gate
+- `tune._confirm` measures 6-14 alternating pairs and admits a move only if the whole bootstrap CI of the median
+  ratio is below `1 - min_gain` (alpha 0.05 split over the looks), with a three-valued decision.
+- The median-of-3 rule it replaces admitted 2 of 10 real A/A trials (identical code "winning" by up to 9%).
+
+### Fixed: `kurn verify` check shapes reach every kernel's main loop
+- `harness.check` runs a second shape where each check thread gets a full pass of the widest row blocking
+  (`check_shapes`, `main_loop_rows`).
+- Before, N=200 over 3 threads never ran the main loop of a `rows=8` vnni16 GEMV, and a planted bug there passed
+  (`tests/test_verify_coverage.py`).
+
 ### Added: GPU kit v2 - one command, one report, like-for-like attention baselines
 - `contrib/gpu-check/run_kit.sh` (QUICK=1 / full / DRYRUN=1) runs every GPU check from a copy of the kit:
   - the toolchain preflight (split installs included);
