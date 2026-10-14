@@ -32,6 +32,7 @@ ENGINE = {
     "q1_0": dict(kt=256, bits=1),
     "mxfp4": dict(kt=64, bits=4),
     "nvfp4": dict(kt=64, bits=4),
+    "tbm": dict(kt=256, bits=1),  # presence bits; signs in a separate per-lane compacted plane
 }
 SMEM_MAX = {"sm_80": 166912, "sm_86": 101376, "sm_89": 101376, "sm_90": 232448, "sm_100": 232448, "sm_120": 101376}
 FLAG_SLOTS = 1 << 18
@@ -83,7 +84,7 @@ def smem_bytes(c):
     a = 0 if wreg(c) else c["stages"] * ((c["bm"] // 16) * (c["bk"] // e["kt"]) * 512 + sb_bytes(c))
     b = c["stages"] * c["bn"] * c["bk"] * 2
     xs = c["stages"] * c["bn"] * nw * 4 if c["weights"] == "q4_K" else 0
-    tab = 4096 if c["weights"] == "e8p" else 0
+    tab = 4096 if c["weights"] == "e8p" else 2048 if c["weights"] == "tbm" else 0
     return a + b + xs + tab
 
 
@@ -96,7 +97,8 @@ def est_regs(c):
     if wreg(c):  # the register ring: pf + 1 k-steps of A words and scale records per row tile; ptxas keeps about 3/4 of
         # it live at once (fit over 87 sm_80 builds: at most 11 registers under, 32 over on average)
         srec = 8 if c["weights"] == "q4_K" else 1
-        return 4 * mi * ni + 14 * mi + 8 * ni + 56 + extra + 3 * (c["pf"] + 1) * mi * (4 * kts + srec * nbs(c)) // 4
+        sgn = 7 * kts if c["weights"] == "tbm" else 0  # tbm: 5 sign words, the lane's bit offset, the tile's sign base
+        return 4 * mi * ni + 14 * mi + 8 * ni + 56 + extra + 3 * (c["pf"] + 1) * mi * (4 * kts + srec * nbs(c) + sgn) // 4
     return 4 * mi * ni + 14 * mi + 8 * ni + 56 + extra + 4 * mi * max(0, kts - 2)
 
 
@@ -207,6 +209,69 @@ def _deq_e8p():
     ]
 
 
+def _deq_tbm():
+    # presence: word wl/2, half wl&1 = 16 bits = 4 nibbles nb = j + 2*rowsel (values 8t+4j+p of row g / g+8, p = 0..3);
+    # signs: the lane's compacted stream (sq[mm][0..4], first bit at sqo[mm]), consumed window by window, nibble by
+    # nibble, ascending p. One shared-table lookup per nibble: (mask << 4 | next 4 sign bits) -> the two f16x2 registers.
+    return [
+        "const uint32_t m16 = (q[wl >> 1] >> (16 * (wl & 1))) & 0xFFFFu;",
+        "int pre = 0;",
+        "#pragma unroll",
+        "for (int w2 = 0; w2 < (wl >> 1); w2++) pre += KURN_POPC(q[w2]);",
+        "if (wl & 1) pre += KURN_POPC(q[wl >> 1] & 0xFFFFu);",
+        "const int pos = sqo[mm] + pre, wi = pos >> 5;",
+        "const uint32_t lo = wi == 0 ? sq[mm][0] : wi == 1 ? sq[mm][1] : wi == 2 ? sq[mm][2] : wi == 3 ? sq[mm][3] : sq[mm][4];",
+        "const uint32_t hi = wi == 0 ? sq[mm][1] : wi == 1 ? sq[mm][2] : wi == 2 ? sq[mm][3] : wi == 3 ? sq[mm][4] : 0u;",
+        "uint32_t sg = kfsr(lo, hi, pos & 31);",
+        "#pragma unroll",
+        "for (int nb = 0; nb < 4; nb++) {",
+        "  const uint32_t mn = (m16 >> (4 * nb)) & 15u;",
+        "  const uint2 e = tbmlut[(mn << 4) | (sg & 15u)];",
+        "  sg >>= KURN_POPC(mn);",
+        "  a[nb & 1][nb >> 1] = e.x; a[nb & 1][2 + (nb >> 1)] = e.y;",
+        "}",
+    ]
+
+
+# tbm, phase 2 of a ring slot (its presence words and tile sign base already loaded): each lane's first sign is at the
+# tile's base plus an exclusive warp scan of the lanes' presence popcounts; it loads the (at most 5) words its signs span.
+TBM_LOADS = r"""#define KG_LOADS(SL_)                                                                                                 \
+  do {                                                                                                                \
+    _Pragma("unroll") for (int kk = 0; kk < KTS; kk++)                                                                \
+      _Pragma("unroll") for (int mm = 0; mm < MI_; mm++) {                                                            \
+        const uint32_t *qq = qr[SL_][kk][mm];                                                                         \
+        const int cnt = KURN_POPC(qq[0]) + KURN_POPC(qq[1]) + KURN_POPC(qq[2]) + KURN_POPC(qq[3]);                    \
+        int x = cnt;                                                                                                  \
+        _Pragma("unroll") for (int dd = 1; dd < 32; dd <<= 1) {                                                       \
+          const int y = __shfl_sync(KURN_FULL, x, lane >= dd ? lane - dd : lane);                                     \
+          if (lane >= dd) x += y;                                                                                     \
+        }                                                                                                             \
+        const uint32_t bit = tbr[SL_][kk][mm] * 32u + (uint32_t)(x - cnt);                                            \
+        sgo[SL_][kk][mm] = (int)(bit & 31u);                                                                          \
+        _Pragma("unroll") for (int i = 0; i < 5; i++)                                                                 \
+          sgr[SL_][kk][mm][i] = kldg32z(Wg + (bit >> 5) + i, 32 * i < (int)(bit & 31u) + cnt);                        \
+      }                                                                                                               \
+  } while (0)
+"""
+
+
+def tbm_lut():
+    """256 x 2 u32: entry (mask << 4 | s) = the f16x2 registers (p0 p1), (p2 p3) of a nibble whose set bits take the
+    sign bits of s in ascending order (1 = +1, 0 = -1); sign bits beyond popcount(mask) are ignored."""
+    out = []
+    for m in range(16):
+        for s in range(16):
+            vals, si = [], 0
+            for p in range(4):
+                if (m >> p) & 1:
+                    vals.append(0x3C00 if (s >> si) & 1 else 0xBC00)
+                    si += 1
+                else:
+                    vals.append(0)
+            out += [vals[0] | vals[1] << 16, vals[2] | vals[3] << 16]
+    return out
+
+
 DEQ = {
     "q4_0": lambda: _deq_q4(8),
     "q4_K": lambda: _deq_q4(0),
@@ -218,6 +283,7 @@ DEQ = {
     "e8p": _deq_e8p,
     "mxfp4": lambda: _deq_iq4("kfp4"),
     "nvfp4": lambda: _deq_iq4("kfp4", scaled=True),
+    "tbm": _deq_tbm,
 }
 
 
@@ -481,6 +547,20 @@ __device__ int kg_flags[{FLAG_SLOTS}];
                 words.append(lo | (hi << 16))
         tab = ",\n".join("  " + ", ".join(f"0x{x:08x}u" for x in words[i : i + 8]) for i in range(0, len(words), 8))
         lines.append(f"// E8P codebook: 256 rows x 4 f16x2 pairs of 2|a_i| (2, 6, 10)\n__constant__ uint32_t kE8H[1024] = {{\n{tab}}};\n")
+    if w == "tbm":
+        words = tbm_lut()
+        tab = ",\n".join("  " + ", ".join(f"0x{x:08x}u" for x in words[i : i + 8]) for i in range(0, len(words), 8))
+        lines.append(f"""// tbm nibble table: (presence mask << 4 | next 4 sign bits) -> f16x2 (p0 p1), (p2 p3); copied to shared memory
+__constant__ uint32_t kTBM[512] = {{
+{tab}}};
+KURN_FN uint32_t kfsr(uint32_t lo, uint32_t hi, int sh) {{  // (hi:lo) >> sh, low 32 bits (sh 0..31)
+#ifdef KURN_EMU
+  return (uint32_t)((((uint64_t)hi << 32) | lo) >> sh);
+#else
+  return __funnelshift_r(lo, hi, sh);
+#endif
+}}
+""")
     deq = DEQ[w]()
     xstore = _xstage_store(c)
     rbi = "(BK >= SBLK ? (wlin * 32) / SBLK : 0)"  # scale block of window wlin within the k-step (compile-time once unrolled)
@@ -554,6 +634,12 @@ kg_gemm(const uint8_t *__restrict__ W, const void *__restrict__ Xin, float *__re
   const uint8_t *Wm = Ws;
   (void)Ws; (void)Wm;
 """)
+    if w == "tbm":  # the table is read after the main loop's first barrier
+        lines.append("""  const uint2 *tbmlut = (const uint2 *)(smem + SMEM_BYTES - 2048);
+  for (int i = threadIdx.x; i < 512; i += NT) ((uint32_t *)(smem + SMEM_BYTES - 2048))[i] = kTBM[i];
+  const uint8_t *Wt = Ws + (size_t)(N / 16) * (K / 256) * 32;                            // u32 sign-stream base per tile
+  const uint32_t *Wg = (const uint32_t *)(Wt + ((size_t)(N / 16) * (K / 256) + 1) * 4);  // sign words
+""")
     if w == "e8p":
         lines.append("""  uint32_t *e8tab = (uint32_t *)(smem + SMEM_BYTES - 4096);
   for (int i = threadIdx.x; i < 1024; i += NT) e8tab[i] = kE8H[i];
@@ -604,6 +690,14 @@ kg_gemm(const uint8_t *__restrict__ W, const void *__restrict__ Xin, float *__re
         else:
             srec_decl = f"uint32_t sr[{pf + 1}][{mi}][NBS];  // scale words: row g | row g + 8"
             srec_load = "sr[SL_][mm][bi] = kldg32z(Ws + (((size_t)rt * nblkk + bl) * 8 + g) * 4, okb);"
+        tbm_tile = tbm_decl = tbm_loads = ""
+        if w == "tbm":  # phase 2 of a slot: once its presence words are in, each lane's sign offset and sign words
+            tbm_tile = "        tbr[SL_][kk][mm] = kldg32z(Wt + ((size_t)rt * nkt + ktg) * 4, s_ < nks && rt < N / 16 && ktg < nkt); \\\n"
+            tbm_decl = (
+                f"\n  uint32_t sgr[{pf + 1}][KTS][{mi}][5] = {{}}, tbr[{pf + 1}][KTS][{mi}];  // tbm: lane sign words, tile sign base"
+                f"\n  int sgo[{pf + 1}][KTS][{mi}] = {{}};  // tbm: bit offset of the lane's first sign in sgr[..][0]"
+            )
+            tbm_loads = TBM_LOADS.replace("MI_", str(mi))
         lines[-1] = (
             head
             + f"""  // wload=reg: no shared-memory staging for weights. Each lane loads its own 16 fragment-order bytes per (row tile,
@@ -613,7 +707,7 @@ kg_gemm(const uint8_t *__restrict__ W, const void *__restrict__ Xin, float *__re
   (void)abase;
   const int rtw = n0 / 16 + wr * {mi};
   uint32_t qr[{pf + 1}][KTS][{mi}][4];
-  {srec_decl}
+  {srec_decl}{tbm_decl}
 #define KG_LOADA(S_, SL_)                                                                                             \\
   do {{                                                                                                                \\
     const int s_ = (S_);                                                                                              \\
@@ -621,7 +715,7 @@ kg_gemm(const uint8_t *__restrict__ W, const void *__restrict__ Xin, float *__re
       _Pragma("unroll") for (int mm = 0; mm < {mi}; mm++) {{                                                          \\
         const int rt = rtw + mm, ktg = (ks0 + s_) * KTS + kk;                                                         \\
         kldg128z(qr[SL_][kk][mm], Wa + (((size_t)rt * nkt + ktg) * 32 + lane) * 16, s_ < nks && rt < N / 16 && ktg < nkt); \\
-      }}                                                                                                               \\
+{tbm_tile}      }}                                                                                                               \\
     const int blk0 = ((ks0 + s_) * BK) / SBLK;                                                                        \\
     _Pragma("unroll") for (int mm = 0; mm < {mi}; mm++)                                                               \\
       _Pragma("unroll") for (int bi = 0; bi < NBS; bi++) {{                                                           \\
@@ -630,7 +724,7 @@ kg_gemm(const uint8_t *__restrict__ W, const void *__restrict__ Xin, float *__re
         {srec_load} \\
       }}                                                                                                               \\
   }} while (0)
-"""
+{tbm_loads}"""
         )
     if xin32:
         lines.append(f"""  // activations: one (column, window) task per thread; f32 -> registers now, f16 slot-ordered shared store later
@@ -680,8 +774,14 @@ kg_gemm(const uint8_t *__restrict__ W, const void *__restrict__ Xin, float *__re
   }};""")
     if q4k and not reg:
         lines.append("  auto klds128g = [](uint32_t r[4], const uint8_t *p) { klds128(r, p); };\n")
+    tbm_sq = f" uint32_t sq[{mi}][5]; int sqo[{mi}];" if w == "tbm" else ""
     if reg:
         qa_src = "for (int i = 0; i < 4; i++) qa[mm][i] = qr[0][kk][mm][i];  // loaded PF k-steps ago"
+        if w == "tbm":
+            qa_src = (
+                "{ for (int i = 0; i < 4; i++) qa[mm][i] = qr[0][kk][mm][i];"
+                " for (int i = 0; i < 5; i++) sq[mm][i] = sgr[0][kk][mm][i]; sqo[mm] = sgo[0][kk][mm]; }"
+            )
     else:
         qa_src = f"klds128(qa[mm], Ab + ((size_t)((wr * {mi} + mm) * KTS + kk) * 32 + lane) * 16);"
     lines.append(
@@ -696,7 +796,7 @@ kg_gemm(const uint8_t *__restrict__ W, const void *__restrict__ Xin, float *__re
     (void)XS;
     #pragma unroll
     for (int kk = 0; kk < KTS; kk++) {{
-      uint32_t qa[{mi}][4];
+      uint32_t qa[{mi}][4];{tbm_sq}
       #pragma unroll
       for (int mm = 0; mm < {mi}; mm++) {qa_src}
       #pragma unroll
@@ -776,18 +876,28 @@ kg_gemm(const uint8_t *__restrict__ W, const void *__restrict__ Xin, float *__re
                  f"      #pragma unroll\n      for (int mm = 0; mm < {mi}; mm++)\n        #pragma unroll\n        for (int bi = 0; bi < NBS; bi++)"
                  + (" {\n          for (int h = 0; h < 2; h++)\n            for (int i = 0; i < 4; i++) mr[p][mm][bi][h][i] = mr[p + 1][mm][bi][h][i];\n        }\n"
                     if q4k else " sr[p][mm][bi] = sr[p + 1][mm][bi];\n")
+                 + ("      #pragma unroll\n      for (int kk = 0; kk < KTS; kk++)\n        #pragma unroll\n"
+                    f"        for (int mm = 0; mm < {mi}; mm++) {{\n"
+                    "          for (int i = 0; i < 5; i++) sgr[p][kk][mm][i] = sgr[p + 1][kk][mm][i];\n"
+                    "          sgo[p][kk][mm] = sgo[p + 1][kk][mm]; tbr[p][kk][mm] = tbr[p + 1][kk][mm];\n        }\n"
+                    if w == "tbm" else "")
                  + "    }").replace("PF_", str(pf))  # fmt: skip
         pro = "\n".join(f"  KG_LOADA({p}, {p});" for p in range(pf))
+        if w == "tbm":  # phase 2 (sign words) trails phase 1 (presence, tile base) by one slot
+            pro += "".join(f"\n  KG_LOADS({p});" for p in range(pf - 1))
         loop = loop.replace(
             "\n  #pragma unroll\n  for (int s = 0; s < STAGES - 1; s++) {",
             f"\n{pro}\n  #pragma unroll\n  for (int s = 0; s < STAGES - 1; s++) {{",
             1,
         )
         loop = loop.replace(
-            "  for (int ks = 0; ks < nks; ks++) {\n", f"  for (int ks = 0; ks < nks; ks++) {{\n    KG_LOADA(ks + {pf}, {pf});\n", 1
+            "  for (int ks = 0; ks < nks; ks++) {\n",
+            f"  for (int ks = 0; ks < nks; ks++) {{\n    KG_LOADA(ks + {pf}, {pf});\n"
+            + (f"    KG_LOADS({pf - 1});\n" if w == "tbm" else ""),
+            1,
         )
         loop = loop.replace("    compute(ks % STAGES, ks);\n", "    compute(ks % STAGES, ks);" + shift + "\n", 1)
-        lines[-1] = loop + "\n#undef KG_LOADA"
+        lines[-1] = loop + "\n#undef KG_LOADA" + ("\n#undef KG_LOADS" if w == "tbm" else "")
     lines.append(f"""  // epilogue: Y[m * N + n]; split z adds its tile after split z-1 (deterministic serial fixup)
   int *flag = &kg_flags[(blockIdx.y * gridDim.x + blockIdx.x) % {FLAG_SLOTS}];
   if (z > 0) {{
@@ -816,8 +926,125 @@ kg_gemm(const uint8_t *__restrict__ W, const void *__restrict__ Xin, float *__re
     return "".join(lines)
 
 
+TBM_REPACK = r"""
+// KTBM v1 (16-row x 256-value variable-length records, kurn.gpu.tbm) -> the GPU planes, at load, on the device:
+//   A      [N/16][K/256][32 lanes][16 B]  presence bits in fragment order: word w, half h = window 2w+h, nibble
+//                                         nb = j + 2*rowsel holds values 8t+4j+p (p = 0..3) of row g + 8*rowsel
+//   scales [N/16][K/256][8][u32]          d(row g) | d(row g+8) << 16 (TQ2_0's d)
+//   toff   [(N/16)*(K/256) + 1] u32       word offset of each tile's sign stream (tile = row tile * K/256 + k-tile)
+//   signs  u32 words                      per tile: lane 0's signs, lane 1's, ... bit-continuous (windows, nibbles, p
+//                                         ascending; 1 = +1), each tile padded to a word; + slack for 5-word reads
+//   roff   [(N/16)*(K/256)] u32           scratch: record offsets relative to v1's data start
+// The input must be a v1 buffer for exactly these N (multiple of 16) and K (multiple of 256).
+KURN_FN uint64_t ktbm_u64(const uint8_t *p) {  // records sit at arbitrary byte offsets
+  uint64_t v = 0;
+  for (int i = 0; i < 8; i++) v |= (uint64_t)p[i] << (8 * i);
+  return v;
+}
+KURN_FN int ktbm_pc64(uint64_t v) { return KURN_POPC((uint32_t)v) + KURN_POPC((uint32_t)(v >> 32)); }
+#define KTBM_PLANES                                                                                                   \
+  const long nt = (long)(N / 16) * (K / 256);                                                                         \
+  uint32_t *toff = (uint32_t *)(P + (size_t)nt * 544);                                                                \
+  uint32_t *sgn = toff + nt + 1;                                                                                      \
+  uint32_t *roff = sgn + (size_t)nt * 128 + 8;                                                                        \
+  const size_t data = 64 + (8 * (size_t)(N / 16 + 1) + 63) / 64 * 64;                                                 \
+  (void)roff; (void)sgn; (void)data
+// pass 1, one thread per 16-row group: walk its records (sizes depend on their nonzero counts)
+static __global__ void kg_tbm_walk(const uint8_t *__restrict__ W, uint8_t *__restrict__ P, int N, int K) {
+  KTBM_PLANES;
+  const int gi = blockIdx.x * blockDim.x + threadIdx.x, nrec = K / 256;
+  if (gi >= N / 16) return;
+  size_t off = (size_t)ktbm_u64(W + 64 + 8 * (size_t)gi);
+  for (int p = 0; p < nrec; p++) {
+    const uint8_t *r = W + data + off;
+    int nnz = 0;
+    for (int i = 0; i < 64; i++) nnz += ktbm_pc64(ktbm_u64(r + 32 + 8 * i));
+    roff[(long)gi * nrec + p] = (uint32_t)off;
+    toff[(long)gi * nrec + p] = (uint32_t)((nnz + 31) / 32);
+    off += 545 + (size_t)(nnz + 7) / 8;
+  }
+}
+// pass 2, one thread: tile sign sizes (words) -> word offsets
+static __global__ void kg_tbm_scan(uint8_t *__restrict__ P, int N, int K) {
+  KTBM_PLANES;
+  if (blockIdx.x || threadIdx.x) return;
+  uint32_t acc = 0;
+  for (long i = 0; i < nt; i++) {
+    const uint32_t w = toff[i];
+    toff[i] = acc;
+    acc += w;
+  }
+  toff[nt] = acc;
+}
+// pass 3, one warp per record: presence in fragment order, scales, the lanes' compacted signs
+static __global__ void kg_tbm_repack(const uint8_t *__restrict__ W, uint8_t *__restrict__ P, int N, int K) {
+  KTBM_PLANES;
+  __shared__ uint64_t kw[4][64];  // the record's bitmap words, per warp of the 128-thread block
+  __shared__ int kpre[4][64];     // their sign-stream prefix (exclusive popcount)
+  const long tile = ((long)blockIdx.x * blockDim.x + threadIdx.x) >> 5;
+  const int lane = threadIdx.x & 31, wp = (threadIdx.x >> 5) & 3, g = lane >> 2, t = lane & 3;
+  if (tile >= nt) return;  // whole warps: blockDim is a multiple of 32
+  const uint8_t *r = W + data + roff[tile];
+  const uint64_t w0 = ktbm_u64(r + 32 + 16 * lane), w1 = ktbm_u64(r + 40 + 16 * lane);
+  const int c0 = ktbm_pc64(w0), c1 = ktbm_pc64(w1);
+  int x = c0 + c1;
+  for (int dd = 1; dd < 32; dd <<= 1) {
+    const int y = __shfl_sync(KURN_FULL, x, lane >= dd ? lane - dd : lane);
+    if (lane >= dd) x += y;
+  }
+  kw[wp][2 * lane] = w0, kw[wp][2 * lane + 1] = w1;
+  kpre[wp][2 * lane] = x - c0 - c1, kpre[wp][2 * lane + 1] = x - c1;
+  __syncwarp();
+  const uint8_t *sb = r + 545;
+  uint32_t pres[4] = {0u, 0u, 0u, 0u}, bits[4] = {0u, 0u, 0u, 0u};  // registers: every index below is static or selected
+  int nb = 0;
+#pragma unroll
+  for (int wl = 0; wl < 8; wl++)
+#pragma unroll
+    for (int q = 0; q < 4; q++) {
+      const int j = q & 1, row = g + 8 * (q >> 1), i = 8 * wl + 2 * t + j;  // word of values 32wl + 8t + 4j + (0..3)
+      const uint64_t wd = kw[wp][i];
+#pragma unroll
+      for (int p = 0; p < 4; p++) {
+        const int b = 4 * row + p;
+        if (!((wd >> b) & 1u)) continue;
+        const int si = kpre[wp][i] + ktbm_pc64(wd & ((1ull << b) - 1ull));
+        pres[wl >> 1] |= 1u << (16 * (wl & 1) + 4 * q + p);
+        const uint32_t m = (uint32_t)((sb[si >> 3] >> (si & 7)) & 1u) << (nb & 31), wi = (uint32_t)nb >> 5;
+        bits[0] |= wi == 0 ? m : 0u, bits[1] |= wi == 1 ? m : 0u, bits[2] |= wi == 2 ? m : 0u, bits[3] |= wi == 3 ? m : 0u;
+        nb++;
+      }
+    }
+  uint8_t *a = P + ((size_t)tile * 32 + lane) * 16;
+  for (int k = 0; k < 4; k++) kst_u32(a + 4 * k, pres[k]);
+  if (lane < 8) {
+    const uint32_t lo = r[2 * lane] | (r[2 * lane + 1] << 8), hi = r[2 * lane + 16] | (r[2 * lane + 17] << 8);
+    kst_u32(P + (size_t)nt * 512 + ((size_t)tile * 8 + lane) * 4, lo | (hi << 16));
+  }
+  int xs = nb;  // the lanes' exclusive scan of their sign counts: where each lane's bits start in the tile's stream
+  for (int dd = 1; dd < 32; dd <<= 1) {
+    const int y = __shfl_sync(KURN_FULL, xs, lane >= dd ? lane - dd : lane);
+    if (lane >= dd) xs += y;
+  }
+  const uint32_t w0g = toff[tile], nw = toff[tile + 1] - w0g;
+  for (uint32_t k = lane; k < nw; k += 32) sgn[w0g + k] = 0u;
+  __syncwarp();
+  const uint32_t bit = (uint32_t)(xs - nb), sh = bit & 31u;
+  uint32_t *dst = sgn + w0g + (bit >> 5);
+#pragma unroll
+  for (int k = 0; k < 4; k++) {
+    if (32 * k >= nb) break;
+    atomicOr(dst + k, bits[k] << sh);
+    if (sh) atomicOr(dst + k + 1, bits[k] >> (32u - sh));
+  }
+}
+"""
+
+
 def repack_kernel(c):
     w = c["weights"]
+    if w == "tbm":
+        return TBM_REPACK
     e = ENGINE[w]
     f = FORMATS[w]
     fields = _fields(w)
@@ -873,6 +1100,9 @@ static __global__ void kg_repack(const uint8_t *__restrict__ W, uint8_t *__restr
 
 def prep_bytes_expr(c):
     w = c["weights"]
+    if w == "tbm":  # A + scales + toff + signs (worst case: every weight nonzero) + slack + record-offset scratch
+        nt = "(size_t)(N / 16) * (K / 256)"
+        return f"({nt} * 544 + ({nt} + 1) * 4 + {nt} * 512 + 32 + {nt} * 4)"
     e = ENGINE[w]
     a = f"(size_t)(N / 16) * (K / {e['kt']}) * 512"
     m = "(size_t)(N / 16) * (K / 256) * 256" if w == "q4_K" else f"(size_t)(N / 16) * (K / {sblock(w)}) * 32"
@@ -919,6 +1149,20 @@ def abi(c, cfg):
         else "  (void)X; (void)Xq; (void)K; (void)M; (void)s;\n  return 0;"
     )
     nt = c["wm"] * c["wn"] * 32
+    if w == "tbm":  # KTBM v1 -> GPU planes: walk the records, scan the sign sizes, repack one record per warp
+        prepare = """  const long ng = N / 16, ntl = ng * (K / 256);
+  KURN_LAUNCH(kg_tbm_walk, dim3((unsigned)((ng + 127) / 128)), dim3(128), s, (const uint8_t *)W, (uint8_t *)Wp, N, K);
+  KURN_LAUNCH(kg_tbm_scan, dim3(1), dim3(32), s, (uint8_t *)Wp, N, K);
+  KURN_LAUNCH(kg_tbm_repack, dim3((unsigned)((ntl * 32 + 127) / 128)), dim3(128), s, (const uint8_t *)W, (uint8_t *)Wp, N, K);"""
+    else:
+        nrec = (
+            f"(long)(N / 16) * (K / {ENGINE[w]['kt']}) * 128 + (long)(N / 16) * (K / {256 if w == 'q4_K' else sblock(w)}) * "
+            f"{16 if w == 'q4_K' else 8}"
+        )
+        prepare = (
+            f"  const long n = {nrec};\n"
+            "  KURN_LAUNCH(kg_repack, dim3((unsigned)((n + 127) / 128)), dim3(128), s, (const uint8_t *)W, (uint8_t *)Wp, N, K);"
+        )
     split = str(c["splitk"]) if c["splitk"] else "kg_auto_split(N, K, M)"
     return f"""
 // split-K so the grid covers the GPU about twice (each split gets >= 2 k-steps), at most 16
@@ -938,8 +1182,7 @@ int kg_check_shape(int N, int K, int M) {{ return (N > 0 && M > 0 && N % 16 == 0
 size_t kg_prep_bytes(int N, int K) {{ return {prep_bytes_expr(c)}; }}
 size_t kg_xbytes(int K, int M) {{ (void)K; (void)M; return {xbytes}; }}
 int kg_prepare(const void *W, void *Wp, int N, int K, cudaStream_t s) {{
-  const long n = (long)(N / 16) * (K / {ENGINE[w]["kt"]}) * 128 + (long)(N / 16) * (K / {256 if w == "q4_K" else sblock(w)}) * {16 if w == "q4_K" else 8};
-  KURN_LAUNCH(kg_repack, dim3((unsigned)((n + 127) / 128)), dim3(128), s, (const uint8_t *)W, (uint8_t *)Wp, N, K);
+{prepare}
 {err}
 }}
 int kg_quant(const float *X, void *Xq, int K, int M, cudaStream_t s) {{

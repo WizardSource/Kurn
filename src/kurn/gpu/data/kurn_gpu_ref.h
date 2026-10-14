@@ -22,6 +22,7 @@ static const kref_fmt KREF_FORMATS[] = {
     {"q8_0", 32, 34, 32, 34},     {"q4_0", 32, 18, 32, 34},    {"iq4_nl", 32, 18, 32, 34}, {"q4_K", 256, 144, 256, 292},
     {"q2_0", 64, 18, 32, 34},     {"tq2_0", 256, 66, 256, 292}, {"q1_0", 128, 18, 32, 34}, {"e8p", 256, 66, 256, 292},
     {"mxfp4", 32, 17, 32, 34},    {"nvfp4", 64, 36, 32, 34},
+    {"tbm", 256, 66, 256, 292},  // whole-tensor KTBM v1 buffer, not blocks: see kref_tbm_* (block / nbytes are TQ2_0's)
 };
 
 // MXFP4 / NVFP4 (kurn.mx): codes are 2 * E2M1; the scales carry the compensating 1/2
@@ -144,6 +145,111 @@ static inline void kref_dequant_w(const char *fmt, const uint8_t *w, int K, doub
   }
 }
 
+// ---- ternary bitmap + signs, KTBM layout v1 (kurn.gpu.tbm): 64-byte header, group table, 16-row x 256-value records
+static inline uint64_t kref_u64(const uint8_t *p) {
+  uint64_t v = 0;
+  for (int i = 0; i < 8; i++) v |= (uint64_t)p[i] << (8 * i);
+  return v;
+}
+static inline size_t kref_tbm_data(int64_t ngroups) { return 64 + (size_t)(8 * (ngroups + 1) + 63) / 64 * 64; }
+// row `row` of a v1 buffer -> double (the spec's decoder: signs in word order, then ascending bit order)
+static inline void kref_tbm_row(const uint8_t *W, int K, int row, double *out) {
+  const int64_t ngroups = (int64_t)kref_u64(W + 24), nrec = K / 256;
+  const uint8_t *p = W + kref_tbm_data(ngroups) + kref_u64(W + 64 + 8 * (size_t)(row / 16));
+  const int rr = row % 16;
+  for (int k = 0; k < K; k++) out[k] = 0.0;
+  for (int64_t rec = 0; rec < nrec; rec++) {
+    const double d = kref_h2d(kref_u16(p + 2 * rr));
+    const uint8_t *sg = p + 545;
+    int64_t off = 0;
+    for (int i = 0; i < 64; i++) {
+      const uint64_t P = kref_u64(p + 32 + 8 * i);
+      for (int b = 0; b < 64; b++) {
+        if (!((P >> b) & 1)) continue;
+        const int s = (sg[off >> 3] >> (off & 7)) & 1;
+        off++;
+        if (b / 4 == rr) out[256 * rec + 32 * (i / 8) + 4 * (i % 8) + b % 4] = s ? d : -d;
+      }
+    }
+    p = sg + (off + 7) / 8;
+  }
+}
+static inline size_t kref_tbm_max_bytes(int N, int K) {
+  const int64_t ng = (N + 15) / 16;
+  return kref_tbm_data(ng) + (size_t)ng * (K / 256) * 1057 + 64;
+}
+// v1 encoder over ternary values w[N][K] (-1 / 0 / +1) and fp16 scales d[N][K/256]; returns the used bytes
+static inline size_t kref_tbm_encode(const int8_t *w, const uint16_t *d, int N, int K, uint8_t *out) {
+  const int64_t ng = (N + 15) / 16, nrec = K / 256;
+  const size_t data = kref_tbm_data(ng);
+  memset(out, 0, data);
+  size_t pos = 0;
+  int64_t dense = 0;
+  for (int64_t g = 0; g < ng; g++) {
+    const uint64_t tg = pos;
+    memcpy(out + 64 + 8 * g, &tg, 8);
+    for (int64_t rec = 0; rec < nrec; rec++) {
+      uint8_t *p = out + data + pos;
+      for (int r = 0; r < 16; r++) {
+        const int row = (int)(16 * g + r);
+        const uint16_t dv = row < N ? d[(size_t)row * nrec + rec] : 0;
+        p[2 * r] = dv & 0xFF, p[2 * r + 1] = dv >> 8;
+      }
+      uint8_t *sg = p + 545;
+      int64_t off = 0;
+      int flag = 0;
+      memset(sg, 0, 512);
+      for (int i = 0; i < 64; i++) {
+        uint64_t P = 0;
+        int cnt = 0;
+        for (int b = 0; b < 64; b++) {
+          const int row = (int)(16 * g + b / 4), v = (int)(256 * rec + 32 * (i / 8) + 4 * (i % 8) + b % 4);
+          if (row >= N || !w[(size_t)row * K + v]) continue;
+          P |= 1ull << b;
+          cnt++;
+        }
+        if (cnt > 64 - (int)(off % 8)) flag = 1;
+        for (int b = 0; b < 64; b++) {
+          if (!((P >> b) & 1)) continue;
+          const int row = (int)(16 * g + b / 4), v = (int)(256 * rec + 32 * (i / 8) + 4 * (i % 8) + b % 4);
+          if (w[(size_t)row * K + v] > 0) sg[off >> 3] |= (uint8_t)(1u << (off & 7));
+          off++;
+        }
+        memcpy(p + 32 + 8 * i, &P, 8);
+      }
+      p[544] = (uint8_t)flag;
+      dense += flag;
+      pos += 545 + (size_t)(off + 7) / 8;
+    }
+  }
+  const uint64_t tend = pos;
+  memcpy(out + 64 + 8 * ng, &tend, 8);
+  memset(out + data + pos, 0, 64);
+  const size_t used = data + pos + 64;
+  const uint32_t ver = 1;
+  const int64_t hdr[6] = {K, N, ng, nrec, (int64_t)used, dense};
+  memcpy(out, "KTBM", 4);
+  memcpy(out + 4, &ver, 4);
+  memcpy(out + 8, hdr, sizeof hdr);
+  return used;
+}
+
+// one row of any format (block formats: rows of K / block blocks; tbm: decoded from the whole-tensor buffer)
+static inline void kref_dequant_row(const char *fmt, const uint8_t *W, int K, int row, double *out) {
+  if (!strcmp(fmt, "tbm")) {
+    kref_tbm_row(W, K, row, out);
+    return;
+  }
+  const kref_fmt *f = kref_format(fmt);
+  kref_dequant_w(fmt, W + (size_t)row * (K / f->block) * f->nbytes, K, out);
+}
+// bytes of a weight buffer for N x K (tbm: the worst case; kref_gen_weights returns the used size)
+static inline size_t kref_weight_bytes(const char *fmt, int N, int K) {
+  if (!strcmp(fmt, "tbm")) return kref_tbm_max_bytes(N, K);
+  const kref_fmt *f = kref_format(fmt);
+  return (size_t)N * (K / f->block) * f->nbytes;
+}
+
 // one row of q8_0 (act_block 32) or q8_K (256) activation blocks -> double
 static inline void kref_dequant_x(const kref_fmt *f, const uint8_t *x, int K, double *out) {
   for (int b = 0; b < K / f->act_block; b++) {
@@ -181,9 +287,16 @@ static inline uint16_t kref_f16_scale(kref_rng &r, bool small) {
 }
 
 // random valid weight blocks for N rows of K values (small = model-like scale magnitudes)
-static inline void kref_gen_weights(const char *fmt, int N, int K, uint64_t seed, uint8_t *out, bool small = true) {
+static inline size_t kref_gen_weights(const char *fmt, int N, int K, uint64_t seed, uint8_t *out, bool small = true) {
   const kref_fmt *f = kref_format(fmt);
   kref_rng r(seed);
+  if (!strcmp(fmt, "tbm")) {  // ternary with zero fraction 0.40 (BitNet b1.58 2B-4T 0.42, Falcon3-7B-1.58bit 0.31)
+    std::vector<int8_t> w((size_t)N * K);
+    std::vector<uint16_t> d((size_t)N * (K / 256));
+    for (auto &v : w) v = r.uniform() < 0.40 ? 0 : (r.next() & 1 ? 1 : -1);
+    for (auto &v : d) v = kref_f16_scale(r, small);
+    return kref_tbm_encode(w.data(), d.data(), N, K, out);
+  }
   size_t nb = (size_t)N * (K / f->block);
   for (size_t b = 0; b < nb; b++) {
     uint8_t *p = out + b * f->nbytes;
@@ -210,6 +323,7 @@ static inline void kref_gen_weights(const char *fmt, int N, int K, uint64_t seed
       p[2] = dm & 0xFF, p[3] = dm >> 8;
     }
   }
+  return nb * f->nbytes;
 }
 
 static inline void kref_gen_acts(int K, int M, uint64_t seed, float *out) {
@@ -221,7 +335,7 @@ static inline void kref_gen_acts(int K, int M, uint64_t seed, float *out) {
 static inline void kref_gemm(const char *fmt, const uint8_t *W, const uint8_t *xblocks, const float *X, int N, int K, int M,
                              const std::vector<int> &rows, const std::vector<int> &cols, std::vector<double> &out) {
   const kref_fmt *f = kref_format(fmt);
-  size_t wrow = (size_t)(K / f->block) * f->nbytes, xrow = (size_t)(K / f->act_block) * f->act_nbytes;
+  size_t xrow = (size_t)(K / f->act_block) * f->act_nbytes;
   std::vector<double> w(K), x((size_t)K * cols.size());
   out.assign(rows.size() * cols.size(), 0.0);
   for (size_t ci = 0; ci < cols.size(); ci++) {
@@ -232,7 +346,7 @@ static inline void kref_gemm(const char *fmt, const uint8_t *W, const uint8_t *x
       for (int k = 0; k < K; k++) x[(size_t)ci * K + k] = X[(size_t)m * K + k];
   }
   for (size_t ri = 0; ri < rows.size(); ri++) {
-    kref_dequant_w(fmt, W + (size_t)rows[ri] * wrow, K, w.data());
+    kref_dequant_row(fmt, W, K, rows[ri], w.data());
     for (size_t ci = 0; ci < cols.size(); ci++) {
       const double *xc = x.data() + (size_t)ci * K;
       double s = 0;

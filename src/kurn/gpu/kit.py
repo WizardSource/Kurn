@@ -45,7 +45,9 @@ def tune_format(fmt, harness, arch, quick=False, log=print):
     n, k = TUNE_SHAPE
     sample = 8 if quick else 20
     base = {"op": "gemv", "weights": fmt, "target": "cuda", "arch": arch}
-    res, _ = tune(base, dict(BRIEF["gemv"]), harness, (n, k, 1), "speed", 0.2, 3, sample=sample, log=log, arch=arch)
+    res = None
+    if FORMATS[fmt].get("gemv", True):  # tbm: tensor-core engine only
+        res, _ = tune(base, dict(BRIEF["gemv"]), harness, (n, k, 1), "speed", 0.2, 3, sample=sample, log=log, arch=arch)
     if res:
         out["tuned-gemv"] = [config_string(res[0]["config"]), 1, 1]
         e = min((r for r in res if r["J"] == r["J"]), key=lambda r: r["J"], default=None)

@@ -15,7 +15,8 @@ pytestmark = pytest.mark.skipif(bool(toolchain.cxx_problem()), reason=f"CPU emul
 
 def _cases():
     out = []
-    for f, d in gs.FORMATS.items():
+    for f in gs.formats_for("gemv"):  # tbm (gemm only, packed only): tests/test_gpu_tbm.py
+        d = gs.FORMATS[f]
         out.append({"op": "gemv", "weights": f})
         un = 2 if f in ("q8_0", "e8p") else 1
         out.append({"op": "gemv", "weights": f, "layout": "split", "sub": 2 if f == "q4_K" else 1, "unroll": un, "cols": 4,
@@ -50,7 +51,7 @@ def test_kernel_matches_reference(ov):
         assert r["relerr"] <= emu.TOL, r
 
 
-@pytest.mark.parametrize("fmt", sorted(gs.FORMATS))
+@pytest.mark.parametrize("fmt", sorted(gs.formats_for("gemv")))
 def test_c_reference_matches_kurn_formats(fmt):
     c = gs.resolve({"op": "gemv", "weights": fmt, "cols": 2})
     a = emu.run(c, n=5, m=3, python_ref=True, seed=4)

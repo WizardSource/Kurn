@@ -514,6 +514,7 @@ inline void kemu_ldmatrix(unsigned *r, const void *addr, int n, int trans) {
 // atomics and fences: fibers only switch at barriers and warp collectives, so plain operations are atomic here
 inline int atomicAdd(int *p, int v) { int o = *p; *p = o + v; return o; }
 inline int atomicExch(int *p, int v) { int o = *p; *p = v; return o; }
+inline unsigned atomicOr(unsigned *p, unsigned v) { unsigned o = *p; *p = o | v; return o; }
 inline void __threadfence() {}
 inline int kemu_sm_count() { const char *s = getenv("KEMU_SMS"); return s ? atoi(s) : 8; }
 

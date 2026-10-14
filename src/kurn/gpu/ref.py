@@ -59,6 +59,10 @@ def weight_blocks(fmt, rng, nblocks, extreme=False):
 
 
 def weights(fmt, rng, n, k, extreme=False):
+    if fmt == "tbm":  # a whole-tensor KTBM v1 buffer (zero fraction 0.25 / 0.4 / 0.6; extreme: almost no zeros)
+        from .tbm import problem
+
+        return problem(rng, n, k, extreme)
     f = FORMATS[fmt]
     return weight_blocks(fmt, rng, n * (k // f["block"]), extreme)
 

@@ -52,7 +52,11 @@ FORMATS = {
         gemm=True,
         doc="NVFP4: E2M1 codes, UE4M3 scale per 16 (per-tensor scale applied by the caller)",
     ),
-}
+    # ternary bitmap + signs (KTBM layout v1, kurn.gpu.tbm): a whole-tensor buffer of variable-length 16-row records,
+    # not ggml blocks (nbytes is TQ2_0's, an upper-bound-ish nominal); tensor-core engine only, packed-direct only
+    "tbm": dict(unit=256, ub=66, block=256, nbytes=66, act="q8_K", sb=2, gemm=True, gemv=False,
+                doc="ternary bitmap + signs (KTBM v1): 1 presence bit + 1 sign bit per nonzero, fp16 d per (row, 256)"),
+}  # fmt: skip
 ACT = {"q8_0": dict(block=32, nbytes=34), "q8_K": dict(block=256, nbytes=292)}
 ARCHS = ("sm_80", "sm_86", "sm_89", "sm_90", "sm_100", "sm_120")
 OPS = ("gemv", "gemm")
@@ -96,7 +100,7 @@ GEMM_KEYS = {
     "minb": lambda c: (1, 2),
     # weights: smem = cp.async tiles in shared memory; reg = packed bytes straight from global memory into registers and
     # decoded into the mma.sync A fragments there (no shared-memory staging), pf k-steps ahead
-    "wload": lambda c: ("smem", "reg"),
+    "wload": lambda c: ("reg",) if c["weights"] == "tbm" else ("smem", "reg"),  # tbm: decoded from its repacked planes only
     "pf": lambda c: (1, 2, 3) if c.get("wload", "reg") == "reg" else (1,),  # unset (enumeration probes): every value
 }
 DEFAULTS = {
@@ -121,8 +125,16 @@ GEMV_FORMAT_DEFAULTS = {
     "mxfp4": {"layout": "split", "sub": 1, "unroll": 4, "xlayout": "split"},
     "nvfp4": {"layout": "split", "sub": 1, "unroll": 4, "xlayout": "split"},
 }
+# GEMM defaults per format: tbm issues its sign loads one k-step after its presence words, so its ring needs pf >= 2
+# for them to be in flight before the MMAs
+GEMM_FORMAT_DEFAULTS = {"tbm": {"pf": 2}}
 PROBLEM = {"n": 4096, "k": 4096, "m": 1}
 COMMON = ("kernel", "op", "weights", "target", "arch")
+
+
+def formats_for(op):
+    """Weight formats op supports (tbm: gemm only)."""
+    return [f for f, v in FORMATS.items() if (v["gemm"] if op == "gemm" else v.get("gemv", True))]
 
 
 def keys_for(op):
@@ -257,6 +269,8 @@ def resolve(spec, overrides=None):
         raise SpecError(f"weights {c['weights']!r}: expected one of {list(FORMATS)} for target cuda")
     if c["op"] == "gemm" and not FORMATS[c["weights"]]["gemm"]:
         raise SpecError(f"op gemm supports {[f for f, v in FORMATS.items() if v['gemm']]} (got {c['weights']})")
+    if c["op"] == "gemv" and not FORMATS[c["weights"]].get("gemv", True):
+        raise SpecError(f"weights {c['weights']}: op gemv is not available (tensor-core engine only: use op gemm)")
     keys = keys_for(c["op"])
     known = COMMON + tuple(keys) + tuple(PROBLEM)
     for k in c:
@@ -265,7 +279,7 @@ def resolve(spec, overrides=None):
     c.setdefault("arch", "sm_80")
     if c["arch"] not in ARCHS:
         raise SpecError(f"arch {c['arch']!r}: expected one of {list(ARCHS)}")
-    fdef = GEMV_FORMAT_DEFAULTS.get(c["weights"], {}) if c["op"] == "gemv" else {}
+    fdef = (GEMV_FORMAT_DEFAULTS if c["op"] == "gemv" else GEMM_FORMAT_DEFAULTS).get(c["weights"], {})
     for k, fn in keys.items():
         allowed = fn(c)
         if k not in c:

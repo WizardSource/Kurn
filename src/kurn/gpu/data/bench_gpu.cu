@@ -345,9 +345,9 @@ static Problem make_problem(const std::string &fmt, int N, int K, uint64_t seed,
     exit(2);
   }
   P.N = N, P.K = K;
-  P.wbytes = (size_t)N * (K / P.f->block) * P.f->nbytes;
+  P.W.resize(kref_weight_bytes(fmt.c_str(), N, K));
+  P.wbytes = kref_gen_weights(fmt.c_str(), N, K, seed, P.W.data());  // tbm: the encoded (used) size
   P.W.resize(P.wbytes);
-  kref_gen_weights(fmt.c_str(), N, K, seed, P.W.data());
   P.copies = cold ? (int)std::min<size_t>(512, std::max<size_t>(2, (4 * g_dev.l2 + P.wbytes - 1) / P.wbytes)) : 1;
   size_t free_b, tot;
   CK(cudaMemGetInfo(&free_b, &tot));
@@ -559,11 +559,10 @@ struct CublasImpl : Impl {
     if (p.copies == 1) copies = 1;
     std::vector<uint8_t> &host = int8 ? p.h8 : p.h16;
     std::vector<double> row(p.K);
-    size_t rb = (size_t)(p.K / p.f->block) * p.f->nbytes;
-    if (host.size() != wb) host.resize(wb);
-    else rb = 0;  // already converted
-    for (int n = 0; n < p.N && rb; n++) {
-      kref_dequant_w(p.fmt.c_str(), p.W.data() + n * rb, p.K, row.data());
+    bool fresh = host.size() != wb;  // else already converted
+    if (fresh) host.resize(wb);
+    for (int n = 0; n < p.N && fresh; n++) {
+      kref_dequant_row(p.fmt.c_str(), p.W.data(), p.K, n, row.data());
       for (int k = 0; k < p.K; k++) {
         if (int8) {
           host[(size_t)n * p.K + k] = (uint8_t)(int8_t)std::max(-127.0, std::min(127.0, std::round(row[k] * 64)));

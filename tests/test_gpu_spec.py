@@ -15,7 +15,8 @@ from conftest import EXAMPLES, ROOT
 
 
 def test_defaults_resolve_for_every_format():
-    for f, d in gs.FORMATS.items():
+    for f in gs.formats_for("gemv"):
+        d = gs.FORMATS[f]
         c = gs.resolve({"op": "gemv", "weights": f})
         assert c["target"] == "cuda" and c["arch"] == "sm_80" and c["layout"] == "split"  # 16-byte weight loads
         assert c["xlayout"] == ("split" if d["act"] == "q8_0" else "blocks")
@@ -61,7 +62,7 @@ def test_invalid_specs(bad, msg):
 
 def test_gemv_threads_table_covers_the_search_space():
     """Every (weights, xlayout, sub, cols, unroll) has a measured block-size limit, and the defaults sit well inside it."""
-    for f in gs.FORMATS:
+    for f in gs.formats_for("gemv"):
         probe = {"op": "gemv", "weights": f}
         for xl in gs.GEMV_KEYS["xlayout"](probe):
             for sub in gs.GEMV_KEYS["sub"](probe):
