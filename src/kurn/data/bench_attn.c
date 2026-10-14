@@ -136,6 +136,38 @@ static void decode_row(const uint8_t *src, int d, double *out) {
 static int64_t k4c_tok_bytes(void) { return KATTN_K4C_BLOCK_BYTES(DK) / KATTN_K4C_GROUP; }
 
 /* K [nkv][nhkv][DK] pre-RoPE -> group blocks [nkv / 32][nhkv] + f16 tail rows [32][nhkv][DK] */
+/* --v-rot N: normalized Walsh-Hadamard transform of each N-block of a row (N = 2^k); its own inverse */
+static void fwht_f(float *x, int d, int n) {
+    const float s = (float)(1.0 / sqrt((double)n));
+    for (int b = 0; b < d; b += n) {
+        for (int h = 1; h < n; h <<= 1)
+            for (int i = b; i < b + n; i += 2 * h)
+                for (int j = i; j < i + h; j++) { const float a = x[j], c = x[j + h]; x[j] = a + c; x[j + h] = a - c; }
+        for (int i = b; i < b + n; i++) x[i] *= s;
+    }
+}
+static void fwht_d(double *x, int d, int n) {
+    const double s = 1.0 / sqrt((double)n);
+    for (int b = 0; b < d; b += n) {
+        for (int h = 1; h < n; h <<= 1)
+            for (int i = b; i < b + n; i += 2 * h)
+                for (int j = i; j < i + h; j++) { const double a = x[j], c = x[j + h]; x[j] = a + c; x[j + h] = a - c; }
+        for (int i = b; i < b + n; i++) x[i] *= s;
+    }
+}
+/* one V row: N(0,1), with --v-outlier S scaling 4 channels (real V has a few large channels); the unrotated values go
+ * to vf (for vqerr), the stored row is rotated by --v-rot first */
+static int VROT;
+static float VOUT;
+static void v_row(float *tmp, float *vf, uint8_t *dst) {
+    for (int i = 0; i < DV; i++) tmp[i] = nrand();
+    if (VOUT != 0.0f)
+        for (int c = 0; c < 4; c++) tmp[(3 + 34 * c) % DV] *= VOUT;
+    if (vf) memcpy(vf, tmp, sizeof(float) * DV);
+    if (VROT) fwht_f(tmp, DV, VROT);
+    encode_row(tmp, DV, dst);
+}
+
 static void k4c_encode(const float *K, int64_t nkv, int nhkv, uint8_t *blocks, uint16_t *tail) {
     const int64_t nfull = nkv / KATTN_K4C_GROUP * KATTN_K4C_GROUP;
     for (int64_t b = 0; b < nfull / KATTN_K4C_GROUP; b++)
@@ -362,6 +394,11 @@ int main(int argc, char **argv) {
     /* --k-bias B: add +-B to the last 3 channels of each half of every K row (per kv head, constant over
      * tokens), like the post-RoPE k_proj bias of Qwen2/2.5 (up to ~300-430 in layer 0) */
     const float kbias = (float)atof(arg_s(argc, argv, "--k-bias", "0"));
+    /* --v-rot N: V stored Hadamard-rotated in N-blocks (as llama.cpp's attn_rot_v), output rotated back after the call;
+     * --v-outlier S: 4 V channels scaled by S. vqerr = relative RMS error against the unquantized V (same dequantized K): RMS, because an orthonormal rotation
+     * keeps the energy of the rounding error but turns its bounded per-element values into Gaussian tails. */
+    VROT = (int)arg_i(argc, argv, "--v-rot", 0);
+    VOUT = (float)atof(arg_s(argc, argv, "--v-outlier", "0"));
     const double secs = atof(arg_s(argc, argv, "--secs", "1"));
     const double tol = atof(arg_s(argc, argv, "--tol", "1e-2"));
     const char *regime = arg_s(argc, argv, "--regime", "hot");
@@ -372,6 +409,7 @@ int main(int argc, char **argv) {
 
     const int k4c = is_k4c();
     if (k4c && mla) { fprintf(stderr, "pre-RoPE K formats do not support --mla\n"); return 2; }
+    if (VROT && (mla || VROT < 2 || (VROT & (VROT - 1)) || DV % VROT)) { fprintf(stderr, "--v-rot %d: expected a power of 2 dividing dv, not with --mla\n", VROT); return 2; }
     const int rope_dim = (int)arg_i(argc, argv, "--rope-dim", -1) < 0 ? DK : (int)arg_i(argc, argv, "--rope-dim", -1);
     const int rope_mode = (int)arg_i(argc, argv, "--rope-mode", KATTN_ROPE_NEOX);
     const double rope_base = atof(arg_s(argc, argv, "--rope-base", "1000000"));
@@ -395,6 +433,7 @@ int main(int argc, char **argv) {
     float *out = aligned_alloc(64, ((on * 4 + 63) / 64) * 64);
     uint8_t **kb = calloc(nl, sizeof *kb), **vb = calloc(nl, sizeof *vb);
     float *tmp = malloc(sizeof(float) * (DK > DV ? DK : DV));
+    float *vf = mla ? NULL : malloc(sizeof(float) * nkv * nhkv * DV); /* layer 0's V before rotation and quantization */
     for (size_t i = 0; i < qn; i++) q[i] = 3.0f * nrand();
     for (int L = 0; L < nl && k4c; L++) {
         kb[L] = aligned_alloc(64, (kblk_bytes + 63) / 64 * 64);
@@ -405,10 +444,7 @@ int main(int argc, char **argv) {
             for (int64_t i = 0; i < nkv * nhkv * DK; i++) Kf[i] = nrand();
             k4c_encode(Kf, nkv, nhkv, kb[0], kt[0]);
             free(Kf);
-            for (int64_t j = 0; j < nkv * nhkv; j++) {
-                for (int i = 0; i < DV; i++) tmp[i] = nrand();
-                encode_row(tmp, DV, vb[0] + j * rv);
-            }
+            for (int64_t j = 0; j < nkv * nhkv; j++) v_row(tmp, vf + j * DV, vb[0] + j * rv);
         } else {
             memcpy(kb[L], kb[0], kblk_bytes);
             memcpy(kt[L], kt[0], ktail_bytes);
@@ -427,10 +463,7 @@ int main(int argc, char **argv) {
                         tmp[i] += ((((j % nhkv) * 7 + c * 3) >> 1) & 1 ? -kbias : kbias);
                     }
                 encode_row(tmp, DK, kb[0] + j * rk);
-                if (!mla) {
-                    for (int i = 0; i < DV; i++) tmp[i] = nrand();
-                    encode_row(tmp, DV, vb[0] + j * rv);
-                }
+                if (!mla) v_row(tmp, vf + j * DV, vb[0] + j * rv);
             }
         } else {
             memcpy(kb[L], kb[0], (size_t)nkv * nhkv * rk);
@@ -508,7 +541,9 @@ int main(int argc, char **argv) {
     /* correctness on layer 0 */
     for (size_t i = 0; i < on; i++) out[i] = NAN;
     run_call(&A[0]);
-    double maxerr = 0, maxref = 0;
+    if (VROT)
+        for (int64_t r = 0; r < nq * nh; r++) fwht_f(out + r * DV, DV, VROT);
+    double maxerr = 0, maxref = 0, vqerr = 0, vqref = 0;
     int nan_seen = 0;
     {
         double *kd = malloc(sizeof(double) * nkv * DK), *vd = malloc(sizeof(double) * nkv * DV), *s = malloc(sizeof(double) * nkv);
@@ -525,6 +560,7 @@ int main(int argc, char **argv) {
                 else decode_row(kb[0] + (j * nhkv + g) * rk, DK, kd + j * DK);
                 if (mla) for (int i = 0; i < DV; i++) vd[j * DV + i] = kd[j * DK + i];
                 else decode_row(vb[0] + (j * nhkv + g) * rv, DV, vd + j * DV);
+                if (VROT) fwht_d(vd + j * DV, DV, VROT);
             }
             for (int hh = 0; hh < nh / nhkv; hh++) {
                 const int h = g * (nh / nhkv) + hh;
@@ -543,9 +579,15 @@ int main(int argc, char **argv) {
                     for (int64_t j = 0; j <= lim; j++) { s[j] = exp(s[j] - mx); sum += s[j]; }
                     const float *o = out + (t * nh + h) * DV;
                     for (int i = 0; i < DV; i++) {
-                        double r = 0;
+                        double r = 0, r0 = 0;
                         for (int64_t j = 0; j <= lim; j++) r += s[j] * vd[j * DV + i];
                         r /= sum;
+                        if (vf) {
+                            for (int64_t j = 0; j <= lim; j++) r0 += s[j] * vf[(j * nhkv + g) * DV + i];
+                            r0 /= sum;
+                            vqerr += (o[i] - r0) * (o[i] - r0);
+                            vqref += r0 * r0;
+                        }
                         if (isnan(o[i])) nan_seen = 1;
                         maxerr = fmax(maxerr, fabs(o[i] - r));
                         maxref = fmax(maxref, fabs(r));
@@ -556,6 +598,7 @@ int main(int argc, char **argv) {
         free(kd); free(vd); free(s);
     }
     const double relerr = nan_seen ? INFINITY : maxerr / (maxref > 0 ? maxref : 1);
+    const double vq_relerr = nan_seen ? INFINITY : sqrt(vqerr / (vqref > 0 ? vqref : 1)); /* relative RMS */
     const int ok = relerr <= tol;
 
     /* timing */
@@ -586,14 +629,14 @@ int main(int argc, char **argv) {
     const double us = t / calls * 1e6;
     const char *kvn[] = {"f16", "bf16", "q8_0", "k4c_q4", "k4c_q8"};
     char row[1024];
-    snprintf(row, sizeof row, "kurn,attn_%s_d%d,%s,%d,%lld,%lld,%d,%d,%lld,%.6f,%.6f,%.3f,%.2f,%.2f,%.3f,%.3e,%s,%.6f,%d,%d",
+    snprintf(row, sizeof row, "kurn,attn_%s_d%d,%s,%d,%lld,%lld,%d,%d,%lld,%.6f,%.6f,%.3f,%.2f,%.2f,%.3f,%.3e,%s,%.6f,%d,%d,%.3e",
              kvn[KV], DK, regime, NTH, (long long)nq, (long long)nkv, nh, nhkv, (long long)calls, t, cpu, us,
-             flop / (us * 1e3), bytes / (us * 1e3), cpu / calls * 1e6 * 5.47, relerr, ok ? "ok" : "FAIL", d1 - d0, DV, mla);
+             flop / (us * 1e3), bytes / (us * 1e3), cpu / calls * 1e6 * 5.47, relerr, ok ? "ok" : "FAIL", d1 - d0, DV, mla, vq_relerr);
     if (csv) {
         FILE *f = fopen(csv, "w");
         fprintf(f, "%s\n", row);
         fclose(f);
     }
-    printf("impl,kernel,regime,threads,n_q,n_kv,heads,kv_heads,calls,wall_s,cpu_s,us_per_call,GFLOPs,GBps,proxy_uJ_per_call,relerr,check,drift_s,dv,mla\n%s\n", row);
+    printf("impl,kernel,regime,threads,n_q,n_kv,heads,kv_heads,calls,wall_s,cpu_s,us_per_call,GFLOPs,GBps,proxy_uJ_per_call,relerr,check,drift_s,dv,mla,vqerr\n%s\n", row);
     return ok ? 0 : 1;
 }

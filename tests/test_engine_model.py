@@ -282,3 +282,22 @@ def test_wait_policies_and_prefetch_in_wait_do_not_change_results():
     _, a, _ = _run(exe, "qwen3", 4, {"KURN_WAIT": "attn=yield:50,ffn=futex:0,qk=futex,out=yield", "KURN_PFWAIT": "65536"})
     _, b, _ = _run(exe, "qwen3", 4)
     assert np.array_equal(a, b)
+
+
+def test_v_rotation_in_quantized_kv():
+    """KURN_VROT: V rotated before quantizing and each head's output rotated back must stay within quantization noise of
+    the f16 KV run (a missing or wrong inverse would be far off); bad block sizes are rejected."""
+    exe = _engine("qwen3")
+    _, f16, _ = _run(exe, "qwen3", 2)
+    n = len(PROMPT)  # prompt rows: same tokens in every run
+    for kv in ("q8_0", "q4_0", "k4c_q8"):
+        errs = {}
+        for vr in ("0", "32", "64"):
+            _, lg, out = _run(exe, "qwen3", 2, {"KURN_KV": kv, "KURN_VROT": vr})
+            errs[vr] = float(np.abs(lg[:n] - f16[:n]).max() / f16[:n].std())
+        # same order as plain quantized V (tiny random model: q8_0 ~0.1); a broken inverse would be off by O(1)
+        assert errs["0"] < 1.0 and all(e < 1.5 * errs["0"] + 0.05 for e in errs.values()), (kv, errs)
+    path, _ = _model("qwen3")
+    for bad in ("128", "48"):  # head_dim 64
+        r = subprocess.run([exe, path, "gen", "2", "2", "1,2"], env={**os.environ, "KURN_KV": "q8_0", "KURN_VROT": bad}, capture_output=True, text=True)
+        assert r.returncode == 2 and "KURN_VROT" in r.stderr

@@ -24,7 +24,8 @@
 //      KURN_THP=0 (no huge pages), KURN_PIN=0 (threads not pinned 1:1 to cores), KURN_PFWAIT=bytes (prefetch-in-wait budget, default 0), PPL_CHUNKS=n (default 4), KURN_PROF=1 (per-thread waits to stderr),
 //      KURN_DUMP_LOGITS=file (gen: float32 logits of every step, prompt included), KURN_PERF_CTL=fifo (below),
 //      KURN_KV=f16|q8_0|q4_0|k4c_q4|k4c_q8|vqk_q4|vqk_q8 (KV cache format, below; vqk_* also KURN_VQ=codebooks),
-//      KURN_KLD=ref:file|cmp:file (ppl: KL vs a reference run), KURN_DUMP_KQ=prefix (calibration dump, below).
+//      KURN_KLD=ref:file|cmp:file (ppl: KL vs a reference run), KURN_DUMP_KQ=prefix (calibration dump, below),
+//      KURN_VROT=0|32|64|128 (quantized V formats: Hadamard-rotate V in blocks of n before quantizing, default 64; below).
 //      KURN_CTX=n (context capacity at least n; by default it is sized from the request: prompt + generated tokens,
 //      or CTX, rounded up to 256; -DMAX_CTX=n sets a minimum).
 #define _GNU_SOURCE
@@ -446,6 +447,11 @@ static void attention(int ith, work_t *w, int l, int pos) {
 enum { KVF_F16, KVF_Q8_0, KVF_Q4_0, KVF_K4C_Q4, KVF_K4C_Q8, KVF_VQK_Q4, KVF_VQK_Q8, KVF_N };
 static const char *KVF_NAME[KVF_N] = {"f16", "q8_0", "q4_0", "k4c_q4", "k4c_q8", "vqk_q4", "vqk_q8"};
 static int KVF;
+// KURN_VROT=n: V rows are multiplied by the normalized Walsh-Hadamard matrix (blocks of n values) before they are
+// quantized, and each head's attention output by the same matrix afterwards (it is its own inverse), so the result
+// is unchanged up to rounding while V's outlier channels are spread over the block before Q4_0 / Q8_0 rounding
+// (llama.cpp's attn_rot_v uses n = 64). 0 turns it off; f16 KV is never rotated.
+static int VROT = 64;
 static uint8_t *KQ, *VQ;  // K rows or k4c group blocks; V rows
 static uint16_t *KT;      // k4c: f16 pre-RoPE rows of the group being filled, [layer][kv head][32][D]
 static float *RT;         // rope_cache(t) for every position, [MAX_CTX][D]
@@ -477,6 +483,16 @@ static inline uint8_t *kq_at(int l, int h, int pos) {
 static inline uint8_t *vq_at(int l, int h, int pos) { return VQ + (((size_t)l * N_KV + h) * MAX_CTX + pos) * vq_row(); }
 static inline uint16_t *kt_at(int l, int h, int pos) { return KT + (((size_t)l * N_KV + h) * K4C_G + pos % K4C_G) * D; }
 
+static void fwht_blocks(float *x, int len, int n) {  // normalized Walsh-Hadamard transform of each n-block (n = 2^k)
+    const float s = 1.0f / sqrtf((float)n);
+    for (int b = 0; b < len; b += n) {
+        float *y = x + b;
+        for (int h = 1; h < n; h <<= 1)
+            for (int i = 0; i < n; i += 2 * h)
+                for (int j = i; j < i + h; j++) { const float a = y[j], c = y[j + h]; y[j] = a + c; y[j + h] = a - c; }
+        for (int i = 0; i < n; i++) y[i] *= s;
+    }
+}
 static void q4_0_row(const float *x, uint8_t *dst) {  // ggml quantize_row_q4_0_ref
     for (int b = 0; b < D / 32; b++) {
         float amax = 0, mx = 0;
@@ -596,6 +612,7 @@ static void attention_q(int ith, work_t *w, int l, int pos) {
             rope_neox(kk, w->rope);
             row_put(kk, kq_at(l, kh, pos), KVF == KVF_Q4_0);
         }
+        if (VROT) fwht_blocks(vv, D, VROT);
         row_put(vv, vq_at(l, kh, pos), kvf_v_q4());
         const int h0 = kh * G_QPK > s->qh0 ? kh * G_QPK : s->qh0, h1 = (kh + 1) * G_QPK < s->qh1 ? (kh + 1) * G_QPK : s->qh1;
         for (int h = h0; h < h1; h++) rope_neox(q + (h - s->qh0) * D, w->rope);
@@ -619,6 +636,8 @@ static void attention_q(int ith, work_t *w, int l, int pos) {
                 for (int i = 0; i < D; i++) ao[i] += p * vr[i];
             }
         }
+        if (VROT)
+            for (int h = h0; h < h1; h++) fwht_blocks(w->att + (h - s->qh0) * D, D, VROT);
     }
 }
 
@@ -959,6 +978,8 @@ int main(int argc, char **argv) {
         if (KVF && T > N_KV) { fprintf(stderr, "KURN_KV=%s needs THREADS <= %d (one owner per kv head)\n", KVF_NAME[KVF], N_KV); return 2; }
         if (KVF && (MAX_CTX % K4C_G || D % 32)) { fprintf(stderr, "KURN_KV needs MAX_CTX %% 32 == 0 and head_dim %% 32 == 0\n"); return 2; }
     }
+    if (getenv("KURN_VROT")) VROT = atoi(getenv("KURN_VROT"));
+    if (VROT && (VROT < 2 || (VROT & (VROT - 1)) || D % VROT)) { fprintf(stderr, "KURN_VROT=%d: expected 0 or a power of 2 dividing %d\n", VROT, D); return 2; }
     if (kvf_vq()) {
         const char *p = getenv("KURN_VQ");
         FILE *f = p ? fopen(p, "rb") : NULL;
@@ -1071,7 +1092,7 @@ int main(int argc, char **argv) {
     } else {
         printf("ppl %.4f over %ld tokens; %.2f tok/s, cpu_s/tok %.4f barriers_per_tok %.1f wait_share %.3f\n", exp(G_nll / G_cnt), G_cnt,
                G_ngen / wall, cpu / G_ngen, (double)nsum / T / G_ngen, wsum / (cyc * T));
-        if (KVF || G_kld) printf("kv %s ctx %d", KVF_NAME[KVF], G_ctx);
+        if (KVF || G_kld) printf("kv %s vrot %d ctx %d", KVF_NAME[KVF], KVF ? VROT : 0, G_ctx);
         if (G_kld && G_kld_cmp) printf(" kld_top32 %.6f top1_agree %.4f over %ld", G_kl / G_kl_n, (double)G_top1 / G_kl_n, G_kl_n);
         if (KVF || G_kld) printf("\n");
     }

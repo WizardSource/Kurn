@@ -67,6 +67,15 @@ All notable changes to this project are documented here. The format follows
   prefill parity; complex decode 2.1x, MLP decode 1.9x.
 - `hc_bench` (checks, benchmarks, synthetic quaternion MLP), `kurn.hypercomplex` references, `tests/test_hypercomplex.py`.
 
+### Added: Hadamard-rotated V in kurn's engine and attention harness
+- Engine (`KURN_KV` quantized formats): `KURN_VROT=n` (default 64, 0 = off) rotates each V row by the normalized
+  Walsh-Hadamard matrix in n-blocks before Q4_0 / Q8_0 quantization and rotates each head's attention output back,
+  as llama.cpp's `attn_rot_v` does. Qwen3-1.7B, WikiText-2 ctx 2048, KL vs F16 KV: k4c_q4 0.0112 -> 0.0091 (-19%),
+  k4c_q8 0.0075 -> 0.0041 (-45%), q8_0 0.0088 -> 0.0055 (-37%); q4_0 stays dominated by its unrotated post-RoPE K.
+- Harness (`bench_attn`, spec keys `vrot` / `vout`): `--v-rot N` stores V rotated and rotates the output back;
+  `--v-outlier S` scales 4 V channels; new CSV column `vqerr` = relative RMS error against the unquantized V. With
+  outlier channels (x4-16) the rotation cuts vqerr 1.5-3x for q8_0 / k4c_q4 / k4c_q8; on iid V it is neutral.
+
 ### Changed: attention tile engine pads query rows to 4, not 32, on the f32 and AVX512-BF16 engines
 - `ka_tile` computed every tile for 32 query rows (the AMX tile height) on every engine. The f32 and AVX512-BF16 engines
   work in 4-row register blocks, so decode-sized tiles (n_q x G = 1-8 rows) now compute 4-8 rows. Rows are independent:
