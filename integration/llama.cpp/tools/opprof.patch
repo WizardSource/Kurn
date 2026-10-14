@@ -19,7 +19,7 @@ index 8620c6c7a..ccefb3736 100644
  
  
 +// GGML_OPPROF=1: per node type, thread cycles spent computing and waiting at the barrier after the
-+// node, for graphs whose largest MUL_MAT has more than 8 activation rows (prefill); printed at exit.
++// node, for graphs whose largest MUL_MAT has more than 8 activation rows (prefill; GGML_OPPROF=2: every graph); printed at exit.
 +#define OPPROF_MAXT 64
 +#define OPPROF_KEYS 256
 +struct opprof_ent { char key[96]; uint64_t comp, wait, n; };
@@ -101,7 +101,7 @@ index 8620c6c7a..ccefb3736 100644
  
 +    struct opprof_thr * opt = NULL;
 +    uint64_t op_g0 = 0;
-+    if (opprof_on && opprof_t && state->ith < OPPROF_MAXT && opprof_graph_is_prefill(cgraph)) {
++    if (opprof_on && opprof_t && state->ith < OPPROF_MAXT && (opprof_on == 2 || opprof_graph_is_prefill(cgraph))) {
 +        opt = &opprof_t[state->ith];
 +        opt->graphs++;
 +        op_g0 = __rdtsc();
@@ -151,7 +151,7 @@ index 8620c6c7a..ccefb3736 100644
          }
 +        {
 +            const char * env = getenv("GGML_OPPROF");
-+            opprof_on = env != NULL && atoi(env) == 1;
++            opprof_on = env != NULL ? atoi(env) : 0;  // 1: prefill graphs, 2: every graph
 +            if (opprof_on) {
 +                opprof_t = calloc(OPPROF_MAXT, sizeof(struct opprof_thr));
 +                atexit(opprof_dump);
