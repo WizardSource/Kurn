@@ -33,6 +33,15 @@ All notable changes to this project are documented here. The format follows
 - Fingerprint traffic per call is 10 bytes per K per block: 1.7% / 7% / 28% of Q4_0 weight bytes at fvb 1024 / 256 /
   64. bigVerify's sensitivity, in contrast, grows with smaller blocks.
 
+### Kit: `kurn gpu ablate` (run by run_gpu_check.sh; DRYRUN builds the kernels only)
+- Three experiments:
+  - ffn: plain kernel + separate SwiGLU kernel (`bench_gpu run --swiglu-after 1`, one graph) vs fused, Llama-3-8B
+    gate+up;
+  - width: GEMV cols 8 / 16 and the bn=16 engine tiles at M = 1, 8, 9, 12, 16;
+  - fv: overhead per `fvb`, false alarms over every timed call, worst |C − X| / τ, and detection of a corrupted weight
+    tile (`--corrupt 1`, `--lambda`).
+- Rendered as "Fused epilogues and wide verify (ablations)" in report.md and the kit v2 report.
+
 ### Added: ternary bitmap + signs (`tbm`, KTBM layout v1) on the GPU tensor-core engine
 - The new weight format `tbm` takes the CPU side's settled KTBM v1 buffer: 16-row × 256-value variable-length records
   (fp16 d[16], a 64-word presence bitmap, sign bits for the nonzeros only) and a per-group offset table. It costs

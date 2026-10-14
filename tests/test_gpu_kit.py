@@ -18,6 +18,12 @@ def test_release_requires_the_gpu_kit():
     assert "contrib/gpu-check/run_gpu_check.sh" in text and "the hand-run GPU kit must ship" in text
 
 
+def test_matmul_kit_runs_the_epilogue_ablations():
+    text = (KIT / "run_gpu_check.sh").read_text()
+    assert 'K gpu ablate --results "$OUT" --harness "$HARNESS"' in text and 'K gpu ablate --results "$OUT" --arch "$ARCH" --dry' in text
+    assert "kurn gpu ablate" in (KIT / "README.txt").read_text()
+
+
 def test_scripts_parse():
     for s in ("run_kit.sh", "run_gpu_check.sh", "run_attn_check.sh", "make_kit.sh"):
         assert subprocess.run(["bash", "-n", str(KIT / s)]).returncode == 0
@@ -100,11 +106,14 @@ def test_kit_report_has_every_section_and_the_untestable_list(tmp_path):
     (out / "matmul" / "report.md").write_text(
         "# m\n\n## Wins, ties and losses\n\n| w |\n\n## Packed-direct weights vs shared-memory "
         "staging (ablation)\n\n| tq2_0 | 1 | mma8 | 10 | 15 | 1.50x | win |\n\n## Ternary bitmap + signs (tbm) vs TQ2_0 "
-        "(ablation)\n\n| 1 | mma8-reg | 10 | 12 | 1.20x | 0.80 | win |\n\n## Other\n"
+        "(ablation)\n\n| 1 | mma8-reg | 10 | 12 | 1.20x | 0.80 | win |\n\n## Fused epilogues and wide verify (ablations)\n\n"
+        "### Fused gate+up+SwiGLU\n\n| q4_0 | mma8 | 8 | `c` | 120.0 ± 1.0 | 100.0 ± 1.0 | 1.20x | win |\n\n## Other\n"
     )
     md = kitreport.write(str(out))
     assert "### Packed-direct weights vs shared-memory staging (ablation)" in md and "| tq2_0 | 1 | mma8 | 10 | 15 | 1.50x | win |" in md
     assert "### Ternary bitmap + signs (tbm) vs TQ2_0 (ablation)" in md and "| 1 | mma8-reg | 10 | 12 | 1.20x | 0.80 | win |" in md
+    assert "### Fused epilogues and wide verify (ablations)" in md and "#### Fused gate+up+SwiGLU" in md
+    assert "| q4_0 | mma8 | 8 | `c` | 120.0 ± 1.0 | 100.0 ± 1.0 | 1.20x | win |" in md and "## Other" not in md
     assert (out / "report.md").read_text() == md
     for want in ("# kurn GPU kit v2 report (QUICK run)", "## Not testable on this box", "FP8 (e4m3) KV attention",
                  "sm_100 (B200 / GB200)", "GPU pytest subset: skipped: NO_PYTEST=1", "| llama3-8b | f16 | 16384 | 50.0", "1.20x", "78%",

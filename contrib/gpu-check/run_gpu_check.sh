@@ -176,6 +176,11 @@ if [ "$DRYRUN" = "1" ]; then
       cat "$OUT/ggml_mm_check.jsonl" | tee -a "$OUT/run.log"
     fi
   fi
+  if [ -n "${KURN_NVCC:-}" ]; then
+    log "== ablation kernels (fused SwiGLU, wide verify, fused Freivalds check): build only"
+    K gpu ablate --results "$OUT" --arch "$ARCH" --dry > "$OUT/ablate.txt" 2>&1
+    head -1 "$OUT/ablate.txt" | tee -a "$OUT/run.log"
+  fi
   log "== dry run: no GPU measurements; the report lists every cell as unmeasured"
   echo "{\"mode\": \"dryrun\", \"formats\": \"$FORMATS\"}" > "$OUT/kit.json"
   K gpu report "$OUT" --formats "$FORMATS" --dry > /dev/null 2>&1
@@ -208,6 +213,10 @@ else
   K gpu matrix --results "$OUT" --harness "$HARNESS" --arch "$ARCH" --formats "$FORMATS" --kernels "$OUT/tuned.json" \
     --secs 0.4 --reps 5 "${MQ[@]}" > "$OUT/matrix_report_stdout.txt" 2>&1
   tail -3 "$OUT/matrix.log" 2>/dev/null | tee -a "$OUT/run.log"
+
+  log "== ablations: fused gate+up+SwiGLU, wide verify (9-16 columns), fused Freivalds check (overhead, false alarms, detection)"
+  K gpu ablate --results "$OUT" --harness "$HARNESS" --arch "$ARCH" "${MQ[@]}" > "$OUT/ablate.txt" 2>&1
+  head -1 "$OUT/ablate.txt" | tee -a "$OUT/run.log"
 
   if [ "$NO_ATTN" != "1" ]; then
     log "== attention decode matrix (Llama-3-8B / Qwen3-1.7B / MLA shapes x context x F16/BF16/Q8_0 KV, cold KV > L2)"

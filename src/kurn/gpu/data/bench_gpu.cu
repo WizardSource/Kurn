@@ -379,16 +379,44 @@ static Acts make_acts(const Problem &P, int M, uint64_t seed) {
   return A;
 }
 
-static double relerr_vs(const std::vector<double> &ref, const std::vector<float> &Y, const Problem &P, const Acts &A) {
+static double relerr_vs(const std::vector<double> &ref, const std::vector<float> &Y, const std::vector<int> &rows, int ld,
+                        const Acts &A) {
   double mx = 1e-30, err = 0;
   for (size_t ci = 0; ci < A.cols.size(); ci++)
-    for (size_t ri = 0; ri < P.rows.size(); ri++) {
-      double r = ref[ci * P.rows.size() + ri], y = Y[(size_t)A.cols[ci] * P.N + P.rows[ri]];
+    for (size_t ri = 0; ri < rows.size(); ri++) {
+      double r = ref[ci * rows.size() + ri], y = Y[(size_t)A.cols[ci] * ld + rows[ri]];
       mx = std::max(mx, fabs(r));
       err = std::max(err, std::isfinite(y) ? fabs(y - r) : INFINITY);
     }
   return err / mx;
 }
+static double relerr_vs(const std::vector<double> &ref, const std::vector<float> &Y, const Problem &P, const Acts &A) {
+  return relerr_vs(ref, Y, P.rows, P.N, A);
+}
+
+// epi=swiglu reference for output rows orow (of F = N / 2): gate row f and up row F + f
+static std::vector<double> swiglu_ref(const Problem &P, const Acts &A, const uint8_t *xb, const float *x, const std::vector<int> &orow) {
+  std::vector<int> rr(orow);
+  for (int f : orow) rr.push_back(P.N / 2 + f);
+  std::vector<double> r0, r(A.cols.size() * orow.size());
+  kref_gemm(P.fmt.c_str(), P.W.data(), xb, x, P.N, P.K, A.M, rr, A.cols, r0);
+  for (size_t ci = 0; ci < A.cols.size(); ci++)
+    for (size_t i = 0; i < orow.size(); i++) {
+      const double g = r0[ci * rr.size() + i], u = r0[ci * rr.size() + orow.size() + i];
+      r[ci * orow.size() + i] = g / (1.0 + exp(-g)) * u;
+    }
+  return r;
+}
+
+__global__ void k_swiglu(const float *__restrict__ y, float *__restrict__ o, int F, int M) {
+  const size_t i = blockIdx.x * (size_t)blockDim.x + threadIdx.x;
+  if (i >= (size_t)F * M) return;
+  const size_t m = i / F, f = i % F;
+  const float g = y[m * 2 * F + f];
+  o[i] = g / (1.f + expf(-g)) * y[m * 2 * F + F + f];
+}
+
+static float g_fv_lambda = 8.f;
 
 // ------------------------------------------------------------------ implementations
 struct Impl {
@@ -419,15 +447,22 @@ struct KurnImpl : Impl {
   kg_quant_fn quant, xblocks;
   kg_xblock_bytes_fn xblock_bytes;
   kg_run_fn run;
+  kg_epi_fn epi_fn = nullptr;
+  kg_fv_block_fn fv_block = nullptr;
+  kg_fv_setup_fn fv_setup = nullptr;
+  kg_fv_status_fn fv_status = nullptr;
+  int epi = 0;                // kg_epi: 0 none, 1 swiglu (Y is [M][N/2]), 2 fused Freivalds check
+  bool swiglu_after = false;  // plain kernel on N = 2F rows, then a separate SwiGLU kernel (the unfused baseline)
   bool include_quant = true;
   Problem *P = nullptr;
   Acts *A = nullptr;
   std::vector<uint8_t *> dP;
   void *dXq = nullptr, *dXb = nullptr;
-  float *dY = nullptr;
-  KurnImpl(const std::string &nm, const std::string &path, bool iq) {
+  float *dY = nullptr, *dO = nullptr;
+  KurnImpl(const std::string &nm, const std::string &path, bool iq, bool sw_after = false) {
     name = nm;
     include_quant = iq;
+    swiglu_after = sw_after;
     lib = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
     if (!lib) {
       status = std::string("dlopen failed: ") + dlerror();
@@ -444,6 +479,10 @@ struct KurnImpl : Impl {
     SYM(xblocks, "kg_xblocks");
     SYM(xblock_bytes, "kg_xblock_bytes");
     SYM(run, "kg_run");
+    SYM(epi_fn, "kg_epi");
+    SYM(fv_block, "kg_fv_block");
+    SYM(fv_setup, "kg_fv_setup");
+    SYM(fv_status, "kg_fv_status");
 #undef SYM
     if (!config_fn || !run || !quant || !xblocks || !xblock_bytes) {
       status = "library does not implement kurn_gpu.h";
@@ -451,6 +490,42 @@ struct KurnImpl : Impl {
     }
     config = config_fn();
     act = act_fn ? act_fn() : 0;
+    epi = epi_fn ? epi_fn() : 0;
+    if (swiglu_after && epi) status = "--swiglu-after needs a kernel without a fused epilogue";
+  }
+  int nout() const { return epi == 1 ? P->N / 2 : P->N; }
+  // epi=fv: per-copy fingerprint regions from the host weights (secret probes from a fixed seed here)
+  bool fv_init(Problem &p) {
+    std::vector<float> F;
+    std::vector<uint16_t> G2;
+    std::vector<uint32_t> sg;
+    kref_fv_fingerprint(p.fmt.c_str(), p.W.data(), p.N, p.K, fv_block(), 0x5EC12E7ULL, F, G2, sg);
+    float *dF;
+    uint16_t *dG;
+    uint32_t *dS;
+    CK(cudaMalloc(&dF, F.size() * 4));
+    CK(cudaMalloc(&dG, G2.size() * 2));
+    CK(cudaMalloc(&dS, sg.size() * 4));
+    CK(cudaMemcpy(dF, F.data(), F.size() * 4, cudaMemcpyHostToDevice));
+    CK(cudaMemcpy(dG, G2.data(), G2.size() * 2, cudaMemcpyHostToDevice));
+    CK(cudaMemcpy(dS, sg.data(), sg.size() * 4, cudaMemcpyHostToDevice));
+    bool ok = true;
+    for (auto d : dP) ok = ok && !fv_setup(d, p.N, p.K, dF, dG, dS, 0x9E3779B9u, g_fv_lambda, 0);
+    CK(cudaDeviceSynchronize());
+    cudaFree(dF), cudaFree(dG), cudaFree(dS);
+    return ok;
+  }
+  // {checks, fails} summed over the copies, worst passing |C - X| / tau over them
+  bool fv_read(unsigned &checks, unsigned &fails, float &worst) {
+    checks = fails = 0, worst = 0.f;
+    for (auto d : dP) {
+      unsigned st[3];
+      if (fv_status(d, P->N, P->K, st, 0)) return false;
+      float w;
+      memcpy(&w, &st[2], 4);
+      checks += st[0], fails += st[1], worst = std::max(worst, w);
+    }
+    return true;
   }
   bool setup(Problem &p, Acts &a) override {
     if (status != "ok" && status.rfind("ok", 0) != 0) return false;
@@ -474,41 +549,65 @@ struct KurnImpl : Impl {
       dP.push_back(d);
     }
     CK(cudaDeviceSynchronize());
+    if (epi == 2 && (dP.empty() || !fv_setup || !fv_init(p))) {
+      status = "kg_fv_setup failed";
+      return false;
+    }
+    if (swiglu_after && p.N % 2) {
+      status = "--swiglu-after needs an even N";
+      return false;
+    }
     CK(cudaMalloc(&dXq, std::max<size_t>(16, xbytes(p.K, a.M))));
     CK(cudaMalloc(&dXb, std::max<size_t>(16, xblock_bytes(p.K, a.M))));
-    CK(cudaMalloc(&dY, (size_t)a.M * p.N * 4));
+    CK(cudaMalloc(&dY, (size_t)a.M * nout() * 4));
+    if (swiglu_after) CK(cudaMalloc(&dO, (size_t)a.M * (p.N / 2) * 4));
     if (!include_quant && act != 1) CK((cudaError_t)quant(a.dX, dXq, p.K, a.M, 0));
     return true;
   }
   const void *xin() const { return act == 1 ? (const void *)A->dX : (const void *)dXq; }
+  double bytes(const Problem &p, const Acts &a) override { return (double)p.wbytes + 4.0 * a.M * p.K + 4.0 * a.M * (epi == 1 ? p.N / 2 : p.N); }
   void call(int i, cudaStream_t s) override {
     if (include_quant && act != 1) quant(A->dX, dXq, P->K, A->M, s);
     run(dP.empty() ? (const void *)P->dW[i] : (const void *)dP[i], xin(), dY, P->N, P->K, A->M, s);
+    if (swiglu_after) {
+      const size_t n = (size_t)A->M * (P->N / 2);
+      k_swiglu<<<(unsigned)((n + 255) / 256), 256, 0, s>>>(dY, dO, P->N / 2, A->M);
+    }
   }
   void check(Problem &p, Acts &a) override {
-    CK(cudaMemset(dY, 0xFF, (size_t)a.M * p.N * 4));
+    CK(cudaMemset(dY, 0xFF, (size_t)a.M * nout() * 4));
     if ((act != 1 && quant(a.dX, dXq, p.K, a.M, 0)) ||
         run(dP.empty() ? (const void *)p.dW[0] : (const void *)dP[0], xin(), dY, p.N, p.K, a.M, 0)) {
       status = "launch failed";
       return;
     }
     CK(cudaDeviceSynchronize());
-    std::vector<float> Y((size_t)a.M * p.N);
+    std::vector<float> Y((size_t)a.M * nout());
     CK(cudaMemcpy(Y.data(), dY, Y.size() * 4, cudaMemcpyDeviceToHost));
     std::vector<double> ref;
+    std::vector<uint8_t> xb;
+    std::vector<float> xh;
     if (act == 0) {  // exact reference on the kernel's own q8 activation blocks
-      std::vector<uint8_t> xb(xblock_bytes(p.K, a.M));
+      xb.resize(xblock_bytes(p.K, a.M));
       CK((cudaError_t)xblocks(a.dX, dXb, p.K, a.M, 0));
       CK(cudaDeviceSynchronize());
       CK(cudaMemcpy(xb.data(), dXb, xb.size(), cudaMemcpyDeviceToHost));
-      kref_gemm(p.fmt.c_str(), p.W.data(), xb.data(), nullptr, p.N, p.K, a.M, p.rows, a.cols, ref);
     } else {  // tensor-core engine: exact weights x f16-rounded activations
-      std::vector<float> xh(a.X.size());
+      xh.resize(a.X.size());
       for (size_t i = 0; i < xh.size(); i++) xh[i] = kref_round_f16(a.X[i]);
-      kref_gemm(p.fmt.c_str(), p.W.data(), nullptr, xh.data(), p.N, p.K, a.M, p.rows, a.cols, ref);
     }
-    relerr_exact = relerr_vs(ref, Y, p, a);
-    relerr_model = relerr_vs(a.ref_model, Y, p, a);
+    const uint8_t *xbp = act == 0 ? xb.data() : nullptr;
+    const float *xhp = act == 0 ? nullptr : xh.data();
+    if (epi == 1) {
+      std::vector<int> orow;
+      pick(orow, p.N / 2, 48);
+      relerr_exact = relerr_vs(swiglu_ref(p, a, xbp, xhp, orow), Y, orow, p.N / 2, a);
+      relerr_model = relerr_vs(swiglu_ref(p, a, nullptr, a.X.data(), orow), Y, orow, p.N / 2, a);
+    } else {
+      kref_gemm(p.fmt.c_str(), p.W.data(), xbp, xhp, p.N, p.K, a.M, p.rows, a.cols, ref);
+      relerr_exact = relerr_vs(ref, Y, p, a);
+      relerr_model = relerr_vs(a.ref_model, Y, p, a);
+    }
     if (!(relerr_exact <= 1e-5)) status = "WRONG (exactness check failed)";
   }
   void teardown() override {
@@ -517,7 +616,8 @@ struct KurnImpl : Impl {
     cudaFree(dXq);
     cudaFree(dXb);
     cudaFree(dY);
-    dXq = dXb = nullptr, dY = nullptr;
+    cudaFree(dO);
+    dXq = dXb = nullptr, dY = dO = nullptr;
   }
 };
 
@@ -850,12 +950,15 @@ static int cmd_matrix(const char *plan_path, const char *out_path) {
 
 static int cmd_run(int argc, char **argv) {
   std::string lib, fmt;
-  int N = 4096, K = 4096, M = 1, reps = 3, quant = 0, cold = 1;
+  int N = 4096, K = 4096, M = 1, reps = 3, quant = 0, cold = 1, sw_after = 0, corrupt = 0;
   double secs = 0.3;
   uint64_t seed = 1;
   for (int i = 2; i + 1 < argc; i += 2) {
     std::string a = argv[i], v = argv[i + 1];
     if (a == "--lib") lib = v;
+    else if (a == "--swiglu-after") sw_after = atoi(v.c_str());
+    else if (a == "--corrupt") corrupt = atoi(v.c_str());
+    else if (a == "--lambda") g_fv_lambda = (float)atof(v.c_str());
     else if (a == "--fmt") fmt = v;
     else if (a == "--N") N = atoi(v.c_str());
     else if (a == "--K") K = atoi(v.c_str());
@@ -872,19 +975,40 @@ static int cmd_run(int argc, char **argv) {
   }
   Problem P = make_problem(fmt, N, K, seed, cold != 0);
   Acts A = make_acts(P, M, seed + 1);
-  KurnImpl im("kurn", lib, quant != 0);
+  KurnImpl im("kurn", lib, quant != 0, sw_after != 0);
   if (im.setup(P, A)) im.check(P, A);
   emit_check(stdout, im, P, A);
   if (im.status != "ok") return 1;
   cudaStream_t st;
   CK(cudaStreamCreateWithFlags(&st, cudaStreamNonBlocking));
   for (int r = 0; r < reps; r++) emit_sample(stdout, im, P, A, r, measure(im, P, secs, st));
+  if (im.epi == 2) {  // fused check: false alarms over every timed call, then (--corrupt 1) one call on a corrupted tile
+    unsigned checks, fails, c2 = 0, f2 = 0;
+    float worst, w2;
+    if (!im.fv_read(checks, fails, worst)) return 1;
+    int detected = -1;
+    if (corrupt) {
+      std::vector<uint8_t> t(512);
+      CK(cudaMemcpy(t.data(), im.dP[0], 512, cudaMemcpyDeviceToHost));
+      for (auto &b : t) b ^= 0x88;
+      CK(cudaMemcpy(im.dP[0], t.data(), 512, cudaMemcpyHostToDevice));
+      if (!im.include_quant && im.act != 1) CK((cudaError_t)im.quant(A.dX, im.dXq, P.K, A.M, 0));
+      im.call(0, 0);
+      CK(cudaDeviceSynchronize());
+      if (!im.fv_read(c2, f2, w2)) return 1;
+      detected = (int)(f2 - fails);
+    }
+    printf("{\"kind\": \"fv\", \"fmt\": %s, \"N\": %d, \"K\": %d, \"M\": %d, \"block\": %d, \"lambda\": %g, \"checks\": %u, "
+           "\"fails\": %u, \"worst_ratio\": %.4g, \"corrupt_checks\": %u, \"detected\": %d}\n",
+           jstr(P.fmt).c_str(), P.N, P.K, A.M, im.fv_block(), g_fv_lambda, checks, fails, worst, c2 - checks, detected);
+  }
   return 0;
 }
 
 int main(int argc, char **argv) {
   if (argc < 2) {
-    fprintf(stderr, "usage: bench_gpu info | roofline [--secs S] | run --lib K.so --fmt F ... | matrix --plan P [--out O]\n");
+    fprintf(stderr, "usage: bench_gpu info | roofline [--secs S] | run --lib K.so --fmt F [--N --K --M --reps --secs --quant --cold "
+                    "--seed --swiglu-after 0|1 --corrupt 0|1 --lambda L] | matrix --plan P [--out O]\n");
     return 2;
   }
   dev_init();
