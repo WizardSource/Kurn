@@ -144,11 +144,21 @@ int main(int argc, char **argv) {
     ggml_backend_buffer_t ba = ggml_backend_alloc_ctx_tensors(ca, be);
 
     double bytes = 0;
+    const char *zenv = getenv("OPBENCH_ZERO");
+    const int ternary = zenv && (t == GGML_TYPE_TQ1_0 || t == GGML_TYPE_TQ2_0);
     for (int s = 0; s < ns; s++) {
         const size_t wrow = ggml_row_size(t, S[s].K);
         void *q = malloc(wrow * S[s].N);
         float *f = malloc(sizeof(float) * S[s].K * S[s].N);
         for (int64_t i = 0; i < S[s].K * S[s].N; i++) f[i] = 0.05f * (frand() + frand() + frand()) * (1 + (i / 32) % 5);
+        if (ternary) {  // exact ternary weights, zero fraction OPBENCH_ZERO: d * {-1, 0, +1}, one +-d per 256 values
+            const float z = (float)atof(zenv);
+            for (int64_t i = 0; i < S[s].K * S[s].N; i++) {
+                const float u = 0.5f * (frand() + 1.0f), sc = 0.05f * (float)(1 + (i / S[s].K) % 5);
+                f[i] = u < z ? 0.0f : (frand() < 0 ? -sc : sc);
+                if (i % 256 == 0) f[i] = frand() < 0 ? -sc : sc;
+            }
+        }
         ggml_quantize_chunk(t, f, q, 0, S[s].N, S[s].K, NULL);
         free(f);
         for (int l = 0; l < layers; l++) ggml_backend_tensor_set(w[l * ns + s], q, 0, wrow * S[s].N);
