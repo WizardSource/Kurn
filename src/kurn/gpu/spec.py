@@ -74,7 +74,7 @@ GEMV_KEYS = {
     "rpb": lambda c: (1, 2, 4, 8, 16, 32),
     "sub": lambda c: (1, 2, 4),
     "unroll": lambda c: (1, 2, 4),
-    "cols": lambda c: (1, 2, 4, 8),
+    "cols": lambda c: (1, 2, 4, 8, 16),  # 16: wide verify (9-16 columns) streams the weights once
     "minb": lambda c: (0, 1, 2, 4),
     "mins": lambda c: ("bsums", "dp4a") if c["weights"] == "q4_K" else ("none",),
     "unpack": lambda c: ("bits", "lut") if c["weights"] == "q1_0" else ("none",),
@@ -254,6 +254,9 @@ INVALID = [
     (lambda c: c["op"] == "gemm" and gemm_smem(c) > gemm_smem_limit(c), "shared memory exceeds the arch's per-block limit"),
     (lambda c: c["op"] == "gemm" and _est_regs(c) > _reg_budget(c),
      "tile needs too many registers for its launch bounds (would spill)"),
+    (lambda c: c["op"] == "gemv" and c["epi"] == "swiglu" and c["weights"] == "q1_0" and c["sub"] == 1
+     and c["cols"] * c["unroll"] >= 8,
+     "epi=swiglu q1_0 with sub=1 expands 2 x 128 values per lane: cols * unroll at most 4 (ptxas spills on sm_90 / sm_100)"),
     (lambda c: c["op"] == "gemm" and c["epi"] == "swiglu" and (c["bm"] // c["wm"] // 16) % 2,
      "epi=swiglu pairs a gate and an up row tile in each warp: bm / wm must be a multiple of 32"),
     (lambda c: c["op"] == "gemm" and c["epi"] == "swiglu" and c["splitk"] > 1,

@@ -49,7 +49,7 @@ def _first(base, options):
 
 def _gemv(fmt, arch, **ov):
     base = {"op": "gemv", "weights": fmt, "arch": arch}
-    return _first(base, [ov, {**ov, "unroll": 2}, {**ov, "unroll": 1}, {**ov, "unroll": 1, "sub": 2}])
+    return _first(base, [ov, {**ov, "unroll": 2}, {**ov, "unroll": 1}, {**ov, "unroll": 1, "sub": 2}, {**ov, "unroll": 1, "sub": 4}])
 
 
 def plan(arch, quick=False):
