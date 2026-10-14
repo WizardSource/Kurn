@@ -30,9 +30,26 @@ def _llama_dir():
     return d if (d / "tools" / "server" / "kurn-spec-width.h").exists() else None
 
 
+def _without_rsi(d, tmp):
+    """A copy of the files the spec-width patches touch, with rsi/llama-rsi.patch (applied on top of spec-width
+    when the checkout has rsi/apply.sh) reversed, so the spec-width patches can be checked on their own."""
+    rsi = ROOT / "integration" / "llama.cpp" / "rsi" / "llama-rsi.patch"
+    files = set()
+    for p in ("llama-server-spec-width.patch", "llama-spec-width.patch"):
+        files |= {line[6:].strip() for line in (SW / p).read_text().splitlines() if line.startswith("+++ b/")}
+    for f in files:
+        (tmp / f).parent.mkdir(parents=True, exist_ok=True)
+        (tmp / f).write_bytes((d / f).read_bytes())
+    subprocess.run(["git", "init", "-q", str(tmp)], check=True)
+    if (d / "tools" / "server" / "kurn-replay.h").exists() and rsi.exists():
+        inc = [a for f in sorted(files) for a in ("--include", f)]
+        subprocess.run(["git", "-C", str(tmp), "apply", "-R", *inc, str(rsi)], check=True)
+    return tmp
+
+
 @pytest.mark.skipif(_llama_dir() is None, reason="no llama.cpp checkout with spec-width/apply.sh applied (KURN_LLAMA_CPP)")
-def test_server_patch_matches_checkout():
-    d = _llama_dir()
+def test_server_patch_matches_checkout(tmp_path):
+    d = _without_rsi(_llama_dir(), tmp_path)
     r = subprocess.run(["git", "-C", str(d), "apply", "--check", "-R", str(SW / "llama-server-spec-width.patch")], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
-    assert (d / "tools" / "server" / "kurn-spec-width.h").read_text() == (SW / "kurn-spec-width.h").read_text()
+    assert (_llama_dir() / "tools" / "server" / "kurn-spec-width.h").read_text() == (SW / "kurn-spec-width.h").read_text()

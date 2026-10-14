@@ -224,6 +224,46 @@ llama-server -m TARGET.gguf -md DRAFT.gguf --spec-type draft-simple --spec-draft
 With `GGML_KURN_FA_MODE=exact` (kurn attention, see above) speculative output equals the no-draft output: Qwen3-1.7B /
 Qwen3-0.6B draft in llama-server, 8 prompts x 4 draft configs, 0 of 32 runs differ (ggml's FA: 22, kurn fast mode: 21).
 
+## RSI build: retrieval drafts, speculative probabilities, replay (`rsi/`)
+
+`rsi/apply.sh` (after `apply.sh`, `spec-width/apply.sh` and `k4c/apply.sh`) adds four things to llama-server.
+
+**Retrieval drafts as an arm of the verify selector.** With `--spec-width TABLE` and an n-gram `--spec-type`
+(`ngram-simple`, `ngram-map-k`, `ngram-mod`, `ngram-cache`), each slot gets a `kurn::arm_selector`
+(`kurn-spec-width.h`, twin `kurn.specwidth.ArmSelector`). Retrieval drafts come from the prompt and the generated
+history and cost no draft time; the draft model (`-md`, `draft-simple`) is the second arm. Every step:
+- a lookup candidate is cut to the prefix worth verifying, and taken only if its value (expected accepted tokens
+  - lambda x time, acceptance learned online) is at least the model arm's;
+- otherwise the draft model drafts, if that is worth it now, including the decode it must catch up on first;
+- otherwise the step runs without a draft.
+
+The draft model syncs lazily: it no longer mirrors every target batch, and catches up from the committed tokens
+only when it drafts (`KURN_SPEC_LAZY=0` restores mirroring). Each request logs
+`kurn spec arms: steps none N, retrieval N (accepted/drafted), model N (...)`.
+
+```sh
+llama-server -m TARGET.gguf -md DRAFT.gguf --spec-type ngram-simple,draft-simple --spec-ngram-simple-size-n 3 \
+  --spec-ngram-simple-size-m 16 --spec-draft-n-max 15 --spec-width target.cost      # -md optional
+```
+
+**Probabilities of accepted speculative tokens.** With `n_probs`, accepted draft tokens used to come back with
+`logprob 0` and empty `top_logprobs`. They now carry what plain decoding reports: pre-sampling from the verify batch's
+logits, post-sampling (`post_sampling_probs`) by replaying the positions on a copy of the sampler.
+
+**Replay primitives** (per request, off by default):
+- `"kurn_replay": 1` returns `kurn_replay` with a run manifest and a sha256 hash chain over the generated tokens and
+  their probabilities (`kurn-replay.h` documents the format); `2` adds per-token hashes, which locate the first
+  divergent token. The manifest has the build (`llama_build_info`, `kurn_integration_sha256`), model and draft paths,
+  sizes and, with `KURN_MANIFEST_SHA256=1`, sha256 of the files, every `GGML_KURN*` / `KURN_*` variable, the CPU
+  model and a hash of its flags, threads, context and batch sizes, KV types, speculative settings with the cost
+  table's hash, and the request's sampling parameters with the resolved seed.
+- `"kurn_rng_position": true` replaces the sequential sampling RNG with a uniform derived from (seed, position):
+  a request resumed from its own prefix continues with the same tokens, and batching or speculation cannot shift
+  the stream.
+
+`rsi/rsi_check.py --server ... --model ... --draft ... --table ...` checks all of this end to end in exact mode.
+`tests/test_llama_rsi.py` checks the patch, the checkout and the hash-chain format.
+
 ## AMX caveat
 
 On the KVM guest used for development, AMX tile registers are not reliably preserved across context switches: with

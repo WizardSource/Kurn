@@ -1,0 +1,888 @@
+diff --git a/common/common.h b/common/common.h
+index 7e8c8f8aa..191a3d918 100644
+--- a/common/common.h
++++ b/common/common.h
+@@ -225,6 +225,7 @@ inline bool common_grammar_needs_prefill(const common_grammar & g) {
+ // sampling parameters
+ struct common_params_sampling {
+     uint32_t seed = LLAMA_DEFAULT_SEED; // the seed used to initialize llama_sampler
++    bool rng_position = false;          // kurn: draw each token's uniform from (seed, position) instead of a sequential stream
+ 
+     int32_t n_prev             = 64;     // number of previous tokens to remember
+     int32_t n_probs            = 0;      // if greater than 0, output the probabilities of top n_probs tokens.
+@@ -336,6 +337,7 @@ struct common_params_speculative_draft {
+     bool backend_sampling = true; // offload draft sampling to the backend (default: on)
+ 
+     bool probabilistic = false; // sample the draft and verify by rejection, instead of argmax and match
++    bool lazy_sync     = false; // kurn: skip mirroring target batches into the draft context; catch up from the prompt before drafting
+ 
+     common_params_model mparams;
+ 
+diff --git a/common/sampling.cpp b/common/sampling.cpp
+index d9c508049..c02fc042c 100644
+--- a/common/sampling.cpp
++++ b/common/sampling.cpp
+@@ -188,6 +188,114 @@ std::string common_params_sampling::print() const {
+     return std::string(result);
+ }
+ 
++// kurn position-keyed sampling: a drop-in for the `dist` sampler whose uniform for each token is a hash of
++// (seed, position) instead of the next draw of a sequential stream. The position is the number of tokens
++// the sampler has accepted since its last reset; the server accepts every prompt token after a reset, so
++// for text prompts it equals the token's position in the sequence. A token's draw therefore does not
++// depend on how the request was split, batched, speculated or resumed from a cached prefix.
++struct kurn_dist_pos {
++    uint32_t seed;
++    uint64_t pos;
++};
++
++static uint64_t kurn_mix64(uint64_t x) {
++    x += 0x9e3779b97f4a7c15ULL;
++    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
++    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
++    return x ^ (x >> 31);
++}
++
++double kurn_position_uniform(uint32_t seed, uint64_t pos) {
++    return (double) (kurn_mix64(kurn_mix64(seed) ^ pos) >> 11) * 0x1.0p-53;
++}
++
++static const char * kurn_dist_pos_name(const struct llama_sampler * /*smpl*/) {
++    return "kurn-dist-pos";
++}
++
++static void kurn_dist_pos_accept(struct llama_sampler * smpl, llama_token /*token*/) {
++    ((kurn_dist_pos *) smpl->ctx)->pos++;
++}
++
++static void kurn_dist_pos_apply(struct llama_sampler * smpl, llama_token_data_array * cur_p) {
++    const auto * ctx = (const kurn_dist_pos *) smpl->ctx;
++    if (cur_p->size == 0) {
++        cur_p->selected = -1;
++        return;
++    }
++    cur_p->selected = 0;
++    if (cur_p->size == 1) {
++        cur_p->data[0].p = 1.0f;
++        return;
++    }
++    float max_l = cur_p->data[0].logit;
++    for (size_t i = 1; i < cur_p->size; ++i) {
++        max_l = std::max(max_l, cur_p->data[i].logit);
++    }
++    double sum_cum = 0.0;
++    for (size_t i = 0; i < cur_p->size; ++i) {
++        const float p = expf(cur_p->data[i].logit - max_l);
++        cur_p->data[i].p = p;
++        sum_cum += p;
++    }
++    const double sum_tgt = sum_cum * kurn_position_uniform(ctx->seed, ctx->pos);
++    double sum_run = 0.0;
++    bool found = false;
++    for (size_t i = 0; i < cur_p->size; ++i) {
++        if (!found) {
++            sum_run += cur_p->data[i].p;
++            if (sum_run >= sum_tgt) {
++                cur_p->selected = i;
++                found = true;
++            }
++        }
++        cur_p->data[i].p /= sum_cum;
++    }
++    if (!found) {
++        cur_p->selected = cur_p->size - 1;
++    }
++}
++
++static void kurn_dist_pos_reset(struct llama_sampler * smpl) {
++    ((kurn_dist_pos *) smpl->ctx)->pos = 0;
++}
++
++static struct llama_sampler * kurn_dist_pos_clone(const struct llama_sampler * smpl);
++
++static void kurn_dist_pos_free(struct llama_sampler * smpl) {
++    delete (kurn_dist_pos *) smpl->ctx;
++}
++
++static void kurn_dist_pos_copy_state(const struct llama_sampler * src, struct llama_sampler * dst) {
++    *(kurn_dist_pos *) dst->ctx = *(const kurn_dist_pos *) src->ctx;
++}
++
++static struct llama_sampler_i kurn_dist_pos_i = {
++    /* .name              = */ kurn_dist_pos_name,
++    /* .accept            = */ kurn_dist_pos_accept,
++    /* .apply             = */ kurn_dist_pos_apply,
++    /* .reset             = */ kurn_dist_pos_reset,
++    /* .clone             = */ kurn_dist_pos_clone,
++    /* .free              = */ kurn_dist_pos_free,
++    /* .backend_init      = */ nullptr,
++    /* .backend_accept    = */ nullptr,
++    /* .backend_apply     = */ nullptr,
++    /* .backend_set_input = */ nullptr,
++    /* .backend_reset     = */ nullptr,
++    /* .copy_state        = */ kurn_dist_pos_copy_state,
++};
++
++static struct llama_sampler * kurn_dist_pos_clone(const struct llama_sampler * smpl) {
++    return llama_sampler_init(&kurn_dist_pos_i, new kurn_dist_pos(*(const kurn_dist_pos *) smpl->ctx));
++}
++
++static struct llama_sampler * kurn_sampler_init_dist_pos(uint32_t seed) {
++    if (seed == LLAMA_DEFAULT_SEED) {
++        seed = std::random_device{}();
++    }
++    return llama_sampler_init(&kurn_dist_pos_i, new kurn_dist_pos{ seed, 0 });
++}
++
+ struct common_sampler * common_sampler_init(
+         const struct llama_model * model,
+         struct common_params_sampling & params) {
+@@ -400,7 +508,7 @@ struct common_sampler * common_sampler_init(
+             samplers.push_back(llama_sampler_init_adaptive_p(params.adaptive_target, params.adaptive_decay, params.seed));
+         } else {
+             // default: sample from distribution
+-            samplers.push_back(llama_sampler_init_dist(params.seed));
++            samplers.push_back(params.rng_position ? kurn_sampler_init_dist_pos(params.seed) : llama_sampler_init_dist(params.seed));
+         }
+     } else if (params.mirostat == 1) {
+         samplers.push_back(llama_sampler_init_temp(params.temp));
+@@ -845,6 +953,13 @@ std::vector<llama_token> common_sampler_sample_and_accept_n(struct common_sample
+ }
+ 
+ uint32_t common_sampler_get_seed(const struct common_sampler * gsmpl) {
++    const int32_t n = llama_sampler_chain_n(gsmpl->chain);
++    for (int32_t i = 0; i < n; i++) {
++        const llama_sampler * smpl = llama_sampler_chain_get(gsmpl->chain, i);
++        if (smpl->iface == &kurn_dist_pos_i) {
++            return ((const kurn_dist_pos *) smpl->ctx)->seed;
++        }
++    }
+     return llama_sampler_get_seed(gsmpl->chain);
+ }
+ 
+diff --git a/common/sampling.h b/common/sampling.h
+index 7ebae3df8..d7234e057 100644
+--- a/common/sampling.h
++++ b/common/sampling.h
+@@ -93,6 +93,9 @@ std::vector<llama_token> common_sampler_sample_and_accept_n(struct common_sample
+ 
+ uint32_t common_sampler_get_seed(const struct common_sampler * gsmpl);
+ 
++// kurn position-keyed sampling (common_params_sampling.rng_position): the uniform drawn for position pos
++double kurn_position_uniform(uint32_t seed, uint64_t pos);
++
+ // force the reasoning budget sampler (if any) to begin forcing its end sequence now.
+ bool common_sampler_reasoning_budget_force(struct common_sampler * gsmpl);
+ 
+diff --git a/common/speculative.cpp b/common/speculative.cpp
+index 898a69c85..17197eddb 100644
+--- a/common/speculative.cpp
++++ b/common/speculative.cpp
+@@ -304,6 +304,11 @@ struct common_speculative_impl_draft_simple : public common_speculative_impl {
+     bool process(const common_batch & batch_in) override {
+         auto * ctx_dft = params.ctx_dft;
+ 
++        // kurn lazy sync: the draft context catches up from the prompt in draft(), only when it drafts
++        if (params.lazy_sync) {
++            return true;
++        }
++
+         // copy the entries to a batch owned by the draft context, only the last token is output
+         batch.clear();
+         const int32_t n_tokens = batch_in.size();
+@@ -347,9 +352,42 @@ struct common_speculative_impl_draft_simple : public common_speculative_impl {
+         return true;
+     }
+ 
++    // kurn lazy sync: decode the committed tokens the draft context has not seen yet. The server keeps the
++    // draft memory a position-aligned prefix of the target's (slot.mem removes and shifts both), so the
++    // missing range is prompt[pos_max + 1, pos0) for text prompts, whose positions equal their indices.
++    bool catch_up(llama_seq_id seq_id, const common_speculative_draft_params & dp) {
++        auto * ctx_dft = params.ctx_dft;
++        const llama_tokens & prompt = *dp.prompt;
++        if (dp.pos0 != (llama_pos) prompt.size()) {
++            return false;
++        }
++        const llama_pos p_have = llama_memory_seq_pos_max(llama_get_memory(ctx_dft), seq_id) + 1;
++        const int32_t n_batch = (int32_t) llama_n_batch(ctx_dft);
++        for (llama_pos p = p_have; p < dp.pos0; ) {
++            batch.clear();
++            for (; p < dp.pos0 && batch.size() < n_batch; p++) {
++                batch.add(prompt[p], p, seq_id, false);
++            }
++            if (llama_process(ctx_dft, LLAMA_PROCESS_TYPE_DECODE, batch.get()) != 0) {
++                SPC_ERR("lazy draft catch-up failed for seq %d\n", seq_id);
++                return false;
++            }
++        }
++        return true;
++    }
++
+     void draft(common_speculative_draft_params_vec & dparams) override {
+         auto & ctx_dft = params.ctx_dft;
+ 
++        if (params.lazy_sync) {
++            for (llama_seq_id seq_id = 0; seq_id < (llama_seq_id) n_seq; ++seq_id) {
++                auto & dp = dparams[seq_id];
++                if (dp.drafting && !catch_up(seq_id, dp)) {
++                    dp.drafting = false;  // cannot sync: no draft from this implementation this step
++                }
++            }
++        }
++
+         batch.clear();
+ 
+         // keep track of which sequences are still drafting
+@@ -383,6 +421,10 @@ struct common_speculative_impl_draft_simple : public common_speculative_impl {
+             batch.add(dp.id_last, dp.pos0, seq_id, true);
+         }
+ 
++        if (n_drafting == 0) {
++            return;
++        }
++
+         int ret = llama_process(ctx_dft, LLAMA_PROCESS_TYPE_DECODE, batch.get());
+         if (ret != 0) {
+             SPC_ERR("llama_process returned %d\n", ret);
+@@ -2893,13 +2935,38 @@ void common_speculative_draft(common_speculative * spec) {
+         }
+     }
+ 
++    for (llama_seq_id seq_id = 0; seq_id < (llama_seq_id) dparams.size(); ++seq_id) {
++        if (dparams[seq_id].drafting) {
++            spec->impl_last[seq_id] = nullptr;
++        }
++    }
++
++    std::vector<llama_seq_id> skipped;
++
+     for (auto & impl : spec->impls) {
+-        {
++        // kurn arm selection: sequences whose selector declines this implementation sit this one out
++        skipped.clear();
++        int n_allowed = 0;
++        for (llama_seq_id seq_id = 0; seq_id < (llama_seq_id) dparams.size(); ++seq_id) {
++            auto & dp = dparams[seq_id];
++            if (dp.drafting && dp.allow_impl && !dp.allow_impl(impl->type)) {
++                dp.drafting = false;
++                skipped.push_back(seq_id);
++            } else if (dp.drafting) {
++                n_allowed++;
++            }
++        }
++
++        if (n_allowed > 0) {
+             common_time_meas tm(impl->t_draft_us, !impl->gen_perf);
+             impl->draft(dparams);
+             impl->n_call_draft++;
+         }
+ 
++        for (llama_seq_id seq_id : skipped) {
++            dparams[seq_id].drafting = true;
++        }
++
+         int n_drafting = 0;
+ 
+         for (llama_seq_id seq_id = 0; seq_id < (llama_seq_id) dparams.size(); ++seq_id) {
+@@ -2911,6 +2978,20 @@ void common_speculative_draft(common_speculative * spec) {
+ 
+             auto & result = *dp.result;
+ 
++            // kurn arm selection: keep a prefix of the draft, or reject it and let the next implementation try
++            if (!result.empty() && dp.on_draft) {
++                const int n_keep = dp.on_draft(impl->type, result);
++                if (n_keep < (int) result.size()) {
++                    result.resize(std::max(0, n_keep));
++                    if (dp.result_q) {
++                        dp.result_q->resize(result.size());
++                    }
++                    if (dp.result_p && dp.result_p->size() > result.size()) {
++                        dp.result_p->resize(result.size());
++                    }
++                }
++            }
++
+             // a new draft has been sampled
+             if (dp.drafting && !result.empty()) {
+                 dp.drafting = false;
+@@ -2960,6 +3041,26 @@ void common_speculative_draft(common_speculative * spec) {
+     }
+ }
+ 
++common_speculative_type common_speculative_get_last_type(const common_speculative * spec, llama_seq_id seq_id) {
++    if (spec == nullptr || seq_id < 0 || seq_id >= (llama_seq_id) spec->impl_last.size() || spec->impl_last[seq_id] == nullptr) {
++        return COMMON_SPECULATIVE_TYPE_NONE;
++    }
++    return spec->impl_last[seq_id]->type;
++}
++
++bool common_speculative_type_is_lookup(common_speculative_type type) {
++    switch (type) {
++        case COMMON_SPECULATIVE_TYPE_NGRAM_SIMPLE:
++        case COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K:
++        case COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K4V:
++        case COMMON_SPECULATIVE_TYPE_NGRAM_MOD:
++        case COMMON_SPECULATIVE_TYPE_NGRAM_CACHE:
++            return true;
++        default:
++            return false;
++    }
++}
++
+ void common_speculative_accept(common_speculative * spec, llama_seq_id seq_id, uint16_t n_accepted) {
+     common_speculative_impl * impl = spec->impl_last[seq_id];
+ 
+diff --git a/common/speculative.h b/common/speculative.h
+index 11ffdf434..a0963b608 100644
+--- a/common/speculative.h
++++ b/common/speculative.h
+@@ -84,6 +84,13 @@ struct common_speculative_draft_params {
+ 
+     // draft-simple: asked after each drafted token with the confidences so far; false stops drafting
+     std::function<bool(const std::vector<float> &)> keep_drafting = nullptr;
++
++    // kurn arm selection, if set: asked before an implementation drafts this sequence (false skips it)
++    std::function<bool(enum common_speculative_type)> allow_impl = nullptr;
++
++    // kurn arm selection, if set: asked after an implementation drafted; returns how many tokens to keep,
++    // 0 rejects the draft and lets the next implementation try
++    std::function<int(enum common_speculative_type, const llama_tokens &)> on_draft = nullptr;
+ };
+ 
+ common_speculative_draft_params & common_speculative_get_draft_params(common_speculative * spec, llama_seq_id seq_id);
+@@ -97,6 +104,12 @@ bool common_speculative_process(common_speculative * spec, const common_batch &
+ // generate drafts for the sequences specified with `common_speculative_get_draft_params`
+ void common_speculative_draft(common_speculative * spec);
+ 
++// the implementation that produced the last draft of seq_id (NONE if none)
++enum common_speculative_type common_speculative_get_last_type(const common_speculative * spec, llama_seq_id seq_id);
++
++// true for drafters that look up the prompt and the generated history (no draft model)
++bool common_speculative_type_is_lookup(enum common_speculative_type type);
++
+ // informs the speculative context that n_accepted tokens were accepted by the target model
+ void common_speculative_accept(common_speculative * spec, llama_seq_id, uint16_t n_accepted);
+ 
+diff --git a/tools/server/CMakeLists.txt b/tools/server/CMakeLists.txt
+index 70b8d7da8..50dcfacdb 100644
+--- a/tools/server/CMakeLists.txt
++++ b/tools/server/CMakeLists.txt
+@@ -34,6 +34,7 @@ endif()
+ target_include_directories(${TARGET} PRIVATE ../mtmd)
+ target_include_directories(${TARGET} PRIVATE ${PROJECT_SOURCE_DIR})
+ target_link_libraries(${TARGET} PUBLIC llama-common mtmd ${CMAKE_THREAD_LIBS_INIT})
++target_link_libraries(${TARGET} PRIVATE vendor::hash) # kurn replay: sha256
+ 
+ # llama-server-impl: server logic, reusable by app
+ 
+diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
+index eae050504..a696e6f78 100644
+--- a/tools/server/server-context.cpp
++++ b/tools/server/server-context.cpp
+@@ -16,6 +16,7 @@
+ #include "sampling.h"
+ #include "speculative.h"
+ #include "kurn-spec-width.h"
++#include "kurn-replay.h"
+ #include "mtmd.h"
+ #include "mtmd-helper.h"
+ 
+@@ -356,6 +357,17 @@ struct server_slot {
+     int                kurn_n_truncated = 0;
+     int64_t            kurn_t_step0 = 0;
+ 
++    // kurn arm selector (--spec-width with n-gram types): retrieval drafts vs the draft model, chosen per step
++    std::unique_ptr<kurn::arm_selector> kurn_arms;
++    int kurn_arm           = kurn::arm_selector::NONE; // arm that drafted this step
++    int kurn_arm_steps[3]  = {0, 0, 0};                // steps per arm (none, retrieval, model), this task
++    int kurn_arm_accept[3] = {0, 0, 0};                // accepted draft tokens per arm, this task
++    int kurn_arm_draft[3]  = {0, 0, 0};                // drafted tokens per arm, this task
++
++    // kurn replay: probabilities of the tokens committed by the last verification, and the hash chain
++    std::vector<completion_token_output> kurn_spec_probs;
++    kurn::hash_chain kurn_chain;
++
+     std::function<void(int /* id_slot */)>   callback_on_release;
+     std::function<void(const server_slot &)> callback_on_reset; // called before reset()
+ 
+@@ -383,6 +395,11 @@ struct server_slot {
+         }
+         kurn_n_width.clear();
+         kurn_n_truncated = 0;
++        for (int a = 0; a < 3; a++) {
++            kurn_arm_steps[a] = kurn_arm_accept[a] = kurn_arm_draft[a] = 0;
++        }
++        kurn_t_step0 = 0;
++        kurn_chain.reset();
+         generated_tokens.clear();
+         generated_token_probs.clear();
+         json_schema = json();
+@@ -708,6 +725,18 @@ struct server_slot {
+                     s.c_str(), kurn_n_truncated, kurn_width->alpha(), kurn_width->lam());
+         }
+ 
++        if (kurn_arms) {
++            std::string s;
++            for (const auto & [w, n] : kurn_n_width) {
++                s += " " + std::to_string(w) + ":" + std::to_string(n);
++            }
++            SLT_INF(*this, "kurn spec arms: steps none %d, retrieval %d (%d/%d accepted), model %d (%d/%d accepted); "
++                    "alpha retrieval %.3f model %.3f, lambda %.4f tok/ms; verify widths (M:steps) =%s\n",
++                    kurn_arm_steps[0], kurn_arm_steps[1], kurn_arm_accept[1], kurn_arm_draft[1],
++                    kurn_arm_steps[2], kurn_arm_accept[2], kurn_arm_draft[2],
++                    kurn_arms->retr.alpha(), kurn_arms->model.alpha(), kurn_arms->lam(), s.c_str());
++        }
++
+         common_speculative_print_stats(spec);
+     }
+ 
+@@ -940,6 +969,8 @@ private:
+     common_speculative_init_result_ptr spec_init;
+ 
+     kurn::verify_cost_table kurn_width_table;  // empty without --spec-width
++    bool kurn_arm_mode = false;                // --spec-width with n-gram types: per-step arm selection
++    json kurn_manifest_static;                 // run manifest fields fixed at startup
+ 
+     common_context_seq_rm_type ctx_tgt_seq_rm_type = COMMON_CONTEXT_SEQ_RM_TYPE_NO;
+     common_context_seq_rm_type ctx_dft_seq_rm_type = COMMON_CONTEXT_SEQ_RM_TYPE_NO;
+@@ -1351,6 +1382,26 @@ private:
+             }
+         }
+ 
++        // kurn arm selection: with a cost table and n-gram types, retrieval drafts and the draft model are
++        // chosen per step. The draft model then syncs lazily (only when it drafts), unless KURN_SPEC_LAZY=0.
++        {
++            const auto & types = params_base.speculative.types;
++            const bool has_lookup = std::any_of(types.begin(), types.end(), common_speculative_type_is_lookup);
++            kurn_arm_mode = kurn_width_table.m_max() > 0 && has_lookup;
++            const bool lazy_off = getenv("KURN_SPEC_LAZY") && !strcmp(getenv("KURN_SPEC_LAZY"), "0");
++            if (kurn_arm_mode && params_base.speculative.draft.ctx_dft && !mctx && !lazy_off) {
++                params_base.speculative.draft.lazy_sync = true;
++            }
++            if (kurn_arm_mode) {
++                SRV_INF("kurn spec arms: retrieval (%s) vs %s, per step; draft sync %s\n",
++                        common_speculative_type_name_str(types).c_str(),
++                        params_base.speculative.draft.ctx_dft ? "draft model" : "no draft model",
++                        params_base.speculative.draft.lazy_sync ? "lazy" : "eager");
++            }
++        }
++
++        kurn_manifest_init();
++
+         // try speculative decoding
+         if (ctx_tgt_seq_rm_type != COMMON_CONTEXT_SEQ_RM_TYPE_NO) {
+             try {
+@@ -1393,7 +1444,15 @@ private:
+             slot.mctx                   = mctx;
+             slot.prompt.tokens.has_mtmd = mctx != nullptr;
+ 
+-            if (kurn_width_table.m_max() > 0 && spec) {
++            if (kurn_arm_mode && spec) {
++                const auto & types = params_base.speculative.types;
++                const bool has_model = ctx_dft != nullptr &&
++                    std::find(types.begin(), types.end(), COMMON_SPECULATIVE_TYPE_DRAFT_SIMPLE) != types.end();
++                slot.kurn_arms = std::make_unique<kurn::arm_selector>();
++                slot.kurn_arms->init(kurn_width_table,
++                        std::min<int>(params_base.speculative.draft.n_max, kurn_width_table.m_max() - 1),
++                        kurn_width_table.m_max() - 1, has_model, true);
++            } else if (kurn_width_table.m_max() > 0 && spec) {
+                 slot.kurn_width = std::make_unique<kurn::width_policy>();
+                 slot.kurn_width->init(kurn_width_table, std::min<int>(params_base.speculative.draft.n_max, kurn_width_table.m_max() - 1));
+                 slot.kurn_width_cap = params_base.speculative.draft.kurn_width_cap;
+@@ -1896,6 +1955,9 @@ private:
+             // TODO: getting pre sampling logits is not yet supported with backend sampling
+             use_backend_sampling &= !need_pre_sample_logits;
+ 
++            // kurn replay and position-keyed sampling run on the CPU sampler chain
++            use_backend_sampling &= task.params.kurn_replay == 0 && !task.params.sampling.rng_position;
++
+             // TODO: tmp until backend sampling is fully implemented
+             if (use_backend_sampling) {
+                 llama_set_sampler(ctx_tgt, slot.id, common_sampler_get(slot.smpl.get()));
+@@ -1921,6 +1983,12 @@ private:
+ 
+         slot.task = std::make_unique<const server_task>(std::move(task));
+ 
++        if (slot.task->params.kurn_replay > 0 && slot.task->need_sampling()) {
++            slot.kurn_chain.init(slot.task->tokens.get_text_tokens(), slot.task->params.kurn_replay > 1);
++        } else {
++            slot.kurn_chain.reset();
++        }
++
+         slot.state = slot.task->is_child()
+             ? SLOT_STATE_WAIT_OTHER // wait for the parent to process prompt
+             : SLOT_STATE_STARTED;
+@@ -2063,6 +2131,136 @@ private:
+         return slot.has_next_token; // continue
+     }
+ 
++    // kurn: probabilities of result.tok and the top n tokens at batch index idx, pre-sampling (from the logits)
++    // or post-sampling (the candidates smpl has just produced); piece strings are left empty
++    void kurn_fill_probs(const common_sampler * smpl, completion_token_output & result, bool post_sampling, int idx, size_t n) const {
++        result.prob = 1.0f;  // as populate_token_probs: kept when the token is not among the candidates
++        result.probs.clear();
++        if (post_sampling) {
++            const auto * cur_p = common_sampler_get_candidates(const_cast<common_sampler *>(smpl), true);
++            for (size_t i = 0; i < cur_p->size; i++) {
++                if (cur_p->data[i].id == result.tok) {
++                    result.prob = cur_p->data[i].p;
++                    break;
++                }
++            }
++            for (size_t i = 0; i < std::min(n, (size_t) cur_p->size) && cur_p->data[i].p != 0.0; i++) {
++                result.probs.push_back({ cur_p->data[i].id, common_token_to_piece(ctx_tgt, cur_p->data[i].id, params_base.special), cur_p->data[i].p });
++            }
++        } else {
++            const std::vector<llama_token_data> cur = get_token_probabilities(ctx_tgt, idx, n);
++            for (const auto & c : cur) {
++                if (c.id == result.tok) {
++                    result.prob = c.p;
++                    break;
++                }
++            }
++            for (size_t i = 0; i < std::min(n, cur.size()); i++) {
++                result.probs.push_back({ cur[i].id, common_token_to_piece(ctx_tgt, cur[i].id, params_base.special), cur[i].p });
++            }
++        }
++    }
++
++    void kurn_chain_add(server_slot & slot, const completion_token_output & r) const {
++        std::vector<std::pair<int32_t, float>> top;
++        top.reserve(r.probs.size());
++        for (const auto & p : r.probs) {
++            top.emplace_back(p.tok, p.prob);
++        }
++        slot.kurn_chain.add(r.tok, r.prob, top);
++    }
++
++    // run manifest: what determines a run's numerics and sampling, fixed at startup
++    void kurn_manifest_init() {
++        auto model_info = [](const std::string & path) {
++            json m = { {"path", path} };
++            if (path.empty()) {
++                return m;
++            }
++            if (FILE * f = fopen(path.c_str(), "rb")) {
++                fseek(f, 0, SEEK_END);
++                m["bytes"] = (int64_t) ftell(f);
++                fclose(f);
++            }
++            const char * want = getenv("KURN_MANIFEST_SHA256");
++            m["sha256"] = want && strcmp(want, "0") ? json(kurn::file_sha256(path)) : json(nullptr);
++            return m;
++        };
++        json env = json::object();
++        extern char ** environ;
++        for (char ** e = environ; *e; e++) {
++            const std::string kv = *e;
++            if (kv.rfind("GGML_KURN", 0) == 0 || kv.rfind("KURN_", 0) == 0) {
++                const size_t eq = kv.find('=');
++                env[kv.substr(0, eq)] = eq == std::string::npos ? "" : kv.substr(eq + 1);
++            }
++        }
++        const auto [cpu_name, cpu_flags] = kurn::cpu_fingerprint();
++        const std::string table = params_base.speculative.draft.kurn_width.empty() && getenv("KURN_SPEC_WIDTH")
++            ? getenv("KURN_SPEC_WIDTH") : params_base.speculative.draft.kurn_width;
++        kurn_manifest_static = {
++            {"version",        1},
++            {"llama_build",    llama_build_info()},
++#ifdef KURN_INTEGRATION_SHA256
++            {"kurn_integration_sha256", KURN_INTEGRATION_SHA256},
++#endif
++#ifdef KURN_VERSION
++            {"kurn_version",   KURN_VERSION},
++#endif
++            {"model",          model_info(params_base.model.path)},
++            {"draft_model",    model_info(params_base.speculative.draft.mparams.path)},
++            {"env",            env},
++            {"cpu",            { {"model_name", cpu_name}, {"flags_sha256", cpu_flags} }},
++            {"threads",        params_base.cpuparams.n_threads},
++            {"threads_batch",  params_base.cpuparams_batch.n_threads},
++            {"n_ctx",          params_base.n_ctx},
++            {"n_batch",        params_base.n_batch},
++            {"n_ubatch",       params_base.n_ubatch},
++            {"n_parallel",     params_base.n_parallel},
++            {"cache_type_k",   ggml_type_name(params_base.cache_type_k)},
++            {"cache_type_v",   ggml_type_name(params_base.cache_type_v)},
++            {"flash_attn",     llama_flash_attn_type_name(params_base.flash_attn_type)},
++            {"spec_types",     common_speculative_type_name_str(params_base.speculative.types)},
++            {"spec_draft_n_max", params_base.speculative.draft.n_max},
++            {"spec_width_table", table.empty() ? json(nullptr) : json({ {"path", table}, {"sha256", kurn::file_sha256(table)} })},
++            {"spec_lazy_sync", params_base.speculative.draft.lazy_sync},
++        };
++    }
++
++    json kurn_replay_json(const server_slot & slot) const {
++        const auto & sp = slot.task->params.sampling;
++        json manifest = kurn_manifest_static;
++        manifest["sampling"] = {
++            {"seed",        slot.smpl ? common_sampler_get_seed(slot.smpl.get()) : sp.seed},
++            {"rng",         sp.rng_position ? "position" : "sequential"},
++            {"temp",        sp.temp},
++            {"top_k",       sp.top_k},
++            {"top_p",       sp.top_p},
++            {"min_p",       sp.min_p},
++            {"samplers",    [&sp]() {
++                std::vector<std::string> v;
++                for (const auto t : sp.samplers) {
++                    v.push_back(common_sampler_type_to_str(t));
++                }
++                return v;
++            }()},
++            {"n_probs",     sp.n_probs},
++            {"post_sampling_probs", slot.task->params.post_sampling_probs},
++        };
++        json out = {
++            {"manifest",        manifest},
++            {"manifest_sha256", kurn::string_sha256(manifest.dump())},
++            {"hash_chain",      slot.kurn_chain.hex()},
++            {"n_tokens",        slot.kurn_chain.n_tokens()},
++            {"hashed",          "token, prob of the token, top-k (id, prob), k = max(n_probs, 1); "
++                                + std::string(slot.task->params.post_sampling_probs ? "post" : "pre") + "-sampling"},
++        };
++        if (slot.task->params.kurn_replay > 1) {
++            out["per_token"] = slot.kurn_chain.per_token();
++        }
++        return out;
++    }
++
+     void populate_token_probs(const server_slot & slot, completion_token_output & result, bool post_sampling, bool special, int idx) const {
+         const size_t n_probs_request = slot.task->params.sampling.n_probs;
+ 
+@@ -2222,6 +2420,9 @@ private:
+         res->stopping_word         = slot.stopping_word;
+         res->stop                  = slot.stop;
+         res->post_sampling_probs   = slot.task->params.post_sampling_probs;
++        if (slot.task->params.kurn_replay > 0) {
++            res->kurn_replay = kurn_replay_json(slot);
++        }
+ 
+         res->verbose           = slot.task->params.verbose;
+         res->stream            = slot.task->params.stream;
+@@ -3193,7 +3394,11 @@ private:
+                         const bool spec_reject = slot.use_spec_rejection();
+ 
+                         int n_max = n_draft_max;
+-                        if (slot.kurn_width) {
++                        if (slot.kurn_arms) {
++                            n_max = std::min(n_max, kurn_width_table.m_max() - 1);
++                            slot.kurn_t_step0 = ggml_time_us();
++                            slot.kurn_arm = kurn::arm_selector::NONE;
++                        } else if (slot.kurn_width) {
+                             n_max = std::min(n_max, slot.kurn_width_cap ? slot.kurn_width->n_cap() : slot.kurn_width->k_max());
+                             slot.kurn_t_step0 = ggml_time_us();
+                         }
+@@ -3213,7 +3418,40 @@ private:
+                             /* .seed     = */ slot.task->params.sampling.seed,
+                         };
+ 
+-                        if (slot.kurn_width) {
++                        if (slot.kurn_arms) {
++                            auto & dp = common_speculative_get_draft_params(spec.get(), slot.id);
++                            slot.kurn_draft_p.clear();
++                            dp.result_p = &slot.kurn_draft_p;
++                            kurn::arm_selector * sel = slot.kurn_arms.get();
++                            int * arm = &slot.kurn_arm;
++                            // lazy sync: the draft model first decodes what it has not seen; that catch-up is
++                            // charged against its gain over the rest of the request
++                            double catchup_ms = 0.0;
++                            int horizon = -1;
++                            if (params_base.speculative.draft.lazy_sync && ctx_dft) {
++                                const llama_pos have = llama_memory_seq_pos_max(llama_get_memory(ctx_dft), slot.id) + 1;
++                                const int n_catch = std::max<int>(0, slot.prompt.tokens.pos_next() - have);
++                                const auto & dm = kurn_width_table.draft_ms;
++                                catchup_ms = dm.empty() ? 0.0 : n_catch * dm.back() / (double) dm.size();
++                                horizon = slot.n_remaining() > 0 ? slot.n_remaining() : 512;
++                            }
++                            dp.allow_impl = [sel, catchup_ms, horizon](common_speculative_type t) {
++                                return common_speculative_type_is_lookup(t) ? sel->has_retr : sel->allow_model(catchup_ms, horizon);
++                            };
++                            dp.on_draft = [sel, arm](common_speculative_type t, const llama_tokens & r) {
++                                if (common_speculative_type_is_lookup(t)) {
++                                    const int k = sel->take_retrieval((int) r.size());
++                                    if (k > 0) {
++                                        *arm = kurn::arm_selector::RETRIEVAL;
++                                    }
++                                    return k;
++                                }
++                                *arm = kurn::arm_selector::MODEL;
++                                return (int) r.size();
++                            };
++                            kurn::width_policy * w = &sel->model;
++                            dp.keep_drafting = [w](const std::vector<float> & p) { return w->keep_drafting(p); };
++                        } else if (slot.kurn_width) {
+                             auto & dp = common_speculative_get_draft_params(spec.get(), slot.id);
+                             slot.kurn_draft_p.clear();
+                             dp.result_p = &slot.kurn_draft_p;
+@@ -3241,6 +3479,27 @@ private:
+             auto & draft = slot.spec_draft;
+             auto & ckpt  = slot.spec_ckpt;
+ 
++            if (slot.kurn_arms) {
++                if (slot.kurn_arm != kurn::arm_selector::MODEL) {
++                    slot.kurn_draft_p.clear();
++                }
++                slot.kurn_draft_p.resize(draft.size(), -1.0f);
++                if (slot.kurn_arm == kurn::arm_selector::MODEL) {
++                    const size_t k = (size_t) slot.kurn_arms->model.truncate(slot.kurn_draft_p);
++                    if (k < draft.size()) {
++                        slot.kurn_n_truncated++;
++                        draft.resize(k);
++                        slot.kurn_draft_p.resize(k);
++                        if (!slot.spec_draft_q.empty()) {
++                            slot.spec_draft_q.resize(k);
++                        }
++                    }
++                }
++                if (draft.empty()) {
++                    slot.kurn_arm = kurn::arm_selector::NONE;
++                }
++            }
++
+             if (slot.kurn_width) {
+                 // drafters without confidences report -1 (unknown) for each token
+                 slot.kurn_draft_p.resize(draft.size(), -1.0f);
+@@ -4145,6 +4404,23 @@ private:
+                 populate_token_probs(slot, result, slot.task->params.post_sampling_probs, params_base.special, tok_idx);
+             }
+ 
++            if (slot.kurn_arms && slot.kurn_t_step0 > 0) {
++                slot.kurn_arms->observe(kurn::arm_selector::NONE, {}, 0, (t_now - slot.kurn_t_step0) / 1000.0, 1);
++                slot.kurn_arm_steps[kurn::arm_selector::NONE]++;
++                slot.kurn_t_step0 = 0;
++            }
++
++            if (slot.kurn_chain.active()) {
++                if (slot.task->params.sampling.n_probs > 0) {
++                    kurn_chain_add(slot, result);
++                } else {
++                    completion_token_output kp;
++                    kp.tok = id;
++                    kurn_fill_probs(slot.smpl.get(), kp, slot.task->params.post_sampling_probs, tok_idx, 1);
++                    kurn_chain_add(slot, kp);
++                }
++            }
++
+             if (!process_token(result, slot)) {
+                 // release slot because of stop condition
+                 slot.print_timings();
+@@ -4193,10 +4469,45 @@ private:
+                 } else {
+                     accepted = common_sampler_sample_and_accept_n(slot.smpl.get(), slot.ctx_tgt, slot.spec_i_batch, slot.spec_draft);
+                 }
++
++                // probabilities of the committed tokens, as plain decoding would report them: pre-sampling from
++                // the verify batch's logits, post-sampling by replaying the positions on a copy of the sampler
++                slot.kurn_spec_probs.clear();
++                {
++                    const int32_t n_probs = slot.task->params.sampling.n_probs;
++                    if (n_probs > 0 || slot.kurn_chain.active()) {
++                        const bool post = slot.task->params.post_sampling_probs;
++                        common_sampler_ptr smpl_probs(post ? common_sampler_clone(smpl_save.get()) : nullptr);
++                        for (size_t i = 0; i < accepted.size(); i++) {
++                            completion_token_output kp;
++                            kp.tok = accepted[i];
++                            if (post) {
++                                common_sampler_sample(smpl_probs.get(), slot.ctx_tgt, slot.spec_i_batch[i]);
++                            }
++                            kurn_fill_probs(smpl_probs.get(), kp, post, slot.spec_i_batch[i], std::max<int32_t>(n_probs, 1));
++                            if (post) {
++                                common_sampler_accept(smpl_probs.get(), accepted[i], true);
++                            }
++                            slot.kurn_spec_probs.push_back(std::move(kp));
++                        }
++                    }
++                }
++
+                 slot.spec_i_batch.clear();
+ 
+                 GGML_ASSERT(accepted.size() >= 1);
+ 
++                if (slot.kurn_arms && !slot.spec_is_replay) {
++                    const int arm = slot.kurn_arm;
++                    slot.kurn_n_width[(int) n_draft + 1]++;
++                    slot.kurn_arm_steps[arm]++;
++                    slot.kurn_arm_accept[arm] += (int) accepted.size() - 1;
++                    slot.kurn_arm_draft[arm] += (int) n_draft;
++                    slot.kurn_arms->observe((kurn::arm_selector::arm) arm, slot.kurn_draft_p, (int) accepted.size() - 1,
++                                            (ggml_time_us() - slot.kurn_t_step0) / 1000.0, (int) accepted.size());
++                    slot.kurn_t_step0 = 0;
++                }
++
+                 if (slot.kurn_width && !slot.spec_is_replay) {
+                     slot.kurn_n_width[(int) n_draft + 1]++;
+                     slot.kurn_width->observe(slot.kurn_draft_p, (int) accepted.size() - 1,
+@@ -4286,7 +4597,19 @@ private:
+                 result.text_to_send = common_token_to_piece(slot.ctx_tgt, result.tok, accept_special_token(slot, result.tok));
+                 result.prob         = 1.0f; // set later
+ 
+-                // TODO: set result.probs
++                if (i < slot.kurn_spec_probs.size()) {
++                    const auto & kp = slot.kurn_spec_probs[i];
++                    if (slot.task->params.sampling.n_probs > 0) {
++                        result.prob  = kp.prob;
++                        result.probs = kp.probs;
++                        if (result.probs.size() > (size_t) slot.task->params.sampling.n_probs) {
++                            result.probs.resize(slot.task->params.sampling.n_probs);
++                        }
++                    }
++                    if (slot.kurn_chain.active()) {
++                        kurn_chain_add(slot, slot.task->params.sampling.n_probs > 0 ? result : kp);
++                    }
++                }
+ 
+                 slot.stats.n_gen += 1;
+ 
+diff --git a/tools/server/server-schema.cpp b/tools/server/server-schema.cpp
+index 27ecafb7a..e3fbcefad 100644
+--- a/tools/server/server-schema.cpp
++++ b/tools/server/server-schema.cpp
+@@ -190,6 +190,13 @@ std::vector<std::unique_ptr<field>> make_llama_cmpl_schema(const common_params &
+     add((new field_bool("post_sampling_probs", params.post_sampling_probs))
+         ->set_desc("Return probabilities of top n_probs tokens after applying the sampling chain"));
+ 
++    add((new field_num("kurn_replay", params.kurn_replay))
++        ->set_hard_limits(0, 2)
++        ->set_desc("kurn: 1 returns a run manifest and a hash chain over the generated tokens and their probabilities, 2 also per-token hashes"));
++
++    add((new field_bool("kurn_rng_position", params.sampling.rng_position))
++        ->set_desc("kurn: draw each token's random number from (seed, position), so a request replays the same tokens however it is batched, speculated or resumed"));
++
+     //
+     // Speculative decoding params
+     //
+diff --git a/tools/server/server-task.cpp b/tools/server/server-task.cpp
+index a5c33c056..4f471aafa 100644
+--- a/tools/server/server-task.cpp
++++ b/tools/server/server-task.cpp
+@@ -359,6 +359,9 @@ json server_task_result_cmpl_final::to_json_non_oaicompat() {
+     if (!stream && !probs_output.empty()) {
+         res["completion_probabilities"] = completion_token_output::probs_vector_to_json(probs_output, post_sampling_probs);
+     }
++    if (!kurn_replay.is_null()) {
++        res["kurn_replay"] = kurn_replay;
++    }
+     return response_fields.empty() ? res : json_get_nested_values(response_fields, res);
+ }
+ 
+diff --git a/tools/server/server-task.h b/tools/server/server-task.h
+index 8c5fa9a68..d95d8bfd8 100644
+--- a/tools/server/server-task.h
++++ b/tools/server/server-task.h
+@@ -75,6 +75,7 @@ struct task_params {
+ 
+     bool timings_per_token   = false;
+     bool post_sampling_probs = false;
++    int32_t kurn_replay      = 0; // kurn: 1 = run manifest + probability hash chain in the response, 2 = also per-token hashes
+ 
+     struct common_params_sampling sampling;
+     struct common_params_speculative speculative;
+@@ -366,6 +367,8 @@ struct server_task_result_cmpl_final : server_task_result {
+     std::vector<completion_token_output> probs_output;
+     std::vector<std::string>  response_fields;
+ 
++    json kurn_replay; // kurn: manifest + hash chain when requested (null otherwise)
++
+     task_params generation_params;
+ 
+     // response formatting
