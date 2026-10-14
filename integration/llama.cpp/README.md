@@ -185,9 +185,14 @@ on average); kurn's attention reads the groups directly (`kurn-attn.cpp`, kernel
   filled one token at a time, rolled back (rejected drafts) or partly cleared holds the same bytes as the same rows
   written at once; freed cells are cleared, so stale keys never widen a group's range. Older groups that left the table
   are re-encoded from their 4-bit values if they are ever rewritten.
-- **Session state** (prompt cache, `--slot-save-path` save / restore, `llama_state_seq_*`): K4C keys are written as f16
-  rows and re-quantized into whatever cells they are restored to; with the f16 table this restores the same codes. With
-  `GGML_KURN_FA_MODE=exact`, llama-server's cached, restored and recomputed continuations are bit-identical.
+- **Session state** (prompt cache, `--slot-save-path` save / restore, `llama_state_seq_*`): K4C keys are stored as native
+  group records, the size of the live cache (Qwen3-1.7B, 32K tokens: k4c_q4 1,065 MiB, k4c_q8 1,513 MiB; f16 rows were
+  2,296 / 2,744). A group that holds only the saved rows is stored as its bytes; the partial last group as the codec's
+  exact f16 values (re-encoding them gives the same bytes and keeps later appends exact); a group shared with other
+  sequences as f16 rows. Restored at the same in-group offsets the state is byte-exact and the logits that follow are
+  bit-identical; at other offsets the records are re-encoded (as close to F16 KV as the live run in `test_k4c_state.cpp`).
+  The row-size field marks the form: older f16-row files still load, and `LLAMA_K4C_STATE=f16` writes them for older
+  readers. With `GGML_KURN_FA_MODE=exact`, llama-server's cached, restored and recomputed continuations are bit-identical.
 - **K-shift** (llama-server's context shift, `--cache-reuse`, `llama_memory_seq_add` / `seq_div`): the shifted cells are
   read as floats (`ggml_get_rows_k4c`: the exact f16 values while the codec keeps them, else the 4-bit ones), rotated
   by their position delta with the f16 cache's RoPE and written back (`ggml_set_rows_k4c`), which re-encodes their
@@ -200,7 +205,8 @@ on average); kurn's attention reads the groups directly (`kurn-attn.cpp`, kernel
 `k4c/test_k4c.c` checks writes in llama.cpp's patterns (prefill ending inside a group, appends, rollback, out-of-order
 rows, clears), byte-identical groups for prefill vs appends + rollback, FA on K4C against ggml on the dequantized keys,
 batch invariance in exact mode and K-shift against keys written at the shifted positions; `k4c/test_kshift.cpp` checks
-K-shift end to end through libllama; `tests/test_llama_k4c.py` runs both against a built checkout.
+K-shift end to end through libllama; `k4c/test_k4c_state.cpp` checks session state (byte-exact restore, older
+files, restores at other cell offsets, sizes); `tests/test_llama_k4c.py` runs them against a built checkout.
 
 ## Speculative decoding: cost-aware verify width (`spec-width/`)
 

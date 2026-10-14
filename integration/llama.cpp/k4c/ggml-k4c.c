@@ -265,6 +265,30 @@ void ggml_k4c_get_group_src(const void * group, int64_t n_head, int64_t dk, uint
     }
 }
 
+uint32_t ggml_k4c_group_valid(const void * group, int64_t n_head, int64_t dk) {
+    uint32_t m = 0;
+    for (int r = 0; r < K4C_G; r++) {
+        if (!k4c_row_empty((const uint8_t *) group, n_head, dk, r)) {
+            m |= 1u << r;
+        }
+    }
+    return m;
+}
+
+uint32_t ggml_k4c_group_exact_f16(const void * group, int64_t n_head, int64_t dk, uint32_t rows, ggml_fp16_t * dst) {
+    const int64_t n = n_head * dk;
+    ggml_critical_section_start();
+    const k4c_exact_t * e = k4c_find(group);
+    const uint32_t got = e && e->n == n && e->hash == k4c_hash((const uint8_t *) group, (size_t) n * 20) ? e->valid & rows : 0;
+    for (int r = 0; r < K4C_G; r++) {
+        if (got >> r & 1) {
+            memcpy(dst + (size_t) r * n, e->x + (size_t) r * n, sizeof(ggml_fp16_t) * n);
+        }
+    }
+    ggml_critical_section_end();
+    return got;
+}
+
 struct ggml_tensor * ggml_get_rows_k4c(struct ggml_context * ctx, struct ggml_tensor * a, struct ggml_tensor * b, int dk) {
     GGML_ASSERT(a->type == GGML_TYPE_K4C && dk > 0 && dk % 32 == 0 && a->ne[0] % dk == 0);
     struct ggml_tensor * r = ggml_get_rows(ctx, a, b);
