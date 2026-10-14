@@ -1,6 +1,6 @@
-# kurn quickstart (0.3.0.dev3 full tree)
+# kurn quickstart (0.3.0.dev3 + the consolidated series)
 
-This checkout is 0.3.0.dev3 plus, in this order:
+This checkout is 0.3.0.dev3 plus, in this order (0001–0062 are on upstream `main`):
 
 - **merged:** attention, KV formats, verify width, GPU phase 1;
 - **llama-integration:** kurn attention, k4c KV and the selector in llama.cpp;
@@ -11,9 +11,40 @@ This checkout is 0.3.0.dev3 plus, in this order:
 - **0059–0061:** GPU attention A100 phase 2. Q8_0 KV dequantizes in registers, splits are short, MLA runs on 4 warps, and BF16 q is split hi + lo. This is driven by the first A100 run; speed still needs the A100.
 - **0062:** GPU kit v2. `run_kit.sh` runs everything in one command and writes one report, with llama.cpp / FlashInfer / FlashAttention-2 attention baselines.
 
-Each step below was run in order on 2026-10-07, on a fresh directory with a new venv, a fresh llama.cpp clone and models downloaded from Hugging Face. The machine was an 8-vCPU Emerald Rapids KVM guest (AMX, no GPU) with Ubuntu 24.04, gcc 13.3 and cmake 3.28. Step 7 ran as a dry run: CUDA 12.8 compilers, no GPU.
+The consolidated series (`integration/next`, patches 0063–0113) adds, in this order:
 
-Against llama.cpp `4ebdf2c`, the three `apply.sh` scripts in step 3 are the supported integration path.
+- **0063:** README fix (the kit's report.md is an output, not a path in the tree).
+- **gpu-packed, 0064–0070** (gpu-packed 0063–0069, emulator- and SASS-verified, A100 speed pending):
+  - packed-direct weights (`wload=reg`): straight into `mma.sync` fragments, no shared-memory staging;
+  - ternary bitmap + signs (`tbm`, KTBM v1) on the tensor-core engine;
+  - fused epilogues: gate+up+SwiGLU (`epi=swiglu`, GEMV and GEMM) and a fused Freivalds silent-data-corruption check (`epi=fv`);
+  - single-pass wide verify (GEMV `cols=16`: 9–16 columns stream the weights once);
+  - kit ablations for all of it (`kurn gpu ablate`).
+- **RSI build, 0071–0077:** retrieval drafts as an arm of the verify selector, probabilities for accepted speculative tokens, replay primitives, and the tuner's paired-CI gate.
+- **matmul-opt, 0078–0086** (all bit-exact):
+  - fused FFN gate+up+SwiGLU and fused q+k+v on KURN weights;
+  - a work-stealing row schedule for 1–8 columns;
+  - a one-pass AMX verify kernel for Q8_0 at 9–16 columns;
+  - a Freivalds oracle in `test_kurn_buft`;
+  - compact quaternion / complex linear layers (`integration/hypercomplex/`, a standalone kurn op, not wired into llama.cpp).
+- **CPU ternary, 0087–0092:** TQ1_0 / TQ2_0 as a presence bitmap + signs in the KURN buffer, and the tuned TQ2_0 default.
+- **KV backlog, 0093–0097:**
+  - Hadamard-rotated V;
+  - k4c K-shift (context shift, `--cache-reuse`);
+  - `-ctk k4c` = k4c_q8;
+  - faster exact mode;
+  - native k4c session state.
+- **kvz, 0098–0104:** lossless entropy-coded KV in session state (`llama-server --cache-kvz`), including k4c native records as raw blocks.
+- **Memory system, 0105–0109:** huge pages, socket-local NUMA placement, energy reporting (`--hugepages`, `--kurn-numa`, `llama-bench --energy`, NVML energy in the GPU kit).
+- **0110–0113:**
+  - the cost-table header records `GGML_KURN_FA_MODE`;
+  - exact-mode cost tables recalibrated after kv-backlog;
+  - TQ2_0 in the fused-path self-test;
+  - this quickstart.
+
+Each step below was run in order on 2026-10-07, on a fresh directory with a new venv, a fresh llama.cpp clone and models downloaded from Hugging Face. Steps 2, 3, 6 and 7 were re-run on 2026-10-14 on the consolidated tree; the speeds in steps 4 and 5 are from 2026-10-07. The machine was an 8-vCPU Emerald Rapids KVM guest (AMX, no GPU) with Ubuntu 24.04, gcc 13.3 and cmake 3.28. Step 7 ran as a dry run: CUDA 12.8 compilers, no GPU.
+
+Against llama.cpp `4ebdf2c`, the six `apply.sh` scripts in step 3 are the supported integration path.
 
 ## 1. Prerequisites
 
@@ -61,37 +92,45 @@ pip install pytest pytest-xdist numpy
 KURN_LLAMA_CPP=$PWD/../llama-kurn pytest -q -n 8   # after step 3, so the llama.cpp tests run too
 ```
 
-- Result here, with CUDA 12.8 on `PATH`: **11,995 passed, 62 skipped, 0 failed**, in about 10 minutes on 8 vCPUs.
-- Without nvcc, the GPU-compile tests skip: 11,950 passed, 107 skipped.
+- Result here (consolidated tree, CUDA 12.8 on `PATH`): **12,221 passed, 66 skipped, 0 failed**, in about 14 minutes on 8 vCPUs.
+- Without nvcc, the GPU-compile tests skip.
 - An aarch64 cross gcc and qemu-user also un-skip the NEON tests.
 
 ## 3. Build llama.cpp (pinned commit `4ebdf2c`)
 
-The three scripts add, in this order:
+The six scripts add, in this order:
 
-1. the KURN buffer type (weights repacked at load; verify kernels; native Q6_K/Q5_K) and kurn attention as `FLASH_ATTN_EXT`;
+1. the KURN buffer type (weights repacked at load; verify kernels; native Q6_K/Q5_K; ternary bitmap + signs), kurn attention as `FLASH_ATTN_EXT`, and the huge-page / NUMA allocator (`ggml-kurn-mem`);
 2. the verify-width selector (`llama-speculative-simple`, `llama-server`, `kurn-spec-calib`);
-3. the k4c KV cache type.
+3. the k4c KV cache type (`-ctk k4c` = `k4c_q8`, with K-shift);
+4. kvz session state (`--cache-kvz`);
+5. the RSI build (retrieval arm, speculative probabilities, replay primitives in llama-server);
+6. the memory system's llama.cpp side (buffer tags, per-stream KV placement, `--hugepages`, `--kurn-numa`, `llama-bench --energy`).
+
+`apply.sh` also brings in matmul-opt (fused gate+up+SwiGLU and q+k+v, work stealing, the 9–16 column AMX verify kernel) and the ternary bitmap + signs kernels; neither needs a flag.
 
 ```sh
 git clone https://github.com/ggml-org/llama.cpp llama-kurn && git -C llama-kurn checkout 4ebdf2c
 integration/llama.cpp/apply.sh llama-kurn
 integration/llama.cpp/spec-width/apply.sh llama-kurn
 integration/llama.cpp/k4c/apply.sh llama-kurn
+integration/llama.cpp/kvz/apply.sh llama-kurn            # after k4c/apply.sh
+integration/llama.cpp/rsi/apply.sh llama-kurn            # after spec-width/apply.sh and k4c/apply.sh
+integration/llama.cpp/memsys/apply.sh llama-kurn         # after k4c/apply.sh
 cd llama-kurn
 CC=gcc CXX=g++ cmake -B build -DGGML_NATIVE=ON -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_FLAGS=-mno-avx512fp16 -DCMAKE_CXX_FLAGS=-mno-avx512fp16
-cmake --build build -j"$(nproc)"      # 138 s here, 0 warnings
+cmake --build build -j"$(nproc)"      # 127 s here, 0 warnings
 cd ..
 ```
 
 - **Run the scripts with the venv active**, so the kernel generators can import kurn.
-- **Alternative:** `git -C llama-kurn apply /path/to/llama.cpp-kurn.patch` on the fresh `4ebdf2c` checkout gives the same tree.
+- **Alternative:** `git -C llama-kurn apply /path/to/llama.cpp-kurn.patch` on the fresh `4ebdf2c` checkout gives the same tree as the six scripts in this order.
 - **Optional per-node profiler** (`GGML_OPPROF=1`): `git -C llama-kurn apply integration/llama.cpp/tools/opprof.patch`. It is not part of the scripts or the combined patch.
 
 No runtime flag is needed. KURN registers ahead of ggml's AMX and CPU_REPACK buffers and takes every weight it has kernels for:
 
-- Q8_0, Q4_0, IQ4_NL, Q4_K, Q2_0, TQ2_0, Q1_0, MXFP4 and NVFP4, repacked;
+- Q8_0, Q4_0, IQ4_NL, Q4_K, Q2_0, TQ2_0, Q1_0, MXFP4 and NVFP4, repacked; TQ1_0 / TQ2_0 as presence bitmap + signs when a tensor has at least 30% zeros (`GGML_KURN_TBM`);
 - Q6_K and Q5_K, kept in ggml's layout (AMX CPUs).
 
 Other types fall back to ggml.
@@ -131,18 +170,51 @@ KURN_SPEC_WIDTH=qwen3-1.7b.cost $B/llama-speculative-simple -m models/Qwen3-1.7B
 - The run logs `kurn spec width: qwen3-1.7b.cost, k <= 15, mode policy`, then a `verify widths (M:steps)` histogram (here `1:1 2:24 3:6 4:15 6:2 8:3`), at 53.2 tok/s.
 - `--spec-type draft-simple` is required.
 
-**d. llama-server with the selector, k4c KV and exact mode:**
+**d. llama-server with the selector (both arms), k4c KV, kvz and exact mode:**
 ```sh
+KURN_CALIB_OUT=qwen3-1.7b-exact GGML_KURN_FA_MODE=exact $B/kurn-spec-calib -m models/Qwen3-1.7B-Q8_0.gguf \
+  -md models/Qwen3-0.6B-Q8_0.gguf --spec-type draft-simple -p "Write a Python function that checks whether a string is a palindrome." \
+  -n 128 -t 8 -td 8                               # an exact-mode cost table for an exact-mode server
 GGML_KURN_FA_MODE=exact $B/llama-server -m models/Qwen3-1.7B-Q8_0.gguf -md models/Qwen3-0.6B-Q8_0.gguf \
-  --spec-type draft-simple --spec-draft-n-max 15 --spec-width qwen3-1.7b.cost -ctk k4c_q4 -t 8 -td 8 -c 8192 --port 8088 &
+  --spec-type ngram-simple,draft-simple --spec-ngram-simple-size-n 3 --spec-ngram-simple-size-m 16 \
+  --spec-draft-n-max 15 --spec-width qwen3-1.7b-exact.cost -ctk k4c -t 8 -td 8 -c 8192 \
+  --cache-ram 4096 --cache-kvz --hugepages auto --port 8088 &
 ```
-- **Logs:** each request logs `kurn spec width: verify widths (M:steps) = ...`.
+- **Logs:**
+  - each request logs `kurn spec width: verify widths (M:steps) = ...`;
+  - with two arms, also `kurn spec arms: steps none N, retrieval N (accepted/drafted), model N (...)`.
 - **`--spec-width TABLE`:** one policy per slot, which keeps learning across the slot's requests.
-- **`-ctk k4c_q4`:** k4c keys with Q4_0 values (`k4c_q8`: Q8_0 values).
-  - KV is 1.8× smaller than Q8_0.
-  - Prompt cache, slot save/restore, multiple slots and speculative decoding work.
-  - Context shift and `--cache-reuse` do not, because K-shift is off for k4c.
-- **`GGML_KURN_FA_MODE=exact`:** batch-invariant attention and matmuls, so speculative output equals non-speculative output. On Qwen3-8B Q8_0, 24 of 24 speculative runs matched the no-draft text.
+- **Arms:** `--spec-type` picks them.
+  - With an n-gram type next to `draft-simple`, retrieval drafts (from the prompt and the generated history, no draft time) and the draft model are two arms of one selector.
+  - Each step takes whichever has the higher expected accepted tokens − λ·time, or no draft.
+  - `-md` is optional with an n-gram type. The draft model catches up lazily, only when it drafts (`KURN_SPEC_LAZY=0` restores mirroring).
+  - `--spec-width-mode cap` keeps only the acceptance-rate cap.
+- **`-ctk k4c_q4`:** k4c keys with Q4_0 values. **`-ctk k4c` now means `k4c_q8`** (Q8_0 values), the long-context default: it holds the 2% perplexity budget at 8–32K, where k4c_q4 does not.
+  - KV is 1.8× smaller than Q8_0 (k4c_q4).
+  - Prompt cache, slot save/restore, multiple slots, speculative decoding, context shift and `--cache-reuse` work (k4c K-shift).
+  - Parked k4c sessions and slot files store native group records: about 2.2× smaller than before. Older f16-row files still load.
+- **`--cache-kvz`** (with `--cache-ram N` / `--slot-save-path DIR`): parked sessions and slot files are entropy-coded losslessly, 1.10–1.19× more sessions in the same RAM, restored byte-exact.
+- **Retrieval drafts:** 4.0× on a code-repair turn with Qwen3-1.7B.
+- **Per request:**
+  - `"n_probs"` now works with speculation: accepted draft tokens carry the probabilities plain decoding reports;
+  - `"kurn_replay": 1|2` returns a run manifest and a hash chain over the tokens;
+  - `"kurn_rng_position": true` derives the sampling RNG from (seed, position).
+- **`--hugepages auto|1g|2m|thp|4k|off`:** the page size for weights, KV and compute buffers.
+  - `auto` = hugetlb 1 GB, 2 MB, then THP, then 4 KB.
+  - Qwen3-8B decode is +2–3% with 1 GB pages.
+  - `--kurn-numa auto|off` places weight rows and KV streams per node on multi-socket hosts (a no-op on one node).
+
+**Exact mode** (`GGML_KURN_FA_MODE=exact`; `GGML_KURN_EXACT=1` for the matmuls alone):
+- **What it guarantees:** batch-invariant attention and matmuls, so speculative and cached outputs equal plain decoding bit for bit. On Qwen3-8B Q8_0, 24 of 24 speculative runs matched the no-draft text.
+- **Faster since kv-backlog:** the tile engine pads query rows to 4 instead of 32, so exact decode is 1.22× / 1.42× / 1.50× faster at 4K / 16K / 32K, with bit-identical outputs.
+  - It is now 0.80× fast mode at 4K and 0.49× at 32K. It runs a single KV split.
+  - Exact prefill is about 0.65× the default AMX-BF16 prefill on Q8_0.
+- **Calibrate in the same mode the server runs in.** Verify costs differ between modes, and the cost-table header records `GGML_KURN_FA_MODE`. The RSI benchmark tables were re-measured after kv-backlog: Qwen3-1.7B verify is 6–12% cheaper at M ≤ 8.
+- **Composes with everything else:**
+  - matmul-opt's fused groups and work stealing are bit-exact;
+  - ternary bitmap + signs is bit-identical to TQ2_0 records;
+  - the 9–16 column AMX verify kernel is integer-exact;
+  - k4c K-shift and native session state restore byte-exact.
 - **Without `-md`**, the server runs normally.
 - **Qwen3-8B Q8_0 + 0.6B draft** (8 prompts × 256 tokens):
   - selector 30.1 tok/s;
@@ -191,11 +263,17 @@ KURN_KV=k4c_q4 python chat_engine.py "Name three primary colors."     # k4c KV: 
    L=$PWD/llama-kurn
    gcc -O2 -I$L/ggml/include integration/llama.cpp/test_kurn_buft.c -L$L/build/bin \
      -lggml -lggml-base -lggml-cpu -lm -Wl,-rpath,$L/build/bin -o test_kurn_buft
-   ./test_kurn_buft smoke        # "smoke: 112 passed, 0 failed"; exit code = failures
+   ./test_kurn_buft smoke        # "smoke: 112 passed, 0 failed"; exit code = failures (quick: 1372, full: 3143)
    ./test_kurn_buft native       # native-layout Q6_K / Q5_K: "native: 34 passed, 0 failed" (also with GGML_KURN_EXACT=1)
+   ./test_kurn_buft tbm          # ternary bitmap + signs, bit-identical to TQ2_0: "tbm: 404 passed, 0 failed"
+   ./test_kurn_buft fused        # fused gate+up+SwiGLU and q+k+v == unfused, bit for bit: "fused: 90 passed, 0 failed" (also with GGML_KURN_EXACT=1 and GGML_KURN_TBM=0/1)
+   ./test_kurn_buft freivalds    # Freivalds oracle for the AMX-BF16 (KL-mode) kernels: "freivalds: 16 passed, 0 failed"
+   GGML_KURN_NUMA_FAKE=2 ./test_kurn_buft smoke     # per-node row scheduling on a fake 2-node topology
    gcc -O2 -I$L/ggml/include integration/llama.cpp/k4c/test_k4c.c -L$L/build/bin -lggml -lggml-base -lggml-cpu -lm \
-     -Wl,-rpath,$L/build/bin -o test_k4c && ./test_k4c                   # "k4c: 25 passed, 0 failed"
-   $L/build/bin/test-backend-ops -o FLASH_ATTN_EXT -b CPU                # 5312/5312 passed
+     -Wl,-rpath,$L/build/bin -o test_k4c && ./test_k4c                   # "k4c: 27 passed, 0 failed"
+   gcc -O2 -I$L/ggml/include integration/llama.cpp/memsys/test_kurn_mem.c -L$L/build/bin -lggml-base \
+     -Wl,-rpath,$L/build/bin -o test_kurn_mem && ./test_kurn_mem         # allocator and NUMA split; exit code = failures
+   $L/build/bin/test-backend-ops -o FLASH_ATTN_EXT -b CPU                # 5312/5312 passed; all ops: 20364/20364
    ```
    - `smoke`, `quick` and `full` check every format's GEMV and verify kernels against ggml's `vec_dot`.
    - They also check batch invariance: every column of every batch width must equal that column computed alone.
@@ -211,6 +289,14 @@ KURN_KV=k4c_q4 python chat_engine.py "Name three primary colors."     # k4c KV: 
 | `GGML_KURN_FA_MODE=exact` | batch-invariant attention as well: speculative and cached outputs equal plain decoding bit for bit; slower long-context decode |
 | `GGML_KURN_FA=0` | ggml's flash attention only |
 | `GGML_KURN_NATIVE=0` | Q6_K / Q5_K back to ggml's buffers |
+| `GGML_KURN_TBM=0` / `=1` | TQ1_0 / TQ2_0 always as TQ2_0 records / always as bitmap + signs (default: per tensor, at ≥ 30% zeros) |
+| `GGML_KURN_HUGEPAGES=auto\|1g\|2m\|thp\|4k\|off` | allocator for weights, KV and compute buffers (default `auto`: hugetlb 1 GB, 2 MB, THP, then 4 KB) |
+| `GGML_KURN_NUMA=auto\|off` | NUMA placement when the process spans more than one node (no-op on one node) |
+| `GGML_KURN_FUSE=0` / `GGML_KURN_FUSE_QKV=0` | no fused MUL_MAT groups / no q + k + v groups (gate + up + SwiGLU stays fused) |
+| `GGML_KURN_STEAL=0` | guided row chunks instead of work stealing for 1–8 columns |
+| `GGML_KURN_AMX_VFY=0` | Q8_0 at 9–16 columns on two 8-column VNNI passes instead of the one-pass AMX verify kernel |
+| `LLAMA_K4C_STATE=f16` | write k4c session state as f16 rows (for older readers) |
+| `KURN_SPEC_LAZY=0` | the draft model mirrors every target batch instead of catching up when it drafts |
 
 ## 7. GPU check kit (A100 / B200 / RTX 50)
 
@@ -235,17 +321,23 @@ QUICK=1 ./run_kit.sh
   - llama.cpp's ggml-cuda, built inside the folder from bundled sources pinned in `ggml-src/COMMIT` (needs cmake + g++);
   - attention fatbins for sm_80 / sm_100 / sm_120, GPU correctness and the HBM roofline;
   - the decode matrix against llama.cpp's CUDA flash attention on the same data and timing, plus FlashInfer / FlashAttention-2 if `TORCH_PYTHON` already has them, and phase-2 ablations at 1K and 16K;
-  - the GEMM/GEMV matmul kit, all ten formats incl. MXFP4 / NVFP4;
+  - the GEMM/GEMV matmul kit, all ten formats incl. MXFP4 / NVFP4 and `tbm`. It has two ablation tables: packed-direct (`wload=reg`) vs staged tiles, and `tbm` vs TQ2_0 at 40% zeros;
+  - `kurn gpu ablate`, with three experiments:
+    - fused vs unfused gate+up+SwiGLU (Llama-3-8B shapes);
+    - the wide-verify staircase at 1 / 8 / 9 / 12 / 16 columns (GEMV `cols=8` vs `cols=16`, bn=16 tiles);
+    - the fused Freivalds check (overhead per block size, false alarms, worst margin, detection of a corrupted tile);
+  - NVML energy for the whole run (J per step, decode J/token; `unavailable` without NVML);
   - the GPU pytest subset.
 - **Output:** `kurn-kit-results-<host>-<date>/report.md` is the single report: toolchain, steps, and what the box cannot test (on an A100: FP8 KV and sm_100 / sm_120 runtime). It has kurn vs baselines against the stated target, Q8_0 vs F16, ablations, matmul wins / losses, pytest results and the llama.cpp build. A `.tar.gz` of the folder sits next to it. Copy that into `artifacts/`.
 - **Contained:** it writes only inside the kit folder (TMPDIR and every cache are redirected there) and checks this at the end (`containment.txt`). No network, no root, no pip.
 - **Skip steps:** `NO_LLAMA=1`, `NO_MATMUL=1`, `NO_PYTEST=1`, `NO_TORCH=1`.
-- **Dry run here:** `QUICK=1 DRYRUN=1 ./run_kit.sh` ran from an unzipped copy on a simulated split install (CUDA 12.9 nvcc without headers, runtime via `KURN_CUDA_INCLUDE` / `KURN_CUDA_LIB`; system python without pytest). It took 23 min:
+- **Dry run here** (2026-10-14, kit zips rebuilt from the consolidated tree): `QUICK=1 DRYRUN=1 ./run_kit.sh` ran from an unzipped copy with CUDA 12.8 and no GPU. It took 29 min and exited 0 ("all checks passed"):
   - ggml-cuda built in 4 min;
   - 586 attention fatbin configs, 0 failures; emulator 161 + 44 configs, 0 failures;
   - every harness compiled, including the llama.cpp bench;
-  - matmul: 500 configs ptxas and emulator, 0 failures;
-  - the pytest subset passed.
+  - matmul: 613 configs through ptxas and the emulator, 0 failures. This includes the packed-direct, `tbm`, fused-epilogue and `cols=16` kernels, and `kurn gpu ablate` built its three experiments;
+  - energy was reported as unavailable (no NVML, RAPL unreadable on the VM);
+  - the GPU pytest subset passed: 449 passed, 1 skipped.
 
 The older single-purpose scripts are still in the kit:
 
@@ -271,20 +363,20 @@ unzip kurn-gpu-check.zip && cd kurn-gpu-check && ./run_attn_check.sh   # QUICK=1
   - AMX is now on by default where it is usable: prefill from 32 columns (16 for Q6_K/Q5_K), and attention.
   - Some KVM guests drop AMX tile data on preemption. On the dev VM, stock ggml's AMX buffer returned different results in up to 9 of 39 repeated runs.
   - kurn's AMX paths time every step and recompute the ones that spanned a gap. Run `tools/amx_check.sh` on a new host, and use `GGML_KURN_AMX=0` when in doubt.
-- **Batch invariance by default:** default prefill (AMX-BF16) is not batch invariant with decode. Exact mode is, at lower prefill speed (about 0.65× on Q8_0).
+- **Batch invariance by default:** default prefill (AMX-BF16) is not batch invariant with decode. Exact mode is, at lower prefill speed (about 0.65× on Q8_0) and long-context decode (0.49× fast mode at 32K).
 - **Fast-mode attention:** about 3–4 of 8 speculative runs differ from plain greedy text at near-tie tokens. Exact mode removes this.
-- **k4c KV:**
-  - no K-shift (context shift and `--cache-reuse`);
-  - CPU only, V must be q4_0 or q8_0, no MLA.
+- **k4c KV:** CPU only, V must be q4_0 or q8_0, no MLA.
+- **NUMA placement** is tested on fake topologies only; real 2-socket numbers need a bare-metal box. Fused MUL_MAT groups are off when the process spans more than one node.
+- **Energy:** RAPL is unavailable on this VM and NVML needs a GPU; both are reported as `unavailable` rather than guessed.
 - **The engine is a research tool:**
   - Qwen3 / OLMoE only, with all-Q8_0 or all-Q4_0 weights.
   - Greedy only, token ids in and out.
   - No batched prefill.
 - **GPU:**
-  - Every GPU path (attention, FP8 KV, MXFP4/NVFP4) is verified on the CPU warp emulator and compiled for sm_80/sm_100/sm_120.
+  - Every GPU path is verified on the CPU warp emulator and compiled for sm_80/sm_100/sm_120: attention, FP8 KV, MXFP4/NVFP4, packed-direct, `tbm`, fused epilogues and `cols=16`.
   - None has run on silicon yet; the A100 kit run is pending.
   - There is no llama.cpp CUDA integration.
 - **Packaging:**
   - no wheels or releases;
   - llama.cpp support is pinned to `4ebdf2c` (scripts or `llama.cpp-kurn.patch`), and newer commits may need `apply.sh` fixes;
-  - the cost table is per machine, model pair and thread count.
+  - the cost table is per machine, model pair, thread count and `GGML_KURN_FA_MODE`.
