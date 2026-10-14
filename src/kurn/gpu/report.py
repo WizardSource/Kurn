@@ -210,6 +210,10 @@ def render(cells, agg, meta, results_dir=None, dry=False):
     L.append(default_vs_tuned(cells))
     L.append(packed_vs_staged(cells))
     L.append(ternary_vs_tq2(cells))
+    from .ablate import load as ablate_load
+    from .ablate import section as ablate_section
+
+    L.append(ablate_section(ablate_load(results_dir) if results_dir else []))
     # detail
     L.append("## Detail per format\n")
     L.append("Columns: tokens/s (mean ± sd over rounds), % of measured HBM bandwidth, % of the measured int8 mma.sync peak, "

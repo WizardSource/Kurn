@@ -14,6 +14,7 @@ kurn gpu matrix [--formats ...] [--quick]         the benchmark matrix vs every 
 kurn gpu report RESULTS_DIR                       wins/ties/losses report.md + dispatch.json
 kurn gpu dispatch FMT BATCH [--table T]           what kernel_for() picks
 kurn gpu kit-tune [--quick] [--out tuned.json]    brief tuning of the kernels the matrix races (hand-run kit)
+kurn gpu ablate --results DIR [--quick] [--dry]   fused SwiGLU / wide verify / fused Freivalds ablations -> ablate.jsonl
 kurn gpu attn ...                                 the attention op (see `kurn gpu attn -h`)
 kurn gpu doctor [--json F] [--cublas] [--no-run]  locate nvcc + the CUDA runtime, then preflight (compile, link, run a
                                                   tiny .cu with the exact build flags); fails fast with the fix
@@ -317,6 +318,10 @@ def main(argv=None):
         from .kit import main as kit_main
 
         return kit_main(argv[1:])
+    if argv[:1] == ["ablate"]:
+        from .ablate import main as ablate_main
+
+        return ablate_main(argv[1:])
     if argv[:1] == ["attn"]:
         from .attn_cli import main as attn_main
 

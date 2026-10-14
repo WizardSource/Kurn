@@ -145,6 +145,33 @@ def test_ternary_vs_tq2_0_ablation_table(tmp_path):
     assert "| — | — | unmeasured" in report.ternary_vs_tq2(report.unmeasured_cells(["tq2_0"]))
 
 
+def test_epilogue_ablation_tables(tmp_path):
+    def row(exp, fmt, kernel, variant, m, us, n=28672, k=4096, **kw):
+        return {"exp": exp, "fmt": fmt, "kernel": kernel, "variant": variant, "N": n, "K": k, "M": m, "config": "cfg",
+                "status": "ok", "us": [us * (1 + 0.002 * i) for i in range(5)], **kw}  # fmt: skip
+
+    fv = {"block": 256, "lambda": 8, "checks": 4800, "fails": 0, "worst_ratio": 0.002, "corrupt_checks": 16, "detected": 1}
+    rows = [row("ffn", "q4_0", "mma8", "plain+swiglu", 8, 150.0), row("ffn", "q4_0", "mma8", "fused", 8, 120.0),
+            row("width", "q4_0", "gemv-c1", "-", 1, 50.0, 4096, 14336),
+            *(row("width", "q4_0", "gemv-c8", "-", m, 60.0 if m <= 8 else 120.0, 4096, 14336) for m in (1, 8, 9, 12, 16)),
+            *(row("width", "q4_0", "gemv-c16", "-", m, 70.0, 4096, 14336) for m in (1, 8, 9, 12, 16)),
+            row("fv", "q4_0", "mma8", "none", 1, 40.0, 4096, 4096),
+            row("fv", "q4_0", "mma8", "fvb=256", 1, 42.0, 4096, 4096, fv=fv)]  # fmt: skip
+    (tmp_path / "ablate.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    md, _ = report.write(str(tmp_path), ["q4_0"])
+    assert "## Fused epilogues and wide verify (ablations)" in md
+    lines = md.splitlines()
+    assert any(ln.startswith("| q4_0 | mma8 | 8 | `cfg` |") and "| 1.25x | win |" in ln for ln in lines), md
+    assert any(ln.startswith("| q4_0 | gemv-c8 |") and "120.5 (2.40)" in ln for ln in lines), md
+    assert any(ln.startswith("| q4_0 | gemv-c16 |") and ln.count("(1.40)") == 5 for ln in lines), md
+    assert any(ln.startswith("| q4_0 | mma8 | 4096x4096 | 1 | 256 |") and "+5.0%" in ln and "| 0 / 4800 | 0.002 | 1 |" in ln
+               for ln in lines), md  # fmt: skip
+    from kurn.gpu import ablate
+
+    empty = ablate.section([])
+    assert empty.count("unmeasured") >= 3
+
+
 def test_dry_report_is_all_unmeasured(tmp_path):
     md, cells = report.write(str(tmp_path), ["q4_0", "tq2_0"], dry=True)
     assert all(c["v_overall"] == "unmeasured" and c["dispatch"] == "stock" for c in cells.values())
