@@ -160,6 +160,12 @@ public:
     }
 
     void observe(const std::vector<float> & probs, int n_accepted, double step_ms, int n_tokens) {
+        observe_acc(probs, n_accepted);
+        observe_time(step_ms, n_tokens);
+    }
+
+    // acceptance feedback only (k = 0: a step this arm did not draft)
+    void observe_acc(const std::vector<float> & probs, int n_accepted) {
         const int k = (int) probs.size();
         idle_ = k ? 0 : idle_ + 1;
         if (k) {
@@ -180,9 +186,35 @@ public:
                 bn_[b] += 1.0;
             }
         }
+    }
+
+    // throughput feedback only: the step took step_ms and committed n_tokens
+    void observe_time(double step_ms, int n_tokens) {
         lam_num_ = lam_decay * lam_num_ + n_tokens;
         lam_den_ = lam_decay * lam_den_ + step_ms;
     }
+
+    // value of drafting k tokens at the global acceptance rate, k = 0: no draft (-lambda * verify(1))
+    double value_at(int k, double draft_ms) const {
+        const double l = lam(), a = alpha();
+        double s = 0.0, r = 1.0;
+        for (int i = 0; i < k; i++) {
+            r *= a;
+            s += r;
+        }
+        return s - l * (t_.verify(k + 1) + k * draft_ms);
+    }
+
+    // best value over k = 0..k_max at the global acceptance rate, with this arm's draft time
+    double best_value() const {
+        double best = value_at(0, draft_ms_);
+        for (int k = 1; k <= k_max_; k++) {
+            best = std::max(best, value_at(k, draft_ms_));
+        }
+        return best;
+    }
+
+    int idle() const { return idle_; }
 
 private:
     verify_cost_table t_;
@@ -224,6 +256,102 @@ private:
             best = std::max(best, g + q * s - l * (t_.verify(k + 1) + (k - j) * draft_ms_));
         }
         return best;
+    }
+};
+
+// Two drafting arms chosen per step by the same objective (expected accepted tokens - lambda * time):
+//   retrieval: n-gram / trajectory lookup in the prompt and the generated history. Costs ~no draft time
+//              and has no confidences, so its acceptance is one online rate (decayed like width_policy's);
+//   model:     a draft model, the width_policy above (confidence bins, keep_drafting / truncate).
+// Both arms see every step's time, so they share one throughput estimate lambda. Each step:
+//   take_retrieval(L) when a lookup proposes L tokens: the prefix length worth verifying, 0 = reject it
+//                     (then the model arm may draft); a candidate is taken when its best value is at
+//                     least the model arm's best value, which includes not drafting at all;
+//   allow_model()     before the draft model runs: worth drafting now, or a probe is due;
+//   observe(arm, ...) after verification.
+class arm_selector {
+public:
+    enum arm { NONE = 0, RETRIEVAL = 1, MODEL = 2 };
+
+    width_policy model, retr;
+    bool has_model = false, has_retr = false;
+    double retr_ms = 0.0;  // lookup time per drafted token (negligible; measured lookups are microseconds)
+
+    void init(const verify_cost_table & t, int k_max_model, int k_max_retr, bool with_model, bool with_retr, double retr_alpha0 = 0.5) {
+        has_model = with_model;
+        has_retr = with_retr;
+        model.init(t, k_max_model);
+        verify_cost_table tr = t;
+        tr.draft_ms.clear();
+        retr.alpha0 = retr_alpha0;
+        retr.use_conf = false;
+        retr.init(tr, k_max_retr);
+    }
+
+    double lam() const { return model.lam(); }
+
+    double model_value() const { return has_model ? model.best_value() : model.value_at(0, 0.0); }
+
+    int take_retrieval(int L) const {
+        if (!has_retr || L <= 0) {
+            return 0;
+        }
+        const int k_lim = std::min(L, retr.k_max());
+        int best_k = 0;
+        double best = retr.value_at(0, retr_ms);
+        for (int k = 1; k <= k_lim; k++) {
+            const double v = retr.value_at(k, retr_ms);
+            if (v > best + 1e-9) {
+                best_k = k;
+                best = v;
+            }
+        }
+        if (best_k == 0) {
+            return retr.idle() + 1 >= retr.probe_every ? 1 : 0;
+        }
+        return best + 1e-9 >= model_value() ? best_k : 0;
+    }
+
+    // catchup_ms: decode time the draft model needs before it can draft (lazy sync: tokens committed since it last
+    // ran). It is paid once, so it is weighed against the model arm's gain over the request's remaining
+    // horizon_tokens (<= 0: unknown, the catch-up is ignored). Probes run only when the catch-up costs less
+    // than one token of throughput.
+    bool allow_model(double catchup_ms = 0.0, int horizon_tokens = -1) const {
+        if (!has_model) {
+            return false;
+        }
+        const double none = model.value_at(0, 0.0);
+        int kb = 0;
+        double vb = none;
+        for (int k = 1; k <= model.k_max(); k++) {
+            const double v = model.value_at(k, model.table().draft_step());
+            if (v > vb + 1e-9) {
+                kb = k;
+                vb = v;
+            }
+        }
+        const double cost = horizon_tokens > 0 ? lam() * catchup_ms : 0.0;
+        double steps = 1e9;
+        if (horizon_tokens > 0) {
+            double e = 1.0, r = 1.0;
+            for (int i = 0; i < kb; i++) {
+                r *= model.alpha();
+                e += r;
+            }
+            steps = horizon_tokens / e;
+        }
+        if ((vb - none) * steps > cost + 1e-9) {
+            return true;
+        }
+        return model.idle() + 1 >= model.probe_every && cost <= 1.0;
+    }
+
+    void observe(arm used, const std::vector<float> & probs, int n_accepted, double step_ms, int n_tokens) {
+        static const std::vector<float> none;
+        model.observe_acc(used == MODEL ? probs : none, used == MODEL ? n_accepted : 0);
+        retr.observe_acc(used == RETRIEVAL ? probs : none, used == RETRIEVAL ? n_accepted : 0);
+        model.observe_time(step_ms, n_tokens);
+        retr.observe_time(step_ms, n_tokens);
     }
 };
 
