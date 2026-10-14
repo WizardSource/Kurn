@@ -5,6 +5,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Added: kvz - lossless entropy-coded KV cache in llama.cpp session state
+- `integration/llama.cpp/kvz/apply.sh` (after `k4c/apply.sh`): `llama-server --cache-kvz` entropy-codes the KV cache
+  of RAM prompt cache entries (`--cache-ram`, parked idle slots) and `--slot-save-path` files. In the API it is
+  `LLAMA_STATE_SEQ_FLAGS_KVZ` and `llama_state_seq_save_file_ext`; readers detect it.
+- Restores are byte-exact: the restored state equals the plain one, and the next tokens' logits are bit-identical.
+- Coding: per-channel static rANS over f16 byte planes and Q8_0 / Q4_0 scales and codes (`llama-kvz.{h,cpp}`).
+- Sizes on real Qwen3 caches: F16 1.19x, Q8_0 1.12x, k4c_q4 state 1.17x (zstd -3: 1.02-1.11x).
+- Speed: ~1.7 / 2.2 GB/s encode / decode for F16 on 8 threads.
+- Tests: `test_kvz.cpp` (codec, ASan / UBSan), `test_kvz_state.cpp` (every cache type on a real model),
+  `server_kvz_test.py` and `tests/test_llama_kvz.py`.
+
 ### Changed: k4c session state stores native group records
 - K4C keys in session state (slot files, `--cache-ram`, `llama_state_seq_*`) are no longer f16 rows: groups owned by the
   saved sequence are stored as their bytes, the partial last group as the codec's exact f16 values, groups shared with
