@@ -182,6 +182,102 @@ def _tail(path, n=1):
     return "\n".join(lines[-n:]) if lines else None
 
 
+# Llama-3-8B: the attention matrix's "llama3-8b" cells and the matmul kit's model shapes (matrix.MODEL) are both that
+# model, so per token: 32 x one layer's decode attention + the GEMVs (lm_head, embeddings and norms not included).
+ENERGY_MODEL, ENERGY_LAYERS = "llama3-8b", 32
+
+
+def _energy_between(rows, t0, t1):
+    from ..energy import between
+
+    return between(rows, t0, t1) if t0 is not None and t1 is not None else None
+
+
+def energy_report(out):
+    """The energy section: what the box could measure, idle power, joules per kit step, and decode joules per token
+    (Llama-3-8B shapes) from the NVML energy the attention and matmul harnesses record per call."""
+    from ..energy import load_samples
+
+    L = ["## Energy (NVML board energy; host CPU RAPL where readable)\n"]
+    meta, rows = load_samples(os.path.join(out, "energy_samples.jsonl"))
+    src = meta.get("meta", {})
+    if not src:
+        L.append("No energy capture in this run (NO_ENERGY=1, or the sampler did not start: energy_sampler.txt).\n")
+    else:
+        for dev in ("gpu", "cpu"):
+            d = src.get(dev, {})
+            what = (d.get("source") or "") + (" " + ", ".join(d.get("names") or []) if d.get("names") else "")
+            L.append(f"- {dev.upper()}: {what if d.get('available') else 'unavailable (' + str(d.get('reason')) + ')'}")
+        L.append("")
+    marks = {}
+    if os.path.exists(os.path.join(out, "energy_marks.json")):
+        marks = json.load(open(os.path.join(out, "energy_marks.json")))
+    idle = _energy_between(rows, *marks.get("idle", (None, None)))
+    if idle and "gpu_w" in idle:
+        L.append(f"Idle board power before the first step: {idle['gpu_w']:.1f} W over {idle['seconds']:.1f} s.\n")
+    steps = [s for s in _rows(os.path.join(out, "steps.jsonl")) if s.get("t0") is not None]
+    per = [(s, _energy_between(rows, s["t0"], s["t1"])) for s in steps]
+    per = [(s, e) for s, e in per if e]
+    if per:
+        L += ["| step | seconds | GPU J | mean GPU W | host CPU J |", "|---|---|---|---|---|"]
+        for s, e in per:
+            L.append(f"| {s['step'][:70]} | {e['seconds']:.0f} | {_f(e.get('gpu_j'), '{:.0f}')} | {_f(e.get('gpu_w'))} | "
+                     f"{_f(e.get('cpu_j'), '{:.0f}') if e.get('cpu_j') else 'unavailable'} |")  # fmt: skip
+        L.append("")
+    # decode joules per token from the harnesses' per-call NVML energy
+    attn = [r for r in _rows(os.path.join(out, "attn", "attn_matrix.jsonl")) + _rows(os.path.join(out, "attn", "attn_baselines.jsonl"))
+            if r.get("model") == ENERGY_MODEL and r.get("nq", 1) == 1 and r.get("status") == "ok" and r.get("uJ") == r.get("uJ")
+            and isinstance(r.get("uJ"), (int, float))]  # fmt: skip
+    att = {(r["impl"], r["kv"], r["nkv"]): r["uJ"] * 1e-6 * ENERGY_LAYERS for r in attn}
+    gemv = {}
+    mm = os.path.join(out, "matmul")
+    if os.path.isdir(mm):
+        try:
+            from .report import aggregate, load
+
+            for (f, m, impl), st in aggregate(load(mm)[0]).items():
+                j = st.get("J_tok")
+                if m == 1 and st.get("status") == "ok" and isinstance(j, float) and j == j:
+                    fam = st.get("family")
+                    if fam in ("kurn", "ggml") and ((fam, f) not in gemv or j < gemv[(fam, f)]):
+                        gemv[(fam, f)] = j
+        except Exception as e:  # a partial matmul run must not break the report
+            L.append(f"(matmul energy not read: {e})\n")
+    L.append("### Decode joules per token, Llama-3-8B shapes (batch 1)\n")
+    if not att and not gemv:
+        L.append("No per-call energy in this run (dry run, or NVML has no energy counter on this GPU).\n")
+        return "\n".join(L)
+    ctxs = sorted({k[2] for k in att})
+    kvs = sorted({k[1] for k in att})
+    if att:
+        L.append(f"Attention: {ENERGY_LAYERS} layers x NVML joules per decode call (mJ per token).\n")
+        L += ["| impl | KV | " + " | ".join(f"{c // 1024}K" for c in ctxs) + " |", "|---|---|" + "---|" * len(ctxs)]
+        for impl in sorted({k[0] for k in att}):
+            for kv in kvs:
+                if any((impl, kv, c) in att for c in ctxs):
+                    L.append(f"| {impl} | {kv} | " + " | ".join(_f(att.get((impl, kv, c), float("nan")) * 1e3, "{:.2f}") for c in ctxs) + " |")
+        L.append("")
+    if gemv:
+        L.append("Weights: the matmul kit's per-token GEMV energy over the model's 32 layers (mJ per token, best kernel per family).\n")
+        L += ["| format | kurn | ggml-cuda |", "|---|---|---|"]
+        for f in sorted({k[1] for k in gemv}):
+            L.append(f"| {f} | {_f(gemv.get(('kurn', f), float('nan')) * 1e3, '{:.1f}')} | {_f(gemv.get(('ggml', f), float('nan')) * 1e3, '{:.1f}')} |")
+        L.append("")
+    if att and gemv:
+        L.append("kurn total (weights + attention): joules per token / tokens per joule.\n")
+        L += ["| weights | KV | " + " | ".join(f"{c // 1024}K" for c in ctxs) + " |", "|---|---|" + "---|" * len(ctxs)]
+        for f in sorted({k[1] for k in gemv if k[0] == "kurn"}):
+            for kv in kvs:
+                cells = []
+                for c in ctxs:
+                    a = att.get(("kurn", kv, c))
+                    j = gemv[("kurn", f)] + a if a is not None else None
+                    cells.append(f"{j:.3f} J / {1 / j:.1f}" if j else "-")
+                L.append(f"| {f} | {kv} | " + " | ".join(cells) + " |")
+        L.append("")
+    return "\n".join(L)
+
+
 def kit_report(out):
     """The single report.md of a kit v2 run directory."""
     kit = {}
@@ -231,6 +327,7 @@ def kit_report(out):
         L.append(f"- ggml comparison path on ggml's CPU backend: {ok}/{len(mmc)} formats ok ({', '.join(r.get('fmt', '?') for r in mmc)})")
     L.append("")
     L.append(attn_report(os.path.join(out, "attn")))
+    L.append(energy_report(out))
     mm = os.path.join(out, "matmul", "report.md")
     L.append("## GEMM / GEMV matmul kit (incl. MXFP4 / NVFP4 dequant on sm_80)\n")
     if os.path.exists(mm):
