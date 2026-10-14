@@ -67,6 +67,13 @@ All notable changes to this project are documented here. The format follows
   prefill parity; complex decode 2.1x, MLP decode 1.9x.
 - `hc_bench` (checks, benchmarks, synthetic quaternion MLP), `kurn.hypercomplex` references, `tests/test_hypercomplex.py`.
 
+### Changed: attention tile engine pads query rows to 4, not 32, on the f32 and AVX512-BF16 engines
+- `ka_tile` computed every tile for 32 query rows (the AMX tile height) on every engine. The f32 and AVX512-BF16 engines
+  work in 4-row register blocks, so decode-sized tiles (n_q x G = 1-8 rows) now compute 4-8 rows. Rows are independent:
+  outputs are bit-identical to before (42 cases, three engines), and batch invariance of the `exact` llama.cpp mode holds.
+- llama.cpp exact mode (`GGML_KURN_FA_MODE=exact`), Qwen3-1.7B Q8_0, tg32: 1.22x / 1.42x / 1.50x at depth 4K / 16K / 32K
+  (29.7 -> 36.2, 10.5 -> 15.0, 6.2 -> 9.2 tok/s); 8-token batches 1.14-1.23x. Fast mode's decode engine is unchanged.
+
 ### Changed: TQ2_0 kernels default to 4 row groups + whole-record prefetch
 - `TUNED_KEYS["tq2_0"] = rows=4 prefetch=4 pfgran=line` (was `rows=2 prefetch=0`; `kurn.specwidth` mirrors it). The
   shipped schedule streamed ~60 GB/s from DRAM, against 88 GB/s now.

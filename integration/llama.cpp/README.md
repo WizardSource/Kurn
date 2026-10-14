@@ -267,7 +267,8 @@ Two modes:
 - **exact** (`GGML_KURN_FA_MODE=exact`): the f32 tile engine for every batch size and a single KV split. A token's
   attention output then does not depend on how many tokens are computed with it, the (padded) KV length or the thread
   count; together with the buffer type's batch-invariant matmuls, a speculative verify batch reproduces one-token
-  decoding bit for bit. Decode is slower than fast mode at long context (the tile engine computes 32 query rows).
+  decoding bit for bit. Decode is slower than fast mode at long context: the tile engine computes the decode rows in
+  blocks of 4 (n_q x G, padded to 4; AMX pads to 32), Qwen3-1.7B tg32 0.80x fast mode at 4K, 0.49x at 32K.
 
 | variable | effect |
 |---|---|
