@@ -1,0 +1,57 @@
+== 1.7b-wiki-test-f16 threads 8
+K: raw 1792.0 MiB -> kvz 1497.2 MiB (1.197x), encode 1.52 GB/s, decode 1.83 GB/s, zstd-3 1.067x at 1.29 GB/s
+V: raw 1792.0 MiB -> kvz 1509.4 MiB (1.187x), encode 1.54 GB/s, decode 1.91 GB/s, zstd-3 1.110x at 1.35 GB/s
+total: 1.192x, threads 8, rows 32768, bit-exact
+== 1.7b-wiki-test-f16 threads 1
+K: raw 1792.0 MiB -> kvz 1497.2 MiB (1.197x), encode 0.32 GB/s, decode 0.38 GB/s, zstd-3 1.067x at 0.86 GB/s
+V: raw 1792.0 MiB -> kvz 1509.4 MiB (1.187x), encode 0.31 GB/s, decode 0.38 GB/s, zstd-3 1.110x at 0.91 GB/s
+total: 1.192x, threads 1, rows 32768, bit-exact
+== 1.7b-wiki-test-q8 threads 8
+K: raw 952.0 MiB -> kvz 803.5 MiB (1.185x), encode 1.21 GB/s, decode 1.61 GB/s, zstd-3 1.018x at 1.21 GB/s
+V: raw 952.0 MiB -> kvz 896.2 MiB (1.062x), encode 1.28 GB/s, decode 1.84 GB/s, zstd-3 1.063x at 1.15 GB/s
+total: 1.120x, threads 8, rows 32768, bit-exact
+== 1.7b-wiki-test-q8 threads 1
+K: raw 952.0 MiB -> kvz 803.5 MiB (1.185x), encode 0.24 GB/s, decode 0.27 GB/s, zstd-3 1.018x at 0.93 GB/s
+V: raw 952.0 MiB -> kvz 896.1 MiB (1.062x), encode 0.29 GB/s, decode 0.36 GB/s, zstd-3 1.063x at 0.94 GB/s
+total: 1.120x, threads 1, rows 32768, bit-exact
+== 1.7b-wiki-test-k4cq4 threads 8
+K: raw 1792.0 MiB -> kvz 1497.2 MiB (1.197x), encode 1.52 GB/s, decode 1.76 GB/s, zstd-3 1.067x at 1.27 GB/s
+V: raw 504.0 MiB -> kvz 463.1 MiB (1.088x), encode 0.77 GB/s, decode 0.93 GB/s, zstd-3 1.076x at 0.97 GB/s
+total: 1.171x, threads 8, rows 32768, bit-exact
+== 1.7b-wiki-test-k4cq4 threads 1
+K: raw 1792.0 MiB -> kvz 1497.2 MiB (1.197x), encode 0.32 GB/s, decode 0.39 GB/s, zstd-3 1.067x at 0.88 GB/s
+V: raw 504.0 MiB -> kvz 463.0 MiB (1.088x), encode 0.16 GB/s, decode 0.17 GB/s, zstd-3 1.076x at 0.95 GB/s
+total: 1.171x, threads 1, rows 32768, bit-exact
+== 1.7b-wiki-test-k4cq8 threads 8
+K: raw 1792.0 MiB -> kvz 1497.2 MiB (1.197x), encode 1.48 GB/s, decode 1.74 GB/s, zstd-3 1.067x at 1.08 GB/s
+V: raw 952.0 MiB -> kvz 896.2 MiB (1.062x), encode 1.42 GB/s, decode 2.13 GB/s, zstd-3 1.063x at 1.18 GB/s
+total: 1.147x, threads 8, rows 32768, bit-exact
+== 1.7b-wiki-test-k4cq8 threads 1
+K: raw 1792.0 MiB -> kvz 1497.1 MiB (1.197x), encode 0.32 GB/s, decode 0.39 GB/s, zstd-3 1.067x at 0.89 GB/s
+V: raw 952.0 MiB -> kvz 896.1 MiB (1.062x), encode 0.29 GB/s, decode 0.36 GB/s, zstd-3 1.063x at 0.94 GB/s
+total: 1.147x, threads 1, rows 32768, bit-exact
+== 8b32k-wiki-test-f16 threads 8
+K: raw 2304.0 MiB -> kvz 1924.0 MiB (1.198x), encode 1.53 GB/s, decode 1.79 GB/s, zstd-3 1.073x at 1.38 GB/s
+V: raw 2304.0 MiB -> kvz 1947.3 MiB (1.183x), encode 1.60 GB/s, decode 1.88 GB/s, zstd-3 1.104x at 1.44 GB/s
+total: 1.190x, threads 8, rows 32768, bit-exact
+== 8b32k-wiki-test-f16 threads 1
+K: raw 2304.0 MiB -> kvz 1924.0 MiB (1.198x), encode 0.31 GB/s, decode 0.38 GB/s, zstd-3 1.073x at 0.87 GB/s
+V: raw 2304.0 MiB -> kvz 1947.2 MiB (1.183x), encode 0.31 GB/s, decode 0.38 GB/s, zstd-3 1.104x at 0.89 GB/s
+total: 1.190x, threads 1, rows 32768, bit-exact
+== 8b-wiki-test-q8 threads 8
+K: raw 612.0 MiB -> kvz 534.7 MiB (1.145x), encode 1.10 GB/s, decode 1.58 GB/s, zstd-3 1.029x at 0.84 GB/s
+V: raw 612.0 MiB -> kvz 578.8 MiB (1.057x), encode 1.25 GB/s, decode 2.11 GB/s, zstd-3 1.056x at 0.87 GB/s
+total: 1.099x, threads 8, rows 16384, bit-exact
+== 8b-wiki-test-q8 threads 1
+K: raw 612.0 MiB -> kvz 534.7 MiB (1.145x), encode 0.25 GB/s, decode 0.30 GB/s, zstd-3 1.029x at 0.97 GB/s
+V: raw 612.0 MiB -> kvz 578.7 MiB (1.057x), encode 0.32 GB/s, decode 0.43 GB/s, zstd-3 1.057x at 1.02 GB/s
+total: 1.099x, threads 1, rows 16384, bit-exact
+== 8b-wiki-test-k4cq4 threads 8
+K: raw 1152.0 MiB -> kvz 964.4 MiB (1.194x), encode 1.47 GB/s, decode 1.94 GB/s, zstd-3 1.073x at 1.06 GB/s
+V: raw 324.0 MiB -> kvz 298.6 MiB (1.085x), encode 0.79 GB/s, decode 0.95 GB/s, zstd-3 1.069x at 0.66 GB/s
+total: 1.169x, threads 8, rows 16384, bit-exact
+== 8b-wiki-test-k4cq4 threads 1
+K: raw 1152.0 MiB -> kvz 964.4 MiB (1.195x), encode 0.32 GB/s, decode 0.40 GB/s, zstd-3 1.073x at 0.92 GB/s
+V: raw 324.0 MiB -> kvz 298.5 MiB (1.085x), encode 0.16 GB/s, decode 0.18 GB/s, zstd-3 1.069x at 0.98 GB/s
+total: 1.169x, threads 1, rows 16384, bit-exact
+ALLDONE
