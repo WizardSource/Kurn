@@ -126,6 +126,8 @@ The model log shows `KURN model buffer size = ...` when weights were repacked. N
 | `GGML_KURN_STEAL=0` | decode-sized ops (1-8 columns) use the guided row chunks below instead of work stealing |
 | `GGML_KURN_BF16_ROWS`, `_KC`, `_KCH`, `_PASS` | AMX-BF16 blocking: panel rows (128), K chunk (4096), guarded sub-step in 32-value steps (32), row-chunk granularity (64) |
 | `GGML_KURN_AMX_GUARD=N` | preemption guard threshold in TSC cycles (8192, plus 128 per k-step of the guarded step) |
+| `GGML_KURN_AMX_SELFTEST=0` | skip the AMX startup self-test (below); `GGML_KURN_AMX_SELFTEST_MS` sets its budget (20 ms) |
+| `GGML_KURN_AMX_SELFTEST_ACTION=off` | when the self-test sees wrong AMX results, use the non-AMX kernels (as `GGML_KURN_AMX=0`) instead of the default `guard`: AMX kernels with the preemption guard forced on |
 | `GGML_KURN_CHUNK_KB=N` | prefill row-chunk size in KiB (default 1024) |
 | `GGML_KURN_CHUNKS=N` | prefill-sized ops (and decode-sized ones with `GGML_KURN_STEAL=0`): N equal row chunks per thread, handed out dynamically (0 = one static range per thread). Default: guided (each thread first streams its own contiguous 3/4 share in whole GEMV passes, the last quarter goes out in single passes); ops with fewer than 4 passes per thread use static ranges |
 | `GGML_KURN_FALLBACK=0` | turn off the per-tensor fallback (below); `GGML_KURN_FALLBACK_N` / `_K` set its thresholds (512 / 512) |
@@ -135,6 +137,16 @@ The model log shows `KURN model buffer size = ...` when weights were repacked. N
 | `GGML_KURN_TBM_AMX_MIN=N` | bitmap + signs prefill on AMX-INT8 from N columns (default 32, minimum 16; batch invariant, also in exact mode) |
 | `GGML_KURN_TBM_PF=0`, `GGML_KURN_TBM_ROWS=N` | bitmap + signs GEMV without software prefetch; N row groups per pass (2, 4 (default), 6, 8) |
 | `GGML_KURN_VERBOSE=1` | log every repacked tensor, every fallback decision and each weight's prefill path; at exit, the number of AMX steps recomputed by the preemption guard |
+
+**AMX startup self-test.** Some KVM guests lose AMX tile data when a thread is descheduled, so a tile computation
+that a context switch lands in returns wrong results; the preemption guard in every kurn AMX kernel recomputes such
+steps. At load (`kurn-amx-selftest.cpp`, about 20 ms), kurn runs int8 and bf16 tile matmuls against a scalar
+reference, first plainly, then in two threads sharing one CPU that yield inside every computation. Wrong results in
+the plain phase turn AMX off. Wrong results only across context switches print a warning and, by default, keep the AMX
+kernels with the guard forced on (`GGML_KURN_AMX_GUARD` cannot weaken it) and stop handing small weights to ggml's AMX
+buffer, which has no guard; `GGML_KURN_AMX_SELFTEST_ACTION=off` uses the non-AMX kernels instead. Formats kurn has no
+kernels for still go to ggml's AMX buffer. `tools/amx_selftest.c` is the standalone version, for measuring mismatch
+rates under load.
 
 **Per-tensor fallback.** kurn declines a weight (llama.cpp then gives it to the next extra buffer) when ggml's AMX
 buffer can take it and it is in the shape range where kurn is not measured to win: N <= 512 or K < 512 (Q8_0 2048 x 512

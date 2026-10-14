@@ -5,6 +5,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Added: AMX startup self-test
+- `kurn-amx-selftest.cpp`: at load, about 10-20 ms of int8 and bf16 tile matmuls against a scalar reference, plain
+  and across forced context switches. On a machine that loses AMX tile data across context switches it warns, keeps
+  the AMX kernels with the preemption guard forced on and stops handing small weights to ggml's unguarded AMX buffer
+  (`GGML_KURN_AMX_SELFTEST_ACTION=off`: non-AMX kernels instead). Wrong results without a context switch turn AMX
+  off. `GGML_KURN_AMX_SELFTEST=0` skips it.
+- `tools/amx_selftest.c`: the standalone test, for mismatch rates under load, with and without the guard.
+
 ### Added: fused gate+up+SwiGLU epilogue (`epi=swiglu`), GEMV and tensor-core GEMM
 - W is the stacked [gate; up] matrix (N = 2F rows, ggml blocks or one KTBM buffer). The kernel writes Y[m][f] =
   silu(gate f · x_m) · (up f · x_m), [M][F] only, so gate and up outputs never round-trip to memory.

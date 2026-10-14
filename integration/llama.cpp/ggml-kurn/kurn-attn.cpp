@@ -27,6 +27,7 @@
 // turns the per-call packing off; GGML_KURN_VERBOSE=1 logs the configuration, each new node shape
 // with the kernel or the fallback reason, and call counts at exit.
 #include "kurn-attn.h"
+#include "kurn-amx-selftest.h"
 
 #include "ggml-cpu-impl.h"
 #include "ggml-impl.h"
@@ -42,11 +43,6 @@
 #include <map>
 #include <mutex>
 #include <string>
-
-#if defined(__linux__)
-#include <sys/syscall.h>
-#include <unistd.h>
-#endif
 
 namespace {
 
@@ -72,13 +68,10 @@ bool compiled(int engine) {
     return false;
 }
 
+// XTILEDATA granted and not turned off by the AMX self-test (kurn-amx-selftest.cpp); the AMX engine's
+// blocks are always guarded
 bool amx_permitted() {
-#if defined(__linux__)
-    // ARCH_REQ_XCOMP_PERM for XTILEDATA; fails on kernels or VMs without AMX state support
-    return syscall(SYS_arch_prctl, 0x1023, 18) == 0;
-#else
-    return false;
-#endif
+    return kurn_amx_check() != KURN_AMX_UNAVAILABLE;
 }
 
 const char * engine_name(int e) {

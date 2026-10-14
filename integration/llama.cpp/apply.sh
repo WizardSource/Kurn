@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Add the KURN extra buffer type to a llama.cpp checkout (tested on 4ebdf2c).
 #   apply.sh LLAMA_CPP_DIR [--config tuned.json] [--only q8_0,q4_0] [--patch OUT.patch]
-# - copies ggml-kurn/kurn-buft.{cpp,h}, kurn-native-vfy.{cpp,h}, kurn-amx-vfy.{cpp,h} and kurn-tbm.{cpp,h} into ggml/src/ggml-cpu/kurn/
+# - copies ggml-kurn/kurn-buft.{cpp,h}, kurn-native-vfy.{cpp,h}, kurn-amx-vfy.{cpp,h}, kurn-tbm.{cpp,h} and
+#   kurn-amx-selftest.{cpp,h} into ggml/src/ggml-cpu/kurn/
 # - generates the kurn kernels for every registry format ggml knows (gen_ggml_sources.py)
 # - generates kurn attention kernels (gen_ggml_attn.py; $ATTN_CONFIG = its --config) and makes kurn
 #   attention the first FLASH_ATTN_EXT implementation (kurn-attn.cpp, ggml's kernel as fallback)
@@ -32,7 +33,8 @@ CPU=$L/ggml/src/ggml-cpu
 mkdir -p "$CPU/kurn"
 cp "$HERE/ggml-kurn/kurn-buft.cpp" "$HERE/ggml-kurn/kurn-buft.h" "$HERE/ggml-kurn/kurn-attn.cpp" \
   "$HERE/ggml-kurn/kurn-attn.h" "$HERE/ggml-kurn/kurn-native-vfy.cpp" "$HERE/ggml-kurn/kurn-native-vfy.h" \
-  "$HERE/ggml-kurn/kurn-amx-vfy.cpp" "$HERE/ggml-kurn/kurn-amx-vfy.h" "$HERE/ggml-kurn/kurn-tbm.cpp" "$HERE/ggml-kurn/kurn-tbm.h" "$CPU/kurn/"
+  "$HERE/ggml-kurn/kurn-amx-vfy.cpp" "$HERE/ggml-kurn/kurn-amx-vfy.h" "$HERE/ggml-kurn/kurn-tbm.cpp" "$HERE/ggml-kurn/kurn-tbm.h" \
+  "$HERE/ggml-kurn/kurn-amx-selftest.cpp" "$HERE/ggml-kurn/kurn-amx-selftest.h" "$CPU/kurn/"
 cp "$HERE/memsys/ggml-kurn-mem.h" "$L/ggml/include/"
 cp "$HERE/memsys/ggml-kurn-mem.c" "$L/ggml/src/"
 PYTHONPATH="$HERE/../../src${PYTHONPATH:+:$PYTHONPATH}" "$PY" "$HERE/gen_ggml_sources.py" "$CPU/kurn" \

@@ -29,7 +29,9 @@
 // off fused MUL_MAT groups (fused_group); GGML_KURN_VERBOSE=1 logs repacks, prefill paths and AMX redo counts.
 // AMX on VMs: some KVM guests drop AMX tile data when a thread is descheduled. Every AMX step here is
 // short, timed, and recomputed from intact inputs when it took longer than a preemption-length gap
-// (GGML_KURN_AMX_GUARD, default 8192 cycles plus a per-step allowance), as kurn attention does.
+// (GGML_KURN_AMX_GUARD, default 8192 cycles plus a per-step allowance), as kurn attention does. A startup
+// self-test (kurn-amx-selftest.cpp, GGML_KURN_AMX_SELFTEST) checks for the condition and warns; then the guard
+// stays forced on, or AMX is turned off (GGML_KURN_AMX_SELFTEST_ACTION=off).
 //
 // Activations are quantized once per op, split across all threads by blocks, and the per-block
 // tables the kernels need (scales, block sums) are built in the same pass (the generated
@@ -53,6 +55,7 @@
 #include "kurn_dispatch.h"
 #include "kurn-native-vfy.h"
 #include "kurn-amx-vfy.h"
+#include "kurn-amx-selftest.h"
 #include "vec.h"
 #include "kurn-tbm.h"
 #include "ggml-kurn-mem.h"
@@ -71,8 +74,6 @@
 #include <vector>
 
 #if defined(__AMX_INT8__) && defined(__linux__)
-#include <sys/syscall.h>
-#include <unistd.h>
 #define KURN_HAVE_AMX 1
 #else
 #define KURN_HAVE_AMX 0
@@ -112,7 +113,8 @@ const kurn_kernel * find_kernel(enum ggml_type t) {
 }
 
 #if defined(__AMX_INT8__) && defined(__linux__)
-bool amx_ok = false;  // ggml's AMX buffer (and kurn's AMX prefill) can run: XTILEDATA granted
+bool amx_ok = false;     // ggml's AMX buffer (and kurn's AMX prefill) can run: XTILEDATA granted
+bool amx_lossy = false;  // the AMX self-test saw tile data lost across a context switch (KURN_AMX_GUARDED)
 #endif
 
 // AMX prefill matmuls: on by default where AMX is usable; GGML_KURN_AMX_MM=0 (or GGML_KURN_AMX=0) turns them off.
@@ -159,7 +161,13 @@ bool ggml_amx_takes(const ggml_tensor * w) {
 // at N <= 512 results are mixed (Q8_0 2048 x 512: 0.94x). So when the AMX buffer can take the
 // weight and N <= GGML_KURN_FALLBACK_N (512) or K < GGML_KURN_FALLBACK_K (512), ggml keeps it.
 // GGML_KURN_FALLBACK=0 turns the rule off (kurn takes every weight it has a kernel for).
+// Not when the AMX self-test saw tile data lost: ggml's AMX buffer has no preemption guard.
 bool keep_with_ggml(const ggml_tensor * w) {
+#if defined(__AMX_INT8__) && defined(__linux__)
+    if (amx_lossy) {
+        return false;
+    }
+#endif
     static const bool on = env_int("GGML_KURN_FALLBACK", 1) != 0;
     static const int64_t max_n = env_int("GGML_KURN_FALLBACK_N", 512), min_k = env_int("GGML_KURN_FALLBACK_K", 512);
     return on && ggml_amx_takes(w) && (w->ne[1] <= max_n || w->ne[0] < min_k);
@@ -557,8 +565,16 @@ int64_t amx_kc() {
     return v;
 }
 
+// GGML_KURN_AMX_GUARD above the default (a weaker guard) is not honoured once the self-test saw tile data lost.
 uint64_t amx_guard_cycles(int64_t kn) {
-    static const uint64_t base = (uint64_t) env_int("GGML_KURN_AMX_GUARD", 8192);
+    static const uint64_t base = [] {
+        const int g = env_int("GGML_KURN_AMX_GUARD", 8192);
+        if (amx_lossy && (g <= 0 || g > 8192)) {
+            GGML_LOG_WARN("kurn: GGML_KURN_AMX_GUARD=%d ignored after the failed AMX self-test, using 8192\n", g);
+            return (uint64_t) 8192;
+        }
+        return (uint64_t) g;
+    }();
     return base + (uint64_t) kn * 128;
 }
 
@@ -2040,8 +2056,10 @@ ggml_backend_buffer_type_t ggml_backend_cpu_kurn_buffer_type(void) {
             return false;
         }
 #if KURN_HAVE_AMX
-        // ARCH_REQ_XCOMP_PERM for XTILEDATA (same request as ggml's AMX buffer)
-        amx_ok = syscall(SYS_arch_prctl, 0x1023, 18) == 0;
+        // ARCH_REQ_XCOMP_PERM for XTILEDATA (same request as ggml's AMX buffer), then the AMX self-test
+        const kurn_amx_state st = kurn_amx_check();
+        amx_ok = st != KURN_AMX_UNAVAILABLE;
+        amx_lossy = st == KURN_AMX_GUARDED;
 #endif
         return true;
     }();
