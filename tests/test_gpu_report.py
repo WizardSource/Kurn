@@ -132,6 +132,19 @@ def test_packed_vs_staged_ablation_table(tmp_path):
     assert "| — | — | — | unmeasured" in report.packed_vs_staged(report.unmeasured_cells(["q4_0"]))
 
 
+def test_ternary_vs_tq2_0_ablation_table(tmp_path):
+    rows = rows_for("tq2_0", 1, "kurn:default-mma8-reg", 10.0, 0.01, config=CFG["q4_0"])
+    tb = rows_for("tbm", 1, "kurn:default-mma8-reg", 8.0, 0.01, config=CFG["q4_0"], seed=3)
+    for r in tb:  # tbm reads fewer weight bytes (1 presence bit + 1 sign bit per nonzero)
+        if r["kind"] == "sample":
+            r["bytes"] *= 0.8
+    (tmp_path / "matrix.jsonl").write_text("\n".join(json.dumps(r) for r in rows + tb) + "\n")
+    md, _ = report.write(str(tmp_path), ["tq2_0", "tbm"])
+    assert "## Ternary bitmap + signs (tbm) vs TQ2_0 (ablation)" in md
+    assert any(ln.startswith("| 1 | mma8-reg |") and "| 1.25x | 0.80 | win |" in ln for ln in md.splitlines()), md
+    assert "| — | — | unmeasured" in report.ternary_vs_tq2(report.unmeasured_cells(["tq2_0"]))
+
+
 def test_dry_report_is_all_unmeasured(tmp_path):
     md, cells = report.write(str(tmp_path), ["q4_0", "tq2_0"], dry=True)
     assert all(c["v_overall"] == "unmeasured" and c["dispatch"] == "stock" for c in cells.values())

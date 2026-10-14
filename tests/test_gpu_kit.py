@@ -99,10 +99,12 @@ def test_kit_report_has_every_section_and_the_untestable_list(tmp_path):
     (out / "matmul").mkdir()
     (out / "matmul" / "report.md").write_text(
         "# m\n\n## Wins, ties and losses\n\n| w |\n\n## Packed-direct weights vs shared-memory "
-        "staging (ablation)\n\n| tq2_0 | 1 | mma8 | 10 | 15 | 1.50x | win |\n\n## Other\n"
+        "staging (ablation)\n\n| tq2_0 | 1 | mma8 | 10 | 15 | 1.50x | win |\n\n## Ternary bitmap + signs (tbm) vs TQ2_0 "
+        "(ablation)\n\n| 1 | mma8-reg | 10 | 12 | 1.20x | 0.80 | win |\n\n## Other\n"
     )
     md = kitreport.write(str(out))
     assert "### Packed-direct weights vs shared-memory staging (ablation)" in md and "| tq2_0 | 1 | mma8 | 10 | 15 | 1.50x | win |" in md
+    assert "### Ternary bitmap + signs (tbm) vs TQ2_0 (ablation)" in md and "| 1 | mma8-reg | 10 | 12 | 1.20x | 0.80 | win |" in md
     assert (out / "report.md").read_text() == md
     for want in ("# kurn GPU kit v2 report (QUICK run)", "## Not testable on this box", "FP8 (e4m3) KV attention",
                  "sm_100 (B200 / GB200)", "GPU pytest subset: skipped: NO_PYTEST=1", "| llama3-8b | f16 | 16384 | 50.0", "1.20x", "78%",

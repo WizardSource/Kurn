@@ -20,7 +20,8 @@ Kit v2: everything in one command, one report (recommended):
     4. the GEMM/GEMV matmul kit (run_gpu_check.sh): GPU correctness, tune, matrix vs ggml-cuda and cuBLAS for all ten
        formats incl. MXFP4 / NVFP4 (dequant-in-register, runs on sm_80), plus the packed-direct ablation: the batch 1-16
        engine tiles with weights staged through shared memory (default-mma8/16) vs decoded from global memory straight
-       into the tensor-core fragments (default-mma8/16-reg, wload=reg)
+       into the tensor-core fragments (default-mma8/16-reg, wload=reg), and the ternary bitmap + signs format (tbm,
+       KTBM v1, 40% zeros) against TQ2_0 on the same packed tile
     5. the GPU pytest subset (kurn/tests/test_gpu_*.py)
   Output: kurn-kit-results-<host>-<date>/report.md - the single report: toolchain, steps, what this box cannot test
   (on an A100: FP8 KV and sm_100 / sm_120 runtime - compile + emulator only), attention kurn vs baselines against the

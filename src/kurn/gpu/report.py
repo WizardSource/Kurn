@@ -209,6 +209,7 @@ def render(cells, agg, meta, results_dir=None, dry=False):
     L.append("\nTotals vs the best competitor of any format: " + ", ".join(f"{k}: {v}" for k, v in sorted(counts.items())) + "\n")
     L.append(default_vs_tuned(cells))
     L.append(packed_vs_staged(cells))
+    L.append(ternary_vs_tq2(cells))
     # detail
     L.append("## Detail per format\n")
     L.append("Columns: tokens/s (mean ± sd over rounds), % of measured HBM bandwidth, % of the measured int8 mma.sync peak, "
@@ -270,6 +271,34 @@ def packed_vs_staged(cells):
             rows += 1
     if not rows:
         out.append("| — | — | — | unmeasured | unmeasured | — | — |")
+    return "\n".join(out) + "\n"
+
+
+def ternary_vs_tq2(cells):
+    """Markdown ablation: ternary bitmap + signs (tbm, fewer bytes, more decode) vs TQ2_0 on the same packed-direct tile, per
+    batch; speedup = TQ2_0 time / tbm time, bytes = tbm / TQ2_0 weight bytes of the model step."""
+    out = ["## Ternary bitmap + signs (tbm) vs TQ2_0 (ablation)\n",
+           "Same packed-direct tensor-core tile. tbm stores 1 presence bit per weight plus 1 sign bit per nonzero (KTBM v1, "
+           "repacked at load); the harness's ternary weights have 40% zeros. Speedup = TQ2_0 time / tbm time.\n",
+           "| batch | tile | TQ2_0 tok/s | tbm tok/s | speedup | weight bytes tbm / TQ2_0 | verdict |",
+           "|---|---|---|---|---|---|---|"]  # fmt: skip
+    rows = 0
+    for m in sorted({mm for (f, mm) in cells if f == "tbm"}):
+        tq, tb = cells.get(("tq2_0", m)), cells.get(("tbm", m))
+        if not (tq and tb):
+            continue
+        by_q = {s["impl"][5:]: s for s in tq["all"] if s["family"] == "kurn" and "T_us" in s}
+        by_t = {s["impl"][5:]: s for s in tb["all"] if s["family"] == "kurn" and "T_us" in s}
+        for name in ("default-mma8-reg", "default-mma16-reg"):
+            q, t = by_q.get(name), by_t.get(name)
+            if not (q and t):
+                continue
+            v, ratio = verdict(t["T_us"], t.get("cv", 0), q["T_us"], q.get("cv", 0), t.get("rounds", 0), q.get("rounds", 0))
+            br = f"{t['bytes'] / q['bytes']:.2f}" if q.get("bytes") else "—"
+            out.append(f"| {m} | {name[8:]} | {_fmt_tok(q)} | {_fmt_tok(t)} | {ratio:.2f}x | {br} | {v} |")
+            rows += 1
+    if not rows:
+        out.append("| — | — | unmeasured | unmeasured | — | — | — |")
     return "\n".join(out) + "\n"
 
 

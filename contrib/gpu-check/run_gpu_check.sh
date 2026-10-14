@@ -11,7 +11,7 @@
 #   NO_LLAMA=1            skip the ggml-cuda competitor (otherwise llama.cpp is cloned if git and network work)
 #   NO_MARLIN=1           skip the Marlin competitor (runs only if PyTorch + vLLM or `marlin` are importable)
 #   MARLIN_PYTHON=python  interpreter that has torch (default: python3)
-#   FORMATS=q4_0,tq2_0    restrict formats (default: all ten)
+#   FORMATS=q4_0,tq2_0    restrict formats (default: all eleven; tbm = ternary bitmap + signs, tensor-core engine only)
 #   CUDA_VISIBLE_DEVICES  pick the GPU (default: GPU 0)
 #   KURN_CUDA_INCLUDE=/p  CUDA runtime headers (cuda_runtime.h, cuda_fp16.h, cublas_v2.h) when they are not in nvcc's
 #   KURN_CUDA_LIB=/p      toolkit, e.g. a third_party dir with include_no_implicit/ and lib/ (':'-separated lists ok);
@@ -94,7 +94,7 @@ if [ -n "${KURN_NVCC:-}" ]; then
 fi
 K gpu targets > "$OUT/targets.txt" 2>&1; head -2 "$OUT/targets.txt" | tee -a "$OUT/run.log"
 
-FORMATS=${FORMATS:-q8_0,q4_0,iq4_nl,q4_K,q2_0,tq2_0,q1_0,e8p,mxfp4,nvfp4}
+FORMATS=${FORMATS:-q8_0,q4_0,iq4_nl,q4_K,q2_0,tq2_0,q1_0,e8p,mxfp4,nvfp4,tbm}
 if [ "$DRYRUN" = "1" ]; then
   ARCH=sm_80
   # the targets: A100, plus B200/GB200 (sm_100) and RTX 50 (sm_120) when nvcc >= 12.8
@@ -172,7 +172,7 @@ if [ "$DRYRUN" = "1" ]; then
     D="$("$PY" -c 'import kurn.gpu.toolchain as t; import os; print(os.path.dirname(t.data_path("kurn_gpu.h")))')"
     if g++ -O2 -std=c++17 -I "$D" -I "$LLAMA/ggml/include" "$D/ggml_mm_check.cpp" -L "$LIBD" -lggml-base -lggml-cpu \
          -Wl,-rpath="$LIBD" -o "$OUT/ggml_mm_check" 2> "$OUT/ggml_mm_check_build.txt"; then
-      for f in ${FORMATS//,/ }; do "$OUT/ggml_mm_check" "$f" 64 1024 3; done > "$OUT/ggml_mm_check.jsonl" 2>&1
+      for f in ${FORMATS//,/ }; do [ "$f" = tbm ] || "$OUT/ggml_mm_check" "$f" 64 1024 3; done > "$OUT/ggml_mm_check.jsonl" 2>&1  # ggml has no tbm
       cat "$OUT/ggml_mm_check.jsonl" | tee -a "$OUT/run.log"
     fi
   fi
