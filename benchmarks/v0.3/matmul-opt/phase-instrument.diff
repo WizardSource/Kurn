@@ -1,0 +1,68 @@
+diff --git a/ggml/src/ggml-cpu/kurn/kurn-buft.cpp b/ggml/src/ggml-cpu/kurn/kurn-buft.cpp
+index ec523498e..d04c3ce49 100644
+--- a/ggml/src/ggml-cpu/kurn/kurn-buft.cpp
++++ b/ggml/src/ggml-cpu/kurn/kurn-buft.cpp
+@@ -323,6 +323,11 @@ uint64_t amx_guard_cycles(int64_t kn) {
+ }
+ 
+ std::atomic<uint64_t> g_amx_redo{0};
++struct alignas(64) ph_slot { uint64_t v[8]; };
++ph_slot g_ph[64];
++struct ph_dump { ~ph_dump() { if (!getenv("KURN_PH")) return; uint64_t t[8] = {0}; for (auto & s : g_ph) for (int i = 0; i < 8; i++) t[i] += s.v[i];
++  fprintf(stderr, "kurn phases (Gcyc, all threads): convert %.3f barrier %.3f pack %.3f tiles %.3f store %.3f sched %.3f\n", t[0]*1e-9, t[1]*1e-9, t[2]*1e-9, t[3]*1e-9, t[4]*1e-9, t[5]*1e-9); } } g_ph_dump;
++thread_local int g_ph_t = 0;
+ 
+ // one 16 x 16 x 32 block into cbuf; set 0 uses tiles A2 B0 C4, set 1 A3 B1 C5 (alternated so block k + 1 can start
+ // before block k's epilogue)
+@@ -685,7 +690,9 @@ void amx_bf16_gemm(const uint8_t * buf, bf16_pack_fn pack, int64_t align, int64_
+             const int64_t kc = std::min(KC, K - kc0), nt = kc / 32;
+             const bool last = kc0 + kc >= K;
+             const uint64_t guard = amx_guard_cycles(kch);
++            uint64_t tp0 = __rdtsc();
+             pack(buf, K, n0, rows, kc0, kc, bs);
++            uint64_t tp1 = __rdtsc(); g_ph[g_ph_t].v[2] += tp1 - tp0;
+             amx_config_bf16();
+             for (int64_t mg = 0; mg < nmg; mg++) {
+                 const uint16_t * a0 = A + mg * 32 * K + kc0;
+@@ -748,6 +755,7 @@ void amx_bf16_gemm(const uint8_t * buf, bf16_pack_fn pack, int64_t align, int64_
+                     if (!last) {
+                         continue;
+                     }
++                    uint64_t ts0 = __rdtsc();
+                     for (int q = 0; q < 4; q++) {
+                         if (!two && (q & 1)) {
+                             continue;
+@@ -761,6 +769,7 @@ void amx_bf16_gemm(const uint8_t * buf, bf16_pack_fn pack, int64_t align, int64_
+                             _mm512_mask_storeu_ps(Y + (mb + m) * N + nb, mask, _mm512_load_ps(cur + q * 256 + m * 16));
+                         }
+                     }
++                    g_ph[g_ph_t].v[4] += __rdtsc() - ts0;
+                 }
+             }
+         }
+@@ -1005,6 +1014,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
+         const int64_t K = src0->ne[0], N = src0->ne[1], M = ggml_nrows(src1), Mp = (M + 31) / 32 * 32;
+         const int64_t ne11 = src1->ne[1], ne12 = src1->ne[2];
+         uint16_t * A = (uint16_t *) align64(params->wdata);
++        g_ph_t = params->ith; uint64_t tc0 = __rdtsc();
+         for (int64_t c = Mp * params->ith / params->nth; c < Mp * (params->ith + 1) / params->nth; c++) {
+             uint16_t * dst = A + c * K;
+             if (c >= M) {
+@@ -1025,7 +1035,9 @@ struct tensor_traits : ggml::cpu::tensor_traits {
+         if (params->ith == 0) {
+             ggml_threadpool_chunk_set(params->threadpool, params->nth);
+         }
++        uint64_t tc1 = __rdtsc(); g_ph[g_ph_t].v[0] += tc1 - tc0;
+         ggml_barrier(params->threadpool);
++        uint64_t tc2 = __rdtsc(); g_ph[g_ph_t].v[1] += tc2 - tc1;
+         static const int64_t bpass = env_int("GGML_KURN_BF16_PASS", 64);
+         const row_chunks rc(N, balign, std::max(balign, bpass / balign * balign), params->nth);
+         for (int64_t c = params->ith; c < rc.n; c = rc.n > params->nth ? ggml_threadpool_chunk_add(params->threadpool, 1) : rc.n) {
+@@ -1035,6 +1047,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
+                 amx_bf16_gemm(data[0], bpack, balign, bkalign, A, M, (float *) op->data, K, N, r0, r1);
+             }
+         }
++        g_ph[g_ph_t].v[3] += __rdtsc() - tc2;
+     }
+ #endif
+ 
