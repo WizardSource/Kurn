@@ -94,7 +94,14 @@ measured 0.94x). Everywhere else kurn was measured at or above ggml's best path:
 GEMV), CPU_REPACK and plain `vec_dot` (`benchmarks/v0.2/q4fix`). Builds without AMX keep every weight on kurn.
 
 **Kernel defaults** (`TUNED_KEYS` in `gen_ggml_sources.py`): Q8_0 `rows=8` (v0.1 vnni16's pass width), Q4_0
-`unpack=pair rows=4`, Q4_K `unpack=pair correction=dpmin rows=4`, IQ4_NL `unpack=perm rows=4`. Four or more row groups
+`unpack=pair rows=4`, Q4_K `unpack=pair correction=dpmin rows=4`, IQ4_NL `unpack=perm rows=4`, TQ2_0 `rows=4 prefetch=4
+pfgran=line`. The TQ2_0 entry replaced `rows=2` without prefetch. Paired A/B with alternating order, 95% CIs
+(`benchmarks/v0.3/ternary/paired_tq2.sh`, `paired_ci.py`):
+  - Decode layers of five ternary models: 1.29-1.47x (10/10 pairs each).
+  - `llama-bench` decode: 1.15x BitNet 2B-4T, 1.36x TriLM 3.9B, 1.29x Ternary-Bonsai 8B, 1.35x Llama3-8B-1.58.
+  - 2-column verify: 1.11x.
+  - 4 / 8 columns and prefill: unchanged within +-2%, with one small measured loss: Llama3-8B prefill 0.98x.
+  - The arithmetic is unchanged: 351 MUL_MAT cases (`dump_tq2.c`) and perplexity are bit-identical to the old schedule. Four or more row groups
 per pass give each core four or more concurrent weight streams, which the DRAM prefetchers need (one stream per core:
 42 GB/s, four: 80 GB/s on the dev VM). Each format also gets a one-row-group GEMV on the same packing for range
 remainders, and `_xprep` / `_packed_x` entry points so activations are quantized and prepared once per op.
@@ -127,11 +134,10 @@ threshold they go to the TQ2_0 kernels, converted without changing any value.
   TQ2_0's size). Only the used bytes are written, and the tail pages are never touched.
 
 Decode matmuls of whole decoder layers (`tools/opbench`, real shapes, 8 threads, medians over alternating rounds,
-`OPBENCH_ZERO` = the model's zero fraction), against the TQ2_0 kernel with the `rows=4 prefetch=4 pfgran=line` schedule
-(`--config '{"tq2_0": {"rows": 4, "prefetch": 4, "pfgran": "line"}}'`; the shipped `rows=2` schedule is 1.3-1.5x
-slower than that):
+`OPBENCH_ZERO` = the model's zero fraction), against the TQ2_0 kernel with its current default schedule (`rows=4
+prefetch=4 pfgran=line`, "tuned") and with the earlier `rows=2` default ("old"):
 
-| shapes (z) | tbm vs TQ2_0 tuned | vs TQ2_0 shipped | vs ggml TQ2_0 / TQ1_0 |
+| shapes (z) | tbm vs TQ2_0 tuned | vs TQ2_0 old | vs ggml TQ2_0 / TQ1_0 |
 |---|---|---|---|
 | BitNet 2B-4T (0.422) | 1.13x | 1.51x | 1.96x / 2.11x |
 | TriLM 3.9B (0.387) | 1.10x | 1.55x | 2.03x / 2.34x |

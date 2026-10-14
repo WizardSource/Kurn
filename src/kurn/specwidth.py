@@ -48,6 +48,7 @@ BUFT_TUNED_KEYS = {
     "q4_0": {"unpack": "pair", "rows": 4},
     "q4_K": {"unpack": "pair", "correction": "dpmin", "rows": 4, "prefetch": 4, "pfgran": "line"},
     "iq4_nl": {"unpack": "perm", "rows": 4},
+    "tq2_0": {"rows": 4, "prefetch": 4, "pfgran": "line"},
 }
 BUFT_VFY_KEYS = {"q8_0": {"*": {"rows": 1, "prefetch": 8, "pfgran": "line"}, "2": {"rows": 4, "prefetch": 4}, "3": {"rows": 2}, "4": {"rows": 2}}, "q4_K": {"*": {"rows": 1, "prefetch": 4, "pfgran": "line"}, "2": {"rows": 4, "prefetch": 2}, "3": {"rows": 2, "prefetch": 2}, "4": {"rows": 2, "prefetch": 2}}}
 # One Qwen3-8B decoder layer (q, k, v, o, gate, up, down as K:N) plus the output head (151936 rows).

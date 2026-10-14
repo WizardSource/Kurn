@@ -5,6 +5,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Changed: TQ2_0 kernels default to 4 row groups + whole-record prefetch
+- `TUNED_KEYS["tq2_0"] = rows=4 prefetch=4 pfgran=line` (was `rows=2 prefetch=0`; `kurn.specwidth` mirrors it). The
+  shipped schedule streamed ~60 GB/s from DRAM, against 88 GB/s now.
+- Paired A/B with alternating order and 95% CIs (`benchmarks/v0.3/ternary/paired_tq2.sh`, `paired_ci.py`):
+  - decode layers of five ternary models: 1.29-1.47x;
+  - `llama-bench` decode: BitNet 2B-4T 1.15x, TriLM 3.9B 1.36x, Ternary-Bonsai 8B 1.29x, Llama3-8B-1.58 1.35x;
+  - 2-column verify: 1.11x;
+  - 4 / 8 columns and prefill: within +-2%, with Llama3-8B prefill 0.98x.
+- Bit-identical to the old schedule: 351 raw MUL_MAT outputs (`dump_tq2.c`, exact on / off, AMX on / off) and
+  perplexity on three models.
+
 ### Added: ternary weights as presence bitmap + signs (TQ1_0 / TQ2_0 in the KURN buffer type)
 - `kurn.ternary` defines the layout ("tbm", the BITCOS idea: one presence bit per weight and one sign bit per
   nonzero, 2.0625 - z bpw at zero fraction z). It has the reference encoder / decoder and the size model.
@@ -19,7 +30,7 @@ All notable changes to this project are documented here. The format follows
   - The decoded code is TQ2_0's, so results are bit-identical to the TQ2_0 kernels at every width, and batch
     invariance and exact mode hold (the AMX-INT8 prefill is exact and is used in exact mode too).
 - Decode matmuls of whole layers (opbench, 8 threads) against TQ2_0 with a tuned `rows=4 prefetch=4 line` schedule:
-  1.02-1.13x on five models' shapes, 1.5x against the shipped TQ2_0 schedule, and 2x against ggml's TQ2_0 / TQ1_0.
+  1.02-1.13x on five models' shapes, 1.5x against the earlier `rows=2` TQ2_0 schedule, and 2x against ggml's TQ2_0 / TQ1_0.
   Prefill (512 columns) is 1.20x TQ2_0's verify-kernel prefill. The decode costs 1.8 cycles per 64 weights against
   1.15 for TQ2_0: it wins when weights stream from DRAM and ties in L3.
 - `test_kurn_buft tbm [smoke]` checks bit-identity with the TQ2_0 records (TQ1_0 and TQ2_0; z = 0, 0.42 and 0.9;

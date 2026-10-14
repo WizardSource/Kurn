@@ -52,6 +52,10 @@ TUNED_KEYS = {
     # every line of the super-block record 4 records ahead: GEMV 8.4 vs 9.7 ms (opbench, Qwen3-8B shapes, 6 A/B rounds)
     "q4_K": {"unpack": "pair", "correction": "dpmin", "rows": 4, "prefetch": 4, "pfgran": "line"},
     "iq4_nl": {"unpack": "perm", "rows": 4},
+    # 4 weight streams per core and every line of the record 4 records ahead, instead of rows=2 without prefetch:
+    # decode layers of five ternary models 1.29-1.47x, llama-bench decode 1.15-1.36x, prefill within +-2% (paired
+    # rounds, 95% CIs: benchmarks/v0.3/ternary/paired_tq2.sh); same per-column arithmetic, bit-identical results
+    "tq2_0": {"rows": 4, "prefetch": 4, "pfgran": "line"},
 }
 # Verify-kernel schedule per format and width: row groups per pass, prefetch distance (records),
 # prefetch granularity and hint.
