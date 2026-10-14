@@ -1,12 +1,12 @@
 diff --git a/common/arg.cpp b/common/arg.cpp
-index fe67d7c29..75fb131f8 100644
+index fe67d7c29..0d892c444 100644
 --- a/common/arg.cpp
 +++ b/common/arg.cpp
 @@ -311,6 +311,7 @@ const std::vector<ggml_type> kv_cache_types = {
      GGML_TYPE_IQ4_NL,
      GGML_TYPE_Q5_0,
      GGML_TYPE_Q5_1,
-+    GGML_TYPE_K4C, // K only (kurn k4c); -ctk k4c_q4 / k4c_q8 also set V to q4_0 / q8_0
++    GGML_TYPE_K4C, // K only (kurn k4c): V q8_0 unless -ctv q4_0; -ctk k4c_q4 / k4c_q8 also set V to q4_0 / q8_0
  };
  
  static ggml_type kv_cache_type_from_str(const std::string & s) {
@@ -235,10 +235,10 @@ index 9bcabdbd3..2833480a5 100644
          .type_name                = "q2_0",
          .blck_size                = QK2_0,
 diff --git a/src/llama-context.cpp b/src/llama-context.cpp
-index 4f04db0ee..27aadf87e 100644
+index 4f04db0ee..3c9bf471d 100644
 --- a/src/llama-context.cpp
 +++ b/src/llama-context.cpp
-@@ -3837,6 +3837,22 @@ llama_context * llama_init_from_model(
+@@ -3837,6 +3837,27 @@ llama_context * llama_init_from_model(
          return nullptr;
      }
  
@@ -247,6 +247,11 @@ index 4f04db0ee..27aadf87e 100644
 +        return nullptr;
 +    }
 +    if (params.type_k == GGML_TYPE_K4C) {
++        if (params.type_v == GGML_TYPE_F16) {
++            // the default V type: k4c_q8, which holds the 2% perplexity budget at 8-32K tokens of depth (k4c_q4 is marginal)
++            LLAMA_LOG_INFO("%s: K cache type k4c with V cache type q8_0 (k4c_q8, the long-context default; -ctv q4_0 for k4c_q4)\n", __func__);
++            params.type_v = GGML_TYPE_Q8_0;
++        }
 +        if (params.type_v != GGML_TYPE_Q4_0 && params.type_v != GGML_TYPE_Q8_0) {
 +            LLAMA_LOG_ERROR("%s: K cache type k4c needs V cache type q4_0 (k4c_q4) or q8_0 (k4c_q8)\n", __func__);
 +            return nullptr;
