@@ -156,7 +156,8 @@ def test_buffer_type_checker_smoke(tmp_path):
     for env in ({"GGML_KURN_EXACT": "1", "GGML_KURN_AMX": "0"}, {}):
         r = subprocess.run([str(exe), "native"], capture_output=True, text=True, timeout=1200, env={**os.environ, **env})
         assert r.returncode == 0, (env, r.stdout[-4000:])
-    # Freivalds oracle (bigVerify-style) on the AMX-BF16 path: accepts real outputs, rejects planted faults
-    for mode, env in (("freivalds", {}),):
+    # fused ffn gate + up + SwiGLU: bit-identical to the unfused graph in exact and default mode; in default mode the
+    # AMX-BF16 members also pass the Freivalds oracle, which must accept real outputs and reject planted faults
+    for mode, env in (("fused", {"GGML_KURN_EXACT": "1", "GGML_KURN_AMX": "0"}), ("fused", {}), ("freivalds", {})):
         r = subprocess.run([str(exe), mode], capture_output=True, text=True, timeout=1200, env={**os.environ, **env})
         assert r.returncode == 0, (mode, env, r.stdout[-4000:])

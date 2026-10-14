@@ -31,6 +31,18 @@ ggml's AMX buffer; Q5_K 2.7 / 6.8 ms (`vec_dot` 3.6 / 22.4, AMX buffer 3.0 / 7.5
 too, without AMX-BF16: the native kernels compute every width with the same per-column arithmetic, where ggml's AMX
 buffer (VNNI at one column, tiles at more) is not batch invariant, so Q4_K_M models are batch invariant end to end.
 
+**Fused FFN gate + up + SwiGLU.** `apply.sh` hooks `ggml_kurn_fused_mul_mat` into ggml-cpu's graph fusion
+(`ggml_cpu_try_fuse_ops`): when `MUL_MAT(gate)`, `MUL_MAT(up)` on the same activations and their `SWIGLU` are
+consecutive nodes, gate and up are used only by the SwiGLU, and both weights are in the KURN buffer with the same
+path, the three nodes run as one op. The activations are quantized (or converted to bf16) once, one row schedule
+covers both weights (one load-imbalance tail and one set of barriers instead of two), and each row chunk computes the
+same rows of gate and up into thread-local tiles and writes only `silu(gate) * up`, with ggml's own
+`ggml_vec_swiglu_f32`. Gate and up never reach memory and the GLU node disappears. Every row is computed by the same
+kernel and arithmetic as unfused, so outputs are bit-identical to the unfused graph in both modes (`test_kurn_buft
+fused`; whole-model logits `cmp`-identical). Qwen3-8B Q8_0 transformer-block graph (`tools/blockbench.c`, 8 layers,
+paired CI over 10 alternating pairs): 512 columns 0.954x time (CI 0.912-0.992), 1 column 0.982x (0.941-0.993),
+8 columns 0.995x (unresolved). `GGML_KURN_FUSE=0` turns it off.
+
 The kernels come from the kurn registry: `gen_ggml_sources.py` emits one GEMV and seven verify kernels (2..8
 columns, one per exact width) per format that has an AVX-512 VNNI GEMV + verify kernel, a ggml-compatible activation type (`q8_0` /
 `q8_K`) and a `GGML_TYPE_*` in the target's `ggml.h`, plus the packing glue and the dispatch table
@@ -76,6 +88,7 @@ The model log shows `KURN model buffer size = ...` when weights were repacked. N
 | `GGML_KURN_NATIVE_VFY=0` | Q6_K / Q5_K below the AMX-BF16 threshold through ggml's `vec_dot` instead of `kurn-native-vfy.cpp` (A/B switch) |
 | `GGML_KURN_Q8_BF16=0` | Q8_0 prefill on the AMX-INT8 kernel instead of AMX-BF16 |
 | `GGML_KURN_NATIVE=0` | leave Q6_K / Q5_K weights to ggml |
+| `GGML_KURN_FUSE=0` | no fused MUL_MAT groups (FFN gate + up + SwiGLU run as three nodes) |
 | `GGML_KURN_BF16_ROWS`, `_KC`, `_KCH`, `_PASS` | AMX-BF16 blocking: panel rows (128), K chunk (4096), guarded sub-step in 32-value steps (32), row-chunk granularity (64) |
 | `GGML_KURN_AMX_GUARD=N` | preemption guard threshold in TSC cycles (8192, plus 128 per k-step of the guarded step) |
 | `GGML_KURN_CHUNK_KB=N` | prefill row-chunk size in KiB (default 1024) |
@@ -109,14 +122,26 @@ gcc -O2 -I$L/ggml/include test_kurn_buft.c -L$L/build/bin -lggml -lggml-base -lg
 ./t native                                          # native-layout Q6_K / Q5_K (also with GGML_KURN_EXACT=1)
 ./t case q8_0 4096 4096 16 8                       # one case: TYPE K N M THREADS [REPS]
 ./t bf16                                           # AMX-BF16 prefill path: error vs an f32 reference <= 2x ggml's vec_dot
+./t fused                                          # fused gate + up + SwiGLU == unfused, bit for bit (also with GGML_KURN_EXACT=1)
+./t freivalds                                      # Freivalds oracle on the AMX-BF16 path: accepts real outputs, rejects faults
 TEST_BUFT=AMX ./t quick q8_0                         # same checks against another extra buffer type
 ```
 
-Every mode except `bf16` checks exact results and runs with `GGML_KURN_EXACT=1` unless the variable is set, so on
-AMX CPUs it exercises the AMX-INT8 Q8_0 kernel (bit-identical to the GEMV) rather than the AMX-BF16 path.
+Every mode except `bf16`, `fused` and `freivalds` checks exact results and runs with `GGML_KURN_EXACT=1` unless the
+variable is set, so on AMX CPUs it exercises the AMX-INT8 Q8_0 kernel (bit-identical to the GEMV) rather than the
+AMX-BF16 path.
+
+**Freivalds oracle for KL-mode kernels.** Kernels that are not bit-exact (today the AMX-BF16 path) are checked the way
+github.com/WizardSource/bigVerify checks float matmuls: secret +-1 probes per 64 output columns, `C r` against
+`X (W r)` in double from the f32 inputs, with a threshold from the path's error model (bf16 inputs, 2^-8 per product;
+fp32 accumulation) in statistical mode and Hoeffding over the probe signs (false alarm <= 2^-40 per check). It costs
+O(t N/64) of the product. The detection floor is about 0.57x the output RMS; real outputs peak at ~0.3 of the
+threshold. `./t freivalds` checks that real outputs pass and that a 1x-RMS entry fault and a swapped 16 x 16 tile
+(what lost AMX tile state looks like) are rejected; `./t fused` runs the AMX-BF16 members of the fused op through it.
+Test-only: nothing in llama.cpp calls it.
 
 **Per-node profile.** `tools/opprof.patch` (`git apply` in the llama.cpp checkout) adds `GGML_OPPROF=1` to ggml's
-graph executor: for every prefill graph it records, per node type (weight type, buffer and shape for matmuls), the
+graph executor (`GGML_OPPROF=2`: every graph, decode included): for every prefill graph it records, per node type (weight type, buffer and shape for matmuls), the
 cycles each thread spends computing and waiting at the barrier after the node, and prints the table at exit.
 
 `tests/test_llama_integration.py` runs format discovery, the packing glue and GEMV / verify kernels against a Python

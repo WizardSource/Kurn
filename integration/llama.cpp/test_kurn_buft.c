@@ -11,6 +11,9 @@
 //                                                     under benchlock.sh, threads pinned)
 //   test_kurn_buft bf16                             the AMX-BF16 prefill path: its error against an f32
 //                                                     reference must stay within 2x of ggml's own vec_dot
+//   test_kurn_buft fused [type,...]                 ffn gate + up + SwiGLU fused into one op: bit-identical to the
+//                                                     unfused graph (exactness from the env); KL-mode members also
+//                                                     pass the Freivalds oracle
 //   test_kurn_buft freivalds                        Freivalds oracle (bigVerify-style secret-probe checksums) on
 //                                                     the AMX-BF16 path: no false alarm on real outputs, and planted
 //                                                     faults (one entry, one 16x16 tile) rejected
@@ -467,6 +470,73 @@ static void case_freivalds(ggml_backend_t be, enum ggml_type t, int64_t K, int64
     graph_free(&g); free(wq); free(x); free(wf); free(got);
 }
 
+// ffn block: gate = Wg x, up = Wu x, s = swiglu(gate, up). Graph A lets ggml-cpu fuse the three nodes; graph B marks
+// gate as an output, which blocks the fusion. s must be bit-identical; in KL mode (AMX-BF16, M >= the AMX threshold
+// outside exact mode) gate and up also go through the Freivalds oracle.
+static void case_fused(ggml_backend_t be, enum ggml_type t, int64_t K, int64_t N, int64_t M, int threads, int kl) {
+    const size_t wrow = ggml_row_size(t, K);
+    void *wg = malloc(wrow * N), *wu = malloc(wrow * N);
+    quantize(t, K, N, wg, 0.05f);
+    quantize(t, K, N, wu, 0.04f);
+    float *x = malloc(sizeof(float) * K * M);
+    for (int64_t i = 0; i < K * M; i++) x[i] = frand() * (1 + (i / 64) % 3);
+    float *s[2], *gate = malloc(sizeof(float) * N * M), *up = malloc(sizeof(float) * N * M);
+    for (int v = 0; v < 2; v++) {
+        struct ggml_init_params ip = {16 * ggml_tensor_overhead() + ggml_graph_overhead(), NULL, true};
+        struct ggml_context *cw = ggml_init(ip), *ca = ggml_init(ip);
+        struct ggml_tensor *tg = ggml_new_tensor_2d(cw, t, K, N), *tu = ggml_new_tensor_2d(cw, t, K, N);
+        struct ggml_tensor *tx = ggml_new_tensor_2d(ca, GGML_TYPE_F32, K, M);
+        struct ggml_tensor *g = ggml_mul_mat(ca, tg, tx), *u = ggml_mul_mat(ca, tu, tx);
+        struct ggml_tensor *out = ggml_swiglu_split(ca, g, u);
+        if (v == 1) { ggml_set_output(g); ggml_set_output(u); }
+        ggml_backend_buffer_t bw = ggml_backend_alloc_ctx_tensors_from_buft(cw, kurn);
+        ggml_backend_buffer_set_usage(bw, GGML_BACKEND_BUFFER_USAGE_WEIGHTS);
+        ggml_backend_buffer_t ba = ggml_backend_alloc_ctx_tensors(ca, be);
+        struct ggml_cgraph *gf = ggml_new_graph(ca);
+        ggml_build_forward_expand(gf, out);
+        ggml_backend_cpu_set_n_threads(be, threads);
+        ggml_backend_tensor_set(tg, wg, 0, ggml_nbytes(tg));
+        ggml_backend_tensor_set(tu, wu, 0, ggml_nbytes(tu));
+        ggml_backend_tensor_set(tx, x, 0, ggml_nbytes(tx));
+        ggml_backend_graph_compute(be, gf);
+        s[v] = malloc(sizeof(float) * N * M);
+        ggml_backend_tensor_get(out, s[v], 0, sizeof(float) * N * M);
+        if (v == 1) {
+            ggml_backend_tensor_get(g, gate, 0, sizeof(float) * N * M);
+            ggml_backend_tensor_get(u, up, 0, sizeof(float) * N * M);
+        }
+        ggml_backend_buffer_free(ba); ggml_backend_buffer_free(bw); ggml_free(ca); ggml_free(cw);
+    }
+    const int same = memcmp(s[0], s[1], sizeof(float) * N * M) == 0;
+    // the unfused members against their own reference: vec_dot in exact mode, the Freivalds oracle in KL mode
+    int okm = 1;
+    double e = 0;
+    if (kl) {
+        float *wf = malloc(sizeof(float) * K * N);
+        dequant_rows(t, wg, K, N, wf);
+        const fv_result a = freivalds_check(x, wf, gate, K, N, M);
+        dequant_rows(t, wu, K, N, wf);
+        const fv_result b = freivalds_check(x, wf, up, K, N, M);
+        okm = a.rejected == 0 && b.rejected == 0;
+        e = fmax(a.worst, b.worst);
+        free(wf);
+    } else {
+        float *ref = malloc(sizeof(float) * N * M);
+        ref_matmul(t, wg, x, K, N, M, ref);
+        e = relerr(gate, ref, N * M);
+        ref_matmul(t, wu, x, K, N, M, ref);
+        e = fmax(e, relerr(up, ref, N * M));
+        okm = e < 1e-4;
+        free(ref);
+    }
+    char what[200];
+    snprintf(what, sizeof what, "fused gate+up+swiglu %s K=%ld N=%ld M=%ld T=%d: fused %s unfused, members %s (%s %.2e)",
+             ggml_type_name(t), (long)K, (long)N, (long)M, threads, same ? "==" : "!=", okm ? "ok" : "BAD",
+             kl ? "freivalds worst" : "relerr", e);
+    report(same && okm, what, kl ? 0 : e);
+    free(wg); free(wu); free(x); free(s[0]); free(s[1]); free(gate); free(up);
+}
+
 static int64_t kmult(enum ggml_type t) {
     const int64_t b = ggml_blck_size(t);
     return b < 32 ? 32 : b;
@@ -477,8 +547,9 @@ int main(int argc, char **argv) {
     const int bf16 = argc > 1 && !strcmp(argv[1], "bf16");
     const int native = argc > 1 && !strcmp(argv[1], "native");  // native [types]: Q6_K / Q5_K in ggml's layout, not exact mode
     const int stress = argc > 7 && !strcmp(argv[1], "stress");  // stress TYPE K N M THREADS REPS (exactness from the env)
+    const int fused = argc > 1 && !strcmp(argv[1], "fused");    // exactness from the env
     const int fv = argc > 1 && !strcmp(argv[1], "freivalds");
-    if (!bf16 && !stress && !native && !fv && !getenv("GGML_KURN_EXACT")) setenv("GGML_KURN_EXACT", "1", 1);
+    if (!bf16 && !stress && !native && !fused && !fv && !getenv("GGML_KURN_EXACT")) setenv("GGML_KURN_EXACT", "1", 1);
     kurn = find_kurn();
     if (!kurn) { printf("KURN buffer type not available (GGML_KURN=0 or no AVX-512 VNNI)\n"); return 1; }
     ggml_backend_t be = ggml_backend_cpu_init();
@@ -502,6 +573,29 @@ int main(int argc, char **argv) {
             for (size_t mi = 0; mi < sizeof ms / sizeof *ms; mi++)
                 case_freivalds(be, ts[ti], 2048 + 2048 * (int64_t)(mi & 1), 1024 + 64 * (int64_t)mi, ms[mi], 1 + (int)mi * 2);
         printf("freivalds: %d passed, %d failed\n", npass, nfail);
+        ggml_backend_free(be);
+        return nfail;
+    }
+    if (fused) {
+        const int exact = getenv("GGML_KURN_EXACT") && atoi(getenv("GGML_KURN_EXACT"));
+        const int amx = __builtin_cpu_supports("amx-bf16");
+        const enum ggml_type ts[] = {GGML_TYPE_Q8_0, GGML_TYPE_Q4_K, GGML_TYPE_Q4_0, GGML_TYPE_Q6_K};
+        const int64_t ms[] = {1, 2, 3, 5, 8, 9, 16, 31, 32, 64, 129};
+        for (size_t ti = 0; ti < sizeof ts / sizeof *ts; ti++) {
+            const enum ggml_type t = ts[ti];
+            if (argc > 2 && !strstr(argv[2], ggml_type_name(t))) continue;
+            if (t == GGML_TYPE_Q6_K && !amx) continue;  // Q6_K stays with ggml without AMX-BF16
+            const int nfail0 = nfail, npass0 = npass;
+            for (size_t mi = 0; mi < sizeof ms / sizeof *ms; mi++) {
+                // KL mode: the AMX-BF16 path (Q8_0 / Q4_K from 32 columns, Q6_K from 16) outside exact mode
+                const int kl = amx && !exact && t != GGML_TYPE_Q4_0 && ms[mi] >= (t == GGML_TYPE_Q6_K ? 16 : 32);
+                case_fused(be, t, t == GGML_TYPE_Q4_0 ? 2048 : 4096, 1536, ms[mi], 1 + (int)(mi * 3) % 8, kl);
+            }
+            case_fused(be, t, 2048, 6144, 1, 8, 0);
+            printf("%-7s %4d passed, %d failed (fused gate+up+swiglu%s)\n", ggml_type_name(t), npass - npass0, nfail - nfail0,
+                   exact ? ", exact mode" : "");
+        }
+        printf("fused: %d passed, %d failed\n", npass, nfail);
         ggml_backend_free(be);
         return nfail;
     }
