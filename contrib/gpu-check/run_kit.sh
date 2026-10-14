@@ -23,6 +23,8 @@
 #   NO_LLAMA=1               no llama.cpp at all (no ggml-cuda baselines)
 #   TORCH_PYTHON=python3     interpreter with torch + flashinfer and/or flash_attn for those baselines (if importable)
 #   NO_MATMUL=1 NO_PYTEST=1 NO_TORCH=1   skip a step
+#   NO_ENERGY=1              no energy capture (default: an NVML / RAPL sampler runs for the whole kit; report.md gets
+#                            joules per step and decode joules per token from the harnesses' per-call NVML energy)
 #   FORMATS=q8_0,mxfp4       matmul formats (default: all ten)
 #   CUDA_VISIBLE_DEVICES=N   pick the GPU
 set -u
@@ -50,14 +52,14 @@ log() { echo "[$(date -u +%T)] $*" | tee -a "$OUT/run.log"; }
 # step NAME LOGFILE CMD...: run, record {step, result, min, log} in steps.jsonl; REQUIRED=1 counts a failure
 step() {
   local name=$1 lf=$2; shift 2
-  local t0; t0=$(date +%s)
+  local t0 t0f; t0=$(date +%s); t0f=$(date +%s.%N)
   log "== $name"
   "$@" > "$OUT/$lf" 2>&1
   local rc=$?
   local res="ok"; [ $rc != 0 ] && res="FAILED (exit $rc)"
   [ $rc != 0 ] && [ "${REQUIRED:-1}" = "1" ] && FAILS=$((FAILS + 1))
   tail -2 "$OUT/$lf" | sed 's/^/   /' | tee -a "$OUT/run.log"
-  echo "{\"step\": \"$name\", \"result\": \"$res\", \"min\": $(( ($(date +%s) - t0 + 30) / 60 )), \"log\": \"$lf\"}" >> "$OUT/steps.jsonl"
+  echo "{\"step\": \"$name\", \"result\": \"$res\", \"min\": $(( ($(date +%s) - t0 + 30) / 60 )), \"log\": \"$lf\", \"t0\": $t0f, \"t1\": $(date +%s.%N)}" >> "$OUT/steps.jsonl"
   return $rc
 }
 skip() { log "== $1: skipped ($2)"; echo "{\"step\": \"$1\", \"result\": \"skipped: $2\", \"log\": \"\"}" >> "$OUT/steps.jsonl"; }
@@ -87,6 +89,17 @@ log "kurn GPU kit v2 ($MODE) -> $OUT"
 GPUNAME=$(nvidia-smi --query-gpu=name,compute_cap,memory.total,driver_version --format=csv,noheader 2>/dev/null | head -1)
 [ -n "$GPUNAME" ] && log "GPU: $GPUNAME"
 KVER=$(K --version 2>&1 | head -1)
+
+# ---------------------------------------------------------------- 0. energy capture (NVML board energy, host RAPL)
+ESAMP=""
+if [ "${NO_ENERGY:-0}" != "1" ]; then
+  K energy probe > "$OUT/energy_probe.txt" 2>&1
+  K energy sample --out "$OUT/energy_samples.jsonl" --interval 0.5 --pid $$ > "$OUT/energy_sampler.txt" 2>&1 &
+  ESAMP=$!
+  I0=$(date +%s.%N); sleep 5; I1=$(date +%s.%N)   # idle baseline before anything runs
+  echo "{\"idle\": [$I0, $I1]}" > "$OUT/energy_marks.json"
+  log "energy: $(tr '\n' ';' < "$OUT/energy_probe.txt" | cut -c1-200)"
+fi
 
 # ---------------------------------------------------------------- 1. toolchain
 NR=(); [ "$DRYRUN" = "1" ] && NR=(--no-run)
@@ -196,6 +209,7 @@ for w in glob.glob('$HERE/wheels/*.whl'):
 fi
 
 # ---------------------------------------------------------------- 6. report, containment, archive
+[ -n "$ESAMP" ] && kill "$ESAMP" 2>/dev/null
 log "== containment: files written outside $HERE since the start (should be none)"
 {
   find "${HOME:-/nonexistent}" -xdev -maxdepth 4 -newer "$OUT/.start" -type f 2>/dev/null | grep -v "^$HERE/" | grep -v "/\.bash_history$" | head -50
