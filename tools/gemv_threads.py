@@ -30,8 +30,9 @@ OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "kur
 
 def variants(weights, nt, minb, tpr):
     keys = spec.GEMV_KEYS
-    base = {"op": "gemv", "weights": weights, "target": "cuda", "tpr": tpr, "rpb": nt // tpr, "minb": minb}
-    names = [k for k in keys if k not in ("tpr", "rpb", "minb")]
+    # epi=swiglu is not measured: the spill rules give it the limits of twice its columns (spec._gemv_pressure_cols)
+    base = {"op": "gemv", "weights": weights, "target": "cuda", "tpr": tpr, "rpb": nt // tpr, "minb": minb, "epi": "none"}
+    names = [k for k in keys if k not in ("tpr", "rpb", "minb", "epi")]
     for combo in itertools.product(*(keys[k](base) for k in names)):
         try:
             yield spec.resolve(base, dict(zip(names, combo)))

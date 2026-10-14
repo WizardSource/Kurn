@@ -5,6 +5,34 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Added: fused gate+up+SwiGLU epilogue (`epi=swiglu`), GEMV and tensor-core GEMM
+- W is the stacked [gate; up] matrix (N = 2F rows, ggml blocks or one KTBM buffer). The kernel writes Y[m][f] =
+  silu(gate f · x_m) · (up f · x_m), [M][F] only, so gate and up outputs never round-trip to memory.
+- One activation quantize / convert serves both matrices:
+  - GEMV: each output row runs the gate and the up row against the same q8 activation blocks. SASS confirms the up
+    row reuses the gate row's activation loads: in the q4_0 hot loop the weight loads double and the activation loads
+    stay the same.
+  - GEMM: the repack interleaves gate tile j and up tile j as packed row tiles 2j and 2j+1 (`KG_SRT`, also in the tbm
+    device walk). Each warp holds a matching pair, which reads the same staged activation tile. Rules: bm / wm a
+    multiple of 32, no split-K, N % 32 == 0.
+- GEMV register limits: a SwiGLU GEMV with c columns uses the measured limits for 2c columns.
+
+### Added: fused Freivalds silent-data-corruption check (`epi=fv`, `fvb` 64 / 256 / 1024)
+- This is bigVerify's float "statistical" mode fused into the GEMM epilogue, so the check adds no extra pass over Y,
+  W or X.
+  - For each block of `fvb` output rows, column slot (columns folded into 16 slots with secret signs) and probe
+    (2 secret ±1 row probes), every CTA adds Σ r·acc from its accumulators (C side). It also adds its share of
+    Σ_k F_b[k]·x[m][k] from a precomputed fingerprint F_b = W_bᵀ r (X side; the block's CTAs split the k-windows).
+  - The block's last CTA compares the two against τ = λ·K·2⁻²⁴·sqrt(Σ_k x² G2_b) (G2 = Σ W² over the block, bf16
+    rounded up). τ comes from trusted inputs only, so a fault cannot inflate it, and NaN fails. The last CTA then
+    counts {checks, fails, worst passing ratio} and resets for the next call.
+  - Split-K is fine, because both sides are linear.
+- ABI (every kernel): `kg_epi`, `kg_fv_block`, `kg_fv_setup(Wp, N, K, F, G2, signs, key, lambda)`,
+  `kg_fv_status(Wp, N, K, st[3])`. The region sits after the prepared weights in `kg_prep_bytes`. The host
+  fingerprint is `kref_fv_fingerprint` in `kurn_gpu_ref.h`.
+- Fingerprint traffic per call is 10 bytes per K per block: 1.7% / 7% / 28% of Q4_0 weight bytes at fvb 1024 / 256 /
+  64. bigVerify's sensitivity, in contrast, grows with smaller blocks.
+
 ### Added: ternary bitmap + signs (`tbm`, KTBM layout v1) on the GPU tensor-core engine
 - The new weight format `tbm` takes the CPU side's settled KTBM v1 buffer: 16-row × 256-value variable-length records
   (fp16 d[16], a 64-word presence bitmap, sign bits for the nonzeros only) and a per-group offset table. It costs

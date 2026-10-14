@@ -79,6 +79,9 @@ GEMV_KEYS = {
     "mins": lambda c: ("bsums", "dp4a") if c["weights"] == "q4_K" else ("none",),
     "unpack": lambda c: ("bits", "lut") if c["weights"] == "q1_0" else ("none",),
     "xlayout": lambda c: ("blocks", "split") if _fmt(c)["act"] == "q8_0" else ("blocks",),
+    # swiglu: W holds 2F rows (gate rows, then up rows); each output row f reads gate row f and up row F + f against the
+    # same quantized activations and writes Y[m][f] = silu(gate . x) * (up . x)
+    "epi": lambda c: ("none", "swiglu"),
 }
 
 
@@ -102,12 +105,17 @@ GEMM_KEYS = {
     # decoded into the mma.sync A fragments there (no shared-memory staging), pf k-steps ahead
     "wload": lambda c: ("reg",) if c["weights"] == "tbm" else ("smem", "reg"),  # tbm: decoded from its repacked planes only
     "pf": lambda c: (1, 2, 3) if c.get("wload", "reg") == "reg" else (1,),  # unset (enumeration probes): every value
+    # fused epilogues: swiglu = W holds 2F rows (gate rows, then up rows) and Y[m][f] = silu(gate . x) * (up . x), one
+    # activation load / convert for both; fv = a Freivalds silent-data-corruption check fused into the epilogue
+    "epi": lambda c: ("none", "swiglu", "fv"),
+    # fv: output rows per Freivalds block (bigVerify's `block`); the fingerprint read per call is 10 bytes per K per block
+    "fvb": lambda c: (64, 256, 1024) if c.get("epi", "fv") == "fv" else (0,),
 }
 DEFAULTS = {
     "gemv": {"layout": "native", "tpr": 32, "rpb": 4, "sub": 2, "unroll": 2, "cols": 1, "minb": 0, "mins": "bsums",
-             "unpack": "bits", "xlayout": "blocks"},
+             "unpack": "bits", "xlayout": "blocks", "epi": "none"},
     "gemm": {"bm": 64, "bn": 8, "wm": 4, "wn": 1, "bk": 256, "stages": 4, "splitk": 0, "xin": "f32", "minb": 1, "wload": "smem",
-             "pf": 1},
+             "pf": 1, "epi": "none", "fvb": 256},
 }  # fmt: skip
 # GEMV defaults per format: the split layout (16-byte aligned quant plane) with `sub` chosen so every lane issues 16-byte
 # weight loads, and `unroll` units in flight per lane (2 where registers are tight). From the A100 run: tuning Q4_0 this
@@ -164,6 +172,12 @@ def _cols_unroll_max(c):
     return 4 if c["weights"] == "tq2_0" else 8 if c["weights"] in ("q4_K", "e8p", "q8_0") else 16
 
 
+def _gemv_pressure_cols(c):
+    """Columns whose registers a GEMV holds: epi=swiglu keeps two accumulators (gate, up) and two weight units per column,
+    which the spill limits treat like twice the columns."""
+    return c["cols"] * (2 if c.get("epi") == "swiglu" else 1)
+
+
 def _reg_budget(c):
     margin = 0.75 if c["minb"] > 1 else 0.9
     return min(REG_LIMIT - (20 if c["weights"] == "q4_K" else 0), int(margin * _reg_cap(c)))
@@ -203,16 +217,17 @@ def _gemv_threads_table():
 def gemv_threads_max(c):
     """Largest tpr * rpb * max(1, minb) at which this GEMV compiles without spills (ptxas-measured over every tpr,
     layout, mins and unpack on sm_80/90/100 by tools/gemv_threads.py); 0 if it spills at any block size."""
-    row = _gemv_threads_table().get(gemv_threads_key(c["weights"], c["xlayout"], c["sub"], c["cols"]), {})
+    row = _gemv_threads_table().get(gemv_threads_key(c["weights"], c["xlayout"], c["sub"], _gemv_pressure_cols(c)), {})
     return row.get(str(c["unroll"]), 0)
 
 
 GEMV_SPILL_RULES = [
     (lambda c: c["op"] == "gemv" and c["tpr"] * c["rpb"] * max(1, c["minb"])
-     > (256 if c["cols"] >= 8 or c["cols"] * c["unroll"] >= 16 or (c["cols"] >= 4 and c["weights"] == "tq2_0")
-        else 512 if c["cols"] > 1 or (c["unroll"] > 2 and c["weights"] in ("q4_K", "e8p", "tq2_0", "q8_0")) else 1024),
+     > (256 if _gemv_pressure_cols(c) >= 8 or _gemv_pressure_cols(c) * c["unroll"] >= 16
+        or (_gemv_pressure_cols(c) >= 4 and c["weights"] == "tq2_0")
+        else 512 if _gemv_pressure_cols(c) > 1 or (c["unroll"] > 2 and c["weights"] in ("q4_K", "e8p", "tq2_0", "q8_0")) else 1024),
      "minb x block size leaves too few registers per thread (would spill)"),
-    (lambda c: c["op"] == "gemv" and c["cols"] * c["unroll"] > _cols_unroll_max(c),
+    (lambda c: c["op"] == "gemv" and _gemv_pressure_cols(c) * c["unroll"] > _cols_unroll_max(c),
      "cols * unroll too large (register spills; use op gemm for batches above 8)"),
     (lambda c: c["op"] == "gemv" and gemv_threads_max(c) == 0,
      "cols * unroll too large for this format, xlayout and sub (ptxas spills at any block size; use op gemm for batches"
@@ -239,6 +254,12 @@ INVALID = [
     (lambda c: c["op"] == "gemm" and gemm_smem(c) > gemm_smem_limit(c), "shared memory exceeds the arch's per-block limit"),
     (lambda c: c["op"] == "gemm" and _est_regs(c) > _reg_budget(c),
      "tile needs too many registers for its launch bounds (would spill)"),
+    (lambda c: c["op"] == "gemm" and c["epi"] == "swiglu" and (c["bm"] // c["wm"] // 16) % 2,
+     "epi=swiglu pairs a gate and an up row tile in each warp: bm / wm must be a multiple of 32"),
+    (lambda c: c["op"] == "gemm" and c["epi"] == "swiglu" and c["splitk"] > 1,
+     "epi=swiglu applies silu to whole dot products: no split-K (splitk 0 = auto picks 1, or 1)"),
+    (lambda c: c["op"] == "gemm" and c["epi"] == "fv" and c["fvb"] < c["bm"],
+     "epi=fv needs whole CTA row tiles in each Freivalds block: fvb >= bm"),
     (lambda c: c["op"] == "gemm" and _deep_staged_tile(c),
      "64-row warp tile with 2+ n8 tiles and 2+ k-tiles per stage stages 12+ cp.async chunks per thread: too many registers"
      " (ptxas spills; use more warps or a smaller bk)"),
@@ -317,7 +338,7 @@ def legal_configs(op, weights, arch="sm_80"):
             continue
 
 
-MODE_PROBES = {"pf": {"wload": "reg"}}
+MODE_PROBES = {"pf": {"wload": "reg"}, "fvb": {"epi": "fv"}}
 
 
 def covering_configs(op, weights, arch="sm_80", extra=24, seed=0):

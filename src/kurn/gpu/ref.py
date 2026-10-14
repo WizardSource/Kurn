@@ -136,6 +136,12 @@ def reference(fmt, W, xb, n, k, m):
     return reference_gemm(fmt, W, xb, k, n, m)
 
 
+def swiglu(y, n, m):
+    """epi=swiglu: Y over n = 2F weight rows [m][n] -> silu(gate) * up [m][F]."""
+    f = n // 2
+    return [y[i * n + r] / (1.0 + math.exp(-y[i * n + r])) * y[i * n + f + r] for i in range(m) for r in range(f)]
+
+
 def relerr(y, ref):
     scale = max(1e-30, max(abs(v) for v in ref))
     return max(abs(a - b) for a, b in zip(y, ref)) / scale

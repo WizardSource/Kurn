@@ -19,6 +19,7 @@ Only sm_80 features are emitted (dp4a, int8 mma.sync m16n8k32, cp.async), so the
 Ampere, Ada, Hopper and Blackwell.
 """
 
+from .mma import epi_stubs
 from .spec import ACT, FORMATS, codegen_keys, gemm_smem, threads
 
 KV_IQ4NL = (-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113)
@@ -703,25 +704,41 @@ def _gemv_kernel(c):
     # column's scale row (K / 32 floats per column) starts at offset / 32
     body = [ln.replace("xr[j]", "(xb + xo[j])").replace("xd[j]", "(xdb + (xo[j] >> 5))") for ln in UNITS[w](c, split)]
     tpr = c["tpr"]
+    sw = c.get("epi") == "swiglu"
+    accs = ("acc", "acc2") if sw else ("acc",)
     red = []
     for m in (16, 8, 4, 2, 1):
         if m < min(tpr, 32):
-            red.append(f"    v += __shfl_xor_sync(KURN_FULL, v, {m});")
+            red += [f"    {v} += __shfl_xor_sync(KURN_FULL, {v}, {m});" for v in ("v", "u")[: len(accs)]]
+    # swiglu: Y[col * F + row] = silu(gate row . x) * (up row F + row . x); F = N / 2 output rows
+    out = "v / (1.f + expf(-v)) * u" if sw else "v"
+    nout = "NR" if sw else "N"
+    load = "    float v = acc[j];" + ("  float u = acc2[j];" if sw else "")
+    nw = tpr // 32
     if tpr > 32:
         tail = [
-            f"  __shared__ float red[{c['rpb'] * (tpr // 32) * c['cols']}];",
+            f"  __shared__ float red[{len(accs) * c['rpb'] * nw * c['cols']}];",
             "  #pragma unroll",
             "  for (int j = 0; j < COLS; j++) {",
-            "    float v = acc[j];",
+            load,
             *red,
-            f"    if ((lid & 31) == 0) red[(lr * {tpr // 32} + (lid >> 5)) * COLS + j] = v;",
+            f"    if ((lid & 31) == 0) red[(lr * {nw} + (lid >> 5)) * COLS + j] = v;",
+        ]
+        if sw:
+            tail.append(f"    if ((lid & 31) == 0) red[{c['rpb'] * nw} * COLS + (lr * {nw} + (lid >> 5)) * COLS + j] = u;")
+        tail += [
             "  }",
             "  __syncthreads();",
-            "  if (lid == 0 && row < N) {",
+            f"  if (lid == 0 && row < {nout}) {{",
             "    for (int j = 0; j < COLS; j++) {",
-            "      float v = 0.f;",
-            f"      for (int i = 0; i < {tpr // 32}; i++) v += red[(lr * {tpr // 32} + i) * COLS + j];",
-            "      if (col0 + j < M) Y[(size_t)(col0 + j) * N + row] = v;",
+            "      float v = 0.f, u = 0.f;",
+            f"      for (int i = 0; i < {nw}; i++) v += red[(lr * {nw} + i) * COLS + j];",
+        ]
+        if sw:
+            tail.append(f"      for (int i = 0; i < {nw}; i++) u += red[{c['rpb'] * nw} * COLS + (lr * {nw} + i) * COLS + j];")
+        tail += [
+            "      (void)u;",
+            f"      if (col0 + j < M) Y[(size_t)(col0 + j) * {nout} + row] = {out};",
             "    }",
             "  }",
         ]
@@ -729,9 +746,9 @@ def _gemv_kernel(c):
         tail = [
             "  #pragma unroll",
             "  for (int j = 0; j < COLS; j++) {",
-            "    float v = acc[j];",
+            load,
             *red,
-            "    if (lid == 0 && row < N && col0 + j < M) Y[(size_t)(col0 + j) * N + row] = v;",
+            f"    if (lid == 0 && row < {nout} && col0 + j < M) Y[(size_t)(col0 + j) * {nout} + row] = {out};",
             "  }",
         ]
     kmul, rowq, rows, xrow = _shape_c(c)
@@ -742,6 +759,22 @@ def _gemv_kernel(c):
     xd_param, xd_arg = ("const float *__restrict__ xdb, ", "xdb, ") if xs else ("", "")
     xinit = "min(col0 + j, M - 1) * K" if xs else f"min(col0 + j, M - 1) * (int){xrow}"
     xdecl = "\n  const float *xdb = (const float *)(X + (size_t)M * K);" if xs else ""
+    if sw:  # the up row's planes: F rows further on
+        ws2 = f"W + (size_t)N * {rowq} + (size_t)(wrow + NR) * {rows}" if split else "wq2"
+        rows_decl = f"""
+  const uint8_t *wq2 = W + (size_t)(wrow + NR) * {rowb};
+  const uint8_t *ws2 = {ws2};
+  float acc2[COLS];
+  #pragma unroll
+  for (int j = 0; j < COLS; j++) acc2[j] = 0.f;"""
+        unit2 = "\n      kunit(wq2, ws2, w / SUB, w % SUB, X, xo, {xd}acc2, tab);"
+        tail_unit2 = " kunit(wq2, ws2, w0 / SUB, w0 % SUB, X, xo, {xd}acc2, tab);"
+    else:
+        rows_decl = unit2 = tail_unit2 = ""
+    unit2, tail_unit2 = unit2.replace("{xd}", xd_arg), tail_unit2.replace("{xd}", xd_arg)
+    tail_open, tail_close = ("{ ", " }") if sw else ("", "")
+    nrows = "NR" if sw else "N"
+    nr_decl = "\n  const int NR = N / 2;  // swiglu: output rows (gate rows 0..NR-1, up rows NR..N-1)" if sw else ""
     return f"""{tables}{_act_macros(f["act"], xs)}
 #define COLS {c["cols"]}
 #define SUB {c["sub"]}
@@ -754,15 +787,15 @@ KURN_FN void kunit(const uint8_t *__restrict__ wq, const uint8_t *__restrict__ w
 static __global__ void __launch_bounds__({_lb(nt, c)})
 kg_gemv(const uint8_t *__restrict__ W, const uint8_t *__restrict__ X, float *__restrict__ Y, int N, int K, int M) {{
 {_indent(prologue, 2)}
-  const int lr = threadIdx.x / {tpr}, lid = threadIdx.x % {tpr};
-  const int row = blockIdx.x * {c["rpb"]} + lr, wrow = row < N ? row : N - 1;
+  const int lr = threadIdx.x / {tpr}, lid = threadIdx.x % {tpr};{nr_decl}
+  const int row = blockIdx.x * {c["rpb"]} + lr, wrow = row < {nrows} ? row : {nrows} - 1;
   const int col0 = blockIdx.y * COLS;
   const uint8_t *wq = W + (size_t)wrow * {rowb};
   const uint8_t *ws = {ws};
   int xo[COLS];  // 32-bit column offsets (columns past M repeat the last one; their results are not stored)
   float acc[COLS];
   #pragma unroll
-  for (int j = 0; j < COLS; j++) {{ xo[j] = {xinit}; acc[j] = 0.f; }}{xdecl}
+  for (int j = 0; j < COLS; j++) {{ xo[j] = {xinit}; acc[j] = 0.f; }}{xdecl}{rows_decl}
   const int work = K / {f["unit"]} * SUB;
   int w0 = lid;
   // main loop without bounds checks, so the {c["unroll"]} units' loads can all be issued before their math
@@ -770,10 +803,10 @@ kg_gemv(const uint8_t *__restrict__ W, const uint8_t *__restrict__ X, float *__r
     #pragma unroll
     for (int k = 0; k < {c["unroll"]}; k++) {{
       const int w = w0 + k * {tpr};
-      kunit(wq, ws, w / SUB, w % SUB, X, xo, {xd_arg}acc, tab);
+      kunit(wq, ws, w / SUB, w % SUB, X, xo, {xd_arg}acc, tab);{unit2}
     }}
   }}
-  for (; w0 < work; w0 += {tpr}) kunit(wq, ws, w0 / SUB, w0 % SUB, X, xo, {xd_arg}acc, tab);
+  for (; w0 < work; w0 += {tpr}) {tail_open}kunit(wq, ws, w0 / SUB, w0 % SUB, X, xo, {xd_arg}acc, tab);{tail_unit2}{tail_close}
 {chr(10).join(tail)}
 }}
 """
@@ -807,7 +840,8 @@ def _abi(c):
         else:
             xbytes = f"(size_t)M * {xrow}"
             quant = None
-        grid = f"dim3((unsigned)((N + {c['rpb']} - 1) / {c['rpb']}), (unsigned)((M + {c['cols']} - 1) / {c['cols']}))"
+        nr = "N / 2" if c.get("epi") == "swiglu" else "N"
+        grid = f"dim3((unsigned)(({nr} + {c['rpb']} - 1) / {c['rpb']}), (unsigned)((M + {c['cols']} - 1) / {c['cols']}))"
         run = f"  KURN_LAUNCH(kg_gemv, {grid}, dim3({threads(c)}), s, (const uint8_t *)W, (const uint8_t *)Xq, Y, N, K, M);"
     xblocks = (
         "  KURN_LAUNCH(kg_quant_q8_0, dim3((unsigned)(((long)M * (K / 32) + 3) / 4)), dim3(128), s, X, (uint8_t *)Xb, (float *)nullptr, K, M, 0);"
@@ -844,7 +878,7 @@ static __global__ void kg_repack(const uint8_t *__restrict__ W, uint8_t *__restr
 extern "C" {{
 const char *kg_config(void) {{ return "{cfg}"; }}
 int kg_act(void) {{ return 0; }}  // 0: kg_quant -> q8 activations; reference from kg_xblocks
-int kg_check_shape(int N, int K, int M) {{ return (N > 0 && M > 0 && K > 0 && K % {kmul} == 0) ? 0 : -1; }}
+int kg_check_shape(int N, int K, int M) {{ return (N > 0 && M > 0 && {"N % 2 == 0 && " if c.get("epi") == "swiglu" else ""}K > 0 && K % {kmul} == 0) ? 0 : -1; }}
 size_t kg_prep_bytes(int N, int K) {{ (void)N; (void)K; return {prep_bytes}; }}
 size_t kg_xbytes(int K, int M) {{ return {xbytes}; }}
 int kg_prepare(const void *W, void *Wp, int N, int K, cudaStream_t s) {{
@@ -864,7 +898,7 @@ int kg_run(const void *W, const void *Xq, float *Y, int N, int K, int M, cudaStr
 {run}
 {err}
 }}
-}}
+{epi_stubs(c)}}}
 """
 
 
