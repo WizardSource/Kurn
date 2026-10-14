@@ -1,0 +1,46 @@
+refine none rep0 p0: 42.5 tok/s, n 384, draft None acc None
+refine ngram_selector rep0 p0: 150.8 tok/s, n 384, draft 485 acc 318
+arm stats (per task): [('32', '33', '318', '485', '0', '0', '0')]
+refine draft_selector rep0 p0: 74.0 tok/s, n 384, draft 360 acc 356
+refine arms rep0 p0: 175.2 tok/s, n 384, draft 507 acc 312
+arm stats (per task): [('32', '39', '312', '507', '0', '0', '0')]
+think none rep0 p0: 52.9 tok/s, n 384, draft None acc None
+think ngram_selector rep0 p0: 65.5 tok/s, n 384, draft 327 acc 93
+arm stats (per task): [('257', '33', '93', '327', '0', '0', '0')]
+think draft_selector rep0 p0: 58.1 tok/s, n 384, draft 370 acc 276
+think arms rep0 p0: 66.7 tok/s, n 384, draft 438 acc 258
+arm stats (per task): [('2', '21', '53', '176', '102', '205', '262')]
+refine none rep0 p0: 48.1 tok/s, n 384, draft None acc None
+refine ngram_selector rep0 p0: 170.5 tok/s, n 384, draft 503 acc 313
+arm stats (per task): [('32', '38', '313', '503', '0', '0', '0')]
+refine draft_selector rep0 p0: 70.9 tok/s, n 384, draft 360 acc 356
+refine arms rep0 p0: 175.1 tok/s, n 384, draft 507 acc 312
+arm stats (per task): [('32', '39', '312', '507', '0', '0', '0')]
+think none rep0 p0: 58.7 tok/s, n 384, draft None acc None
+think ngram_selector rep0 p0: 73.8 tok/s, n 384, draft 316 acc 93
+arm stats (per task): [('257', '33', '93', '316', '0', '0', '0')]
+think draft_selector rep0 p0: 58.1 tok/s, n 384, draft 359 acc 272
+think arms rep0 p0: 63.1 tok/s, n 384, draft 425 acc 253
+arm stats (per task): [('5', '19', '50', '159', '106', '203', '266')]
+refine none rep0 p0: 40.2 tok/s, n 384, draft None acc None
+refine ngram_selector rep0 p0: 171.2 tok/s, n 384, draft 513 acc 312
+arm stats (per task): [('32', '39', '312', '513', '0', '0', '0')]
+refine draft_selector rep0 p0: 72.4 tok/s, n 384, draft 360 acc 356
+refine arms rep0 p0: 165.5 tok/s, n 384, draft 503 acc 313
+arm stats (per task): [('32', '38', '313', '503', '0', '0', '0')]
+think none rep0 p0: 55.3 tok/s, n 384, draft None acc None
+think ngram_selector rep0 p0: 67.0 tok/s, n 384, draft 327 acc 93
+arm stats (per task): [('257', '33', '93', '327', '0', '0', '0')]
+think draft_selector rep0 p0: 59.6 tok/s, n 384, draft 367 acc 274
+think arms rep0 p0: 65.1 tok/s, n 384, draft 405 acc 267
+arm stats (per task): [('0', '18', '28', '98', '98', '239', '307')]
+eight arms rep0 p0: 31.4 tok/s, n 256, draft 290 acc 195
+eight arms rep0 p1: 23.8 tok/s, n 256, draft 279 acc 167
+eight arms rep0 p2: 34.8 tok/s, n 256, draft 277 acc 202
+eight arms rep0 p3: 35.1 tok/s, n 256, draft 278 acc 203
+eight arms rep0 p4: 22.7 tok/s, n 184, draft 214 acc 111
+eight arms rep0 p5: 42.5 tok/s, n 256, draft 248 acc 216
+eight arms rep0 p6: 26.7 tok/s, n 256, draft 340 acc 183
+eight arms rep0 p7: 22.6 tok/s, n 256, draft 306 acc 163
+arm stats (per task): [('0', '0', '0', '0', '59', '195', '290'), ('0', '0', '0', '0', '87', '167', '279'), ('0', '0', '0', '0', '52', '202', '277'), ('0', '0', '0', '0', '52', '203', '278'), ('0', '0', '0', '0', '73', '111', '214'), ('0', '0', '0', '0', '39', '216', '248'), ('0', '0', '0', '0', '71', '183', '340'), ('0', '0', '0', '0', '92', '163', '306')]
+MATRIX_DONE
