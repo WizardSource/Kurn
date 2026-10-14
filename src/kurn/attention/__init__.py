@@ -14,6 +14,8 @@ A spec names the kernel configuration and, optionally, the problem it is tuned o
     qk        bf16           # amx_bf16: int8 = Q K^T on AMX-INT8 (P V stays bf16; lossier, no kattn_pack)
     threads   8
     heads 16  kv_heads 8  nq 4096  nkv 4096          # problem (not codegen)
+    vrot 64  vout 8   # harness: V stored Hadamard-rotated in 64-blocks (output rotated back), 4 V channels x8; vqerr
+                      # is the relative RMS error against the unquantized V
     tune      tile_q=32,64,128 tile_kv=64,128,256
 
 Generated C implements kurn_attn.h (`kattn`, `kattn_workspace`, `kattn_config`); the
@@ -66,7 +68,7 @@ DEFAULTS = {"kv": "f16", "dk": 128, "tile_q": 64, "tile_kv": 128, "split": 0, "d
 CODEGEN_KEYS = ("kv", "target", "dk", "dv", "tile_q", "tile_kv", "split", "dec_rows", "kcenter", "qk")
 # Problem keys: the shape a spec is verified / tuned on (do not change the generated C).
 PROBLEM = {"heads": 16, "kv_heads": 8, "nq": 1, "nkv": 4096, "pos0": -1, "causal": 1, "mask": 0, "mla": 0,
-           "rope_base": 1000000, "rope_dim": -1, "rope_mode": 0}  # fmt: skip
+           "rope_base": 1000000, "rope_dim": -1, "rope_mode": 0, "vrot": 0, "vout": 0}  # fmt: skip
 KNOWN_KEYS = ("kernel", "op", "target") + tuple(SCHEDULE) + tuple(PROBLEM)
 # Accepted max |out - ref| / max |ref| against the float64 reference on the same (dequantized)
 # K/V: the f32 engines differ only by summation order and the exp2 polynomial; the bf16 engines
@@ -110,6 +112,8 @@ def resolve(spec, overrides=None):
             raise SpecError(f"rope_dim={rd}: expected a multiple of 32 <= dk={c['dk']}")
         if c["rope_mode"] not in (0, 1):
             raise SpecError(f"rope_mode={c['rope_mode']}: expected 0 (NEOX) or 1 (NORM)")
+    if c["vrot"] and (c["mla"] or c["vrot"] < 2 or c["vrot"] & (c["vrot"] - 1) or c["dv"] % c["vrot"]):
+        raise SpecError(f"vrot={c['vrot']}: expected 0 or a power of 2 dividing dv={c['dv']} (not with mla)")
     c.setdefault("kernel", f"attn_{c['kv']}_d{c['dk']}_{c['target']}")
     return c
 
@@ -178,7 +182,7 @@ def build_harness():
 
 
 CSV_COLUMNS = ("impl,kernel,regime,threads,n_q,n_kv,heads,kv_heads,calls,wall_s,cpu_s,us_per_call,GFLOPs,GBps,"
-               "proxy_uJ_per_call,relerr,check,drift_s,dv,mla").split(",")  # fmt: skip
+               "proxy_uJ_per_call,relerr,check,drift_s,dv,mla,vqerr").split(",")  # fmt: skip
 
 
 class HarnessError(Exception):
@@ -193,6 +197,10 @@ def problem_args(c):
         a += ["--mask"]
     if c["mla"]:
         a += ["--mla"]
+    if c.get("vrot"):
+        a += ["--v-rot", c["vrot"]]
+    if c.get("vout"):
+        a += ["--v-outlier", c["vout"]]
     if c.get("kv") in PRE_ROPE_KV:
         a += ["--rope-base", c["rope_base"], "--rope-dim", c["rope_dim"], "--rope-mode", c["rope_mode"]]
     return [str(x) for x in a]
@@ -217,7 +225,7 @@ def bench(so, c, regime="hot", secs=1.0, extra=(), tol=None, timeout=1800):
     calls = float(row["calls"])
     row["us"] = float(row["us_per_call"])
     row["cpu_us"] = float(row["cpu_s"]) / calls * 1e6
-    for k in ("relerr", "GBps", "GFLOPs"):
+    for k in ("relerr", "GBps", "GFLOPs", "vqerr"):
         row[k] = float(row[k])
     return row
 
