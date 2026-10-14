@@ -30,6 +30,12 @@ ENGINE_TILES = (
                            {"bn": 128, "bm": 128, "wm": 2, "wn": 4, "xin": "f16", "stages": 2},
                            {"bn": 64, "bm": 128, "wm": 4, "wn": 2, "xin": "f16", "bk": 128, "stages": 3},
                            {"bn": 64, "bm": 64, "wm": 2, "wn": 2, "xin": "f16", "stages": 2}]),
+    # packed-direct (wload=reg): the mma8 / mma16 tiles with weights decoded from global memory straight into the MMA
+    # fragments, for the staged-vs-packed ablation; a shorter ring or a smaller bk where registers run short
+    ("mma8-reg", (1, 8), [{"bn": 8, "bm": 64, "wm": 4, "wn": 1, "xin": "f32", "stages": 4, "wload": "reg", "pf": p, "bk": b}
+                          for b in (256, 128, 64) for p in (2, 1)]),
+    ("mma16-reg", (9, 16), [{"bn": 16, "bm": 64, "wm": 4, "wn": 1, "xin": x, "stages": s, "wload": "reg", "pf": p, "bk": b}
+                            for x, s in (("f32", 4), ("f16", 3)) for b in (256, 128, 64) for p in (2, 1)]),
 )  # fmt: skip
 
 

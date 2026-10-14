@@ -208,6 +208,7 @@ def render(cells, agg, meta, results_dir=None, dry=False):
         counts[c["v_overall"].split(" (")[0]] = counts.get(c["v_overall"].split(" (")[0], 0) + 1
     L.append("\nTotals vs the best competitor of any format: " + ", ".join(f"{k}: {v}" for k, v in sorted(counts.items())) + "\n")
     L.append(default_vs_tuned(cells))
+    L.append(packed_vs_staged(cells))
     # detail
     L.append("## Detail per format\n")
     L.append("Columns: tokens/s (mean ± sd over rounds), % of measured HBM bandwidth, % of the measured int8 mma.sync peak, "
@@ -243,6 +244,32 @@ def default_vs_tuned(cells):
         ds = f"{d['impl'][5:]}: {_fmt_tok(d)}" if d else "unmeasured"
         ts = f"{t['impl'][5:]}: {_fmt_tok(t)}" if t else "unmeasured"
         out.append(f"| {f} | {m} | {ds} | {ts} | {ratio} |")
+    return "\n".join(out) + "\n"
+
+
+PACKED_PAIRS = (("default-mma8", "default-mma8-reg"), ("default-mma16", "default-mma16-reg"))
+
+
+def packed_vs_staged(cells):
+    """Markdown ablation: the same engine tile with weights staged through shared memory (wload=smem) vs decoded from
+    global memory straight into mma.sync fragments (wload=reg), per (format, batch); speedup = staged / packed time."""
+    out = ["## Packed-direct weights vs shared-memory staging (ablation)\n",
+           "Same tensor-core tile, weights through cp.async + shared memory (`wload=smem`) or loaded per lane from global memory "
+           "and decoded straight into mma.sync A fragments (`wload=reg`). Speedup = staged time / packed time; verdict by the "
+           "2-sigma rule.\n",
+           "| format | batch | tile | staged tok/s | packed tok/s | speedup | verdict |", "|---|---|---|---|---|---|---|"]  # fmt: skip
+    rows = 0
+    for (f, m), c in sorted(cells.items()):
+        by = {s["impl"][5:]: s for s in c["all"] if s["family"] == "kurn" and "T_us" in s}
+        for staged, packed in PACKED_PAIRS:
+            s, p = by.get(staged), by.get(packed)
+            if not (s and p):
+                continue
+            v, ratio = verdict(p["T_us"], p.get("cv", 0), s["T_us"], s.get("cv", 0), p.get("rounds", 0), s.get("rounds", 0))
+            out.append(f"| {f} | {m} | {staged[8:]} | {_fmt_tok(s)} | {_fmt_tok(p)} | {ratio:.2f}x | {v} |")
+            rows += 1
+    if not rows:
+        out.append("| — | — | — | unmeasured | unmeasured | — | — |")
     return "\n".join(out) + "\n"
 
 
