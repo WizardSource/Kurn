@@ -6,7 +6,8 @@
 # - generates kurn attention kernels (gen_ggml_attn.py; $ATTN_CONFIG = its --config) and makes kurn
 #   attention the first FLASH_ATTN_EXT implementation (kurn-attn.cpp, ggml's kernel as fallback)
 # - registers the buffer type first in ggml-cpu's extra buffer list and adds the sources to CMake
-# - hooks fused MUL_MAT groups (ffn gate + up + SwiGLU) into ggml-cpu's graph fusion (ggml_cpu_try_fuse_ops)
+# - hooks fused MUL_MAT groups (ffn gate + up + SwiGLU; attention q + k + v) into ggml-cpu's graph fusion
+#   (ggml_cpu_try_fuse_ops), and makes llama.cpp's build_qkv emit q, k, v as consecutive nodes for KURN weights
 # Re-running regenerates the kernels (e.g. with a new --config); the edits are idempotent.
 # --patch writes `git diff` of the checkout (relative to its HEAD) to OUT.patch.
 # Needs a Python with kurn importable: $KURN_PYTHON (default: /opt/kenv/bin/python, else python3),
@@ -105,9 +106,59 @@ if "ggml_kurn_fused_mul_mat" not in s:
     if (node->op == GGML_OP_RMS_NORM) {
 """, 1)
     open(p, "w").write(s)
+if "kurn: two to four consecutive MUL_MATs" not in s:
+    anchor = """            struct ggml_tensor * ops[2] = { node, up };
+            if (ggml_kurn_fused_mul_mat(params, ops, 2, glu)) {
+                return 2;
+            }
+        }
+    }
+"""
+    assert s.count(anchor) == 1, "kurn gate + up hook not found"
+    s = s.replace(anchor, anchor + """    // kurn: two to four consecutive MUL_MATs on the same activations (attention q, k, v) as one op
+    if (node->op == GGML_OP_MUL_MAT) {
+        struct ggml_tensor * ops[4] = { node };
+        int n_ops = 1;
+        while (n_ops < 4 && node_n + n_ops < cgraph->n_nodes) {
+            struct ggml_tensor * next = cgraph->nodes[node_n + n_ops];
+            if (next->op != GGML_OP_MUL_MAT || next->src[1] != node->src[1] || !(next->flags & GGML_TENSOR_FLAG_COMPUTE)) {
+                break;
+            }
+            ops[n_ops++] = next;
+        }
+        if (n_ops >= 2 && ggml_kurn_fused_mul_mat(params, ops, n_ops, NULL)) {
+            return n_ops - 1;
+        }
+    }
+""", 1)
+    open(p, "w").write(s)
+# llama.cpp's build_qkv: q, k, v matmuls as consecutive nodes when wq is in the KURN buffer
+p = f"{L}/src/llama-graph.cpp"
+s = open(p).read()
+if "kurn: Q, K and V matmuls" not in s:
+    for old, new in (
+        ("        // separate Q/K/V path\n        Qcur = build_lora_mm(layer.wq, cur, layer.wq_s);\n",
+         "        // separate Q/K/V path\n        Qcur = build_lora_mm(layer.wq, cur, layer.wq_s);\n        ggml_tensor * q_mm = Qcur;\n"),
+        ("        Kcur = build_lora_mm(layer.wk, cur, layer.wk_s);\n        if (reshape) {\n            cb(Kcur, \"Kcur\", il);\n        }",
+         "        Kcur = build_lora_mm(layer.wk, cur, layer.wk_s);\n        ggml_tensor * k_mm = Kcur;\n        if (reshape) {\n            cb(Kcur, \"Kcur\", il);\n        }"),
+        ("        Vcur = build_lora_mm(layer.wv, cur, layer.wv_s);\n        if (reshape) {\n            cb(Vcur, \"Vcur\", il);\n        }",
+         "        Vcur = build_lora_mm(layer.wv, cur, layer.wv_s);\n        ggml_tensor * v_mm = Vcur;\n        if (reshape) {\n            cb(Vcur, \"Vcur\", il);\n        }"),
+        ("            Vcur = ggml_reshape_3d(ctx0, Vcur, n_embd_head_v, n_head_v, n_tokens);\n        }\n    }\n",
+         "            Vcur = ggml_reshape_3d(ctx0, Vcur, n_embd_head_v, n_head_v, n_tokens);\n        }\n"
+         "        // kurn: Q, K and V matmuls as consecutive graph nodes, so the KURN CPU buffer computes them as one fused op\n"
+         "        // (kurn/integration/llama.cpp); other buffers keep llama.cpp's node order\n"
+         "        if (layer.wq->buffer && !strcmp(ggml_backend_buffer_name(layer.wq->buffer), \"KURN\")) {\n"
+         "            ggml_build_forward_expand(gf, q_mm);\n            ggml_build_forward_expand(gf, k_mm);\n"
+         "            ggml_build_forward_expand(gf, v_mm);\n        }\n    }\n"),
+    ):
+        assert s.count(old) == 1, "build_qkv anchor not found: " + old[:40]
+        s = s.replace(old, new, 1)
+    if "#include <cstring>" not in s:
+        s = s.replace('#include "llama-graph.h"\n', '#include "llama-graph.h"\n\n#include <cstring>\n', 1)
+    open(p, "w").write(s)
 EOF
 if [ -n "$PATCH" ]; then
-  (cd "$L" && git add -N ggml/src/ggml-cpu/kurn && git diff HEAD -- ggml) > "$PATCH"
+  (cd "$L" && git add -N ggml/src/ggml-cpu/kurn && git diff HEAD -- ggml src/llama-graph.cpp) > "$PATCH"
   echo "wrote $PATCH ($(wc -l < "$PATCH") lines)"
 fi
 echo "kurn buffer type applied to $L; rebuild with: cmake --build build -j"

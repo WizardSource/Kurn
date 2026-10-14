@@ -5,6 +5,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Added: fused attention q + k + v on KURN weights
+- 2-4 consecutive MUL_MATs on the same activations run as one op; `apply.sh` makes llama.cpp's `build_qkv` emit
+  q, k, v as consecutive nodes when the weights are in the KURN buffer.
+- Bit-identical; block graph prefill -2.3% (paired CI), decode trend -1.5% (unresolved). `GGML_KURN_FUSE_QKV=0`.
+
 ### Changed: work stealing for decode-sized matmuls (1-8 columns)
 - Each thread streams its own contiguous share in shrinking batches; finished threads steal the back half of the
   unclaimed rest of the slowest thread. Same per-row arithmetic, bit-identical outputs.
