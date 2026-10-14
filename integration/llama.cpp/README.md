@@ -324,6 +324,38 @@ batch invariance in exact mode and K-shift against keys written at the shifted p
 K-shift end to end through libllama; `k4c/test_k4c_state.cpp` checks session state (byte-exact restore, older
 files, restores at other cell offsets, sizes); `tests/test_llama_k4c.py` runs them against a built checkout.
 
+## Entropy-coded session state (`kvz/`)
+
+`kvz/apply.sh LLAMA_DIR` (after `k4c/apply.sh`) adds kvz, a lossless entropy coder for the KV cache in session state:
+the server's RAM prompt cache (`--cache-ram`, idle slots parked there) and `--slot-save-path` files. Restoring gives
+back the exact bytes of the plain state, so a restored session continues bit for bit as it would have.
+
+- **Use:** `llama-server --cache-kvz` (env `LLAMA_ARG_CACHE_KVZ`). In the API, `LLAMA_STATE_SEQ_FLAGS_KVZ` with
+  `llama_state_seq_get_size_ext` (an upper bound) / `llama_state_seq_get_data_ext` (the coded size), and
+  `llama_state_seq_save_file_ext`. Readers detect the form, so loading takes no flag. `LLAMA_KVZ_THREADS` sets the
+  codec's threads (default: all).
+- **Format:** each layer's K rows and V rows are one block. The block is split into byte streams (f16: low / high
+  byte; Q8_0 / Q4_0: scale bytes and codes), stored column-major so that each channel is one run. Each stream is
+  coded with static rANS (12-bit frequencies, 4 states with separate byte streams, chunks in parallel) under a
+  per-channel-group context. The encoder picks the group width and plain or row-delta symbols per stream by
+  estimated cost, and stores a stream raw when coding would gain under 2%. The high half of the layer count marks a
+  kvz state, so older readers stop at their layer-count check.
+- **Sizes** (real Qwen3 caches, 4K-32K tokens): F16 1.19x, Q8_0 K 1.18x / V 1.06x, k4c_q4 state 1.17x (its keys are
+  f16 rows in the state), Q4_0 V 1.09x. zstd -3 gets 1.02-1.11x. These are close to the entropy of the formats under
+  per-channel models; quantized caches leave little to code.
+- **Speed** (8-vCPU Emerald Rapids, 8 threads, 32K-token blocks): F16 ~1.7 GB/s encode, ~2.2 GB/s decode; Q8_0 V
+  ~0.7 / 0.8 GB/s. Saving a parked 32K-token Qwen3-1.7B F16 session (3.5 GiB) takes ~2 s, against ~51 s to re-prefill.
+- **Scratch:** the codec keeps grow-only per-thread buffers (a few times the largest layer block) to avoid page faults
+  on every block.
+
+`kvz/test_kvz.cpp` checks round trips of every layout (row counts for every tail case, KV-like and adversarial data,
+thread counts) and decoding of truncated or altered blocks under ASan / UBSan. `kvz/test_kvz_state.cpp` checks, for f16,
+q8_0, k4c_q4, k4c_q8 and V-transposed caches on a real model: the restored state is byte-identical, the next tokens'
+logits are bit-identical, restore into another sequence at unaligned cells gives the same state, slot files round-trip,
+and truncated states are rejected. `kvz/server_kvz_test.py` runs llama-server with and without `--cache-kvz`: slot
+restore and the RAM prompt cache give the first run's text with prompt cache hits. `tests/test_llama_kvz.py` runs all
+three; `kvz/kvz-bench.cpp` measures ratio and speed on `llama_state_seq_save_file` dumps.
+
 ## Speculative decoding: cost-aware verify width (`spec-width/`)
 
 Verify cost on this buffer type is not linear in the width: there is one kernel per width 2..8, and every 8 more

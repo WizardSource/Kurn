@@ -1,0 +1,590 @@
+diff --git a/common/arg.cpp b/common/arg.cpp
+index 75fb131f8..5d3f2774d 100644
+--- a/common/arg.cpp
++++ b/common/arg.cpp
+@@ -1721,6 +1721,15 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
+             params.cache_ram_mib = value;
+         }
+     ).set_env("LLAMA_ARG_CACHE_RAM").set_examples({LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}));
++    add_opt(common_arg(
++        {"--cache-kvz"},
++        {"--no-cache-kvz"},
++        "entropy-code the KV cache of prompt cache entries (--cache-ram, idle slots) and slot save files: lossless, "
++        "~1.1-1.2x smaller, costs ~0.5 s per GiB to save and restore (default: disabled; LLAMA_KVZ_THREADS sets the threads)",
++        [](common_params & params, bool value) {
++            params.cache_kvz = value;
++        }
++    ).set_env("LLAMA_ARG_CACHE_KVZ").set_examples({LLAMA_EXAMPLE_SERVER}));
+     add_opt(common_arg(
+         {"-kvu", "--kv-unified"},
+         {"-no-kvu", "--no-kv-unified"},
+diff --git a/common/common.h b/common/common.h
+index 7e8c8f8aa..4802726fc 100644
+--- a/common/common.h
++++ b/common/common.h
+@@ -636,6 +636,7 @@ struct common_params {
+     int32_t kv_unified_per_slot = 0;     // max context per parallel slot; 0 = unset
+     int32_t checkpoint_min_step = 8192;  // minimum spacing between context checkpoints
+     int32_t cache_ram_mib       = 8192;  // -1 = no limit, 0 - disable, 1 = 1 MiB, etc.
++    bool    cache_kvz           = false; // entropy-code KV in the RAM prompt cache and slot files (lossless)
+ 
+     std::string public_path   = "";                                                                         // NOLINT
+     std::string api_prefix    = "";                                                                         // NOLINT
+diff --git a/include/llama.h b/include/llama.h
+index dea4d4606..33c8b6190 100644
+--- a/include/llama.h
++++ b/include/llama.h
+@@ -928,6 +928,11 @@ extern "C" {
+ // Getting the state for a seq_id with this flag invalidates all prior states gotten for that seq_id with this flag.
+ #define LLAMA_STATE_SEQ_FLAGS_ON_DEVICE 2
+ 
++// Entropy-code the KV rows (kvz: lossless, restores the exact bytes). Readers detect it, so loading needs no flag.
++// llama_state_seq_get_size_ext then returns an upper bound and llama_state_seq_get_data_ext the actual size.
++// Ignored with LLAMA_STATE_SEQ_FLAGS_ON_DEVICE.
++#define LLAMA_STATE_SEQ_FLAGS_KVZ 4
++
+     typedef uint32_t llama_state_seq_flags;
+ 
+     LLAMA_API size_t llama_state_seq_get_size_ext(
+@@ -949,6 +954,15 @@ extern "C" {
+                     llama_seq_id   dest_seq_id,
+            llama_state_seq_flags   flags);
+ 
++    // llama_state_seq_save_file with flags (LLAMA_STATE_SEQ_FLAGS_KVZ); llama_state_seq_load_file reads either form
++    LLAMA_API size_t llama_state_seq_save_file_ext(
++            struct llama_context * ctx,
++                      const char * filepath,
++                    llama_seq_id   seq_id,
++               const llama_token * tokens,
++                          size_t   n_token_count,
++           llama_state_seq_flags   flags);
++
+     //
+     // Decoding
+     //
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index afdaddc79..8c906af56 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -22,6 +22,7 @@ set(LLAMA_CORE_SOURCES
+     llama-impl.cpp
+     llama-io.cpp
+     llama-kv-cache.cpp
++    llama-kvz.cpp
+     llama-kv-cache-iswa.cpp
+     llama-kv-cache-dsa.cpp
+     llama-kv-cache-dsa-iswa.cpp
+diff --git a/src/llama-context.cpp b/src/llama-context.cpp
+index 27aadf87e..4a042900c 100644
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -2683,6 +2683,10 @@ public:
+         return size_written;
+     }
+ 
++    bool size_only() const override {
++        return true;
++    }
++
+ private:
+     const bool skip_tensors;
+ 
+@@ -3374,7 +3378,7 @@ size_t llama_context::state_seq_load_file(llama_seq_id seq_id, const char * file
+     return file.tell();
+ }
+ 
+-size_t llama_context::state_seq_save_file(llama_seq_id seq_id, const char * filepath, const llama_token * tokens, size_t n_token_count) {
++size_t llama_context::state_seq_save_file(llama_seq_id seq_id, const char * filepath, const llama_token * tokens, size_t n_token_count, llama_state_seq_flags flags) {
+     llama_file file(filepath, "wb");
+ 
+     file.write_u32(LLAMA_STATE_SEQ_MAGIC);
+@@ -3386,7 +3390,7 @@ size_t llama_context::state_seq_save_file(llama_seq_id seq_id, const char * file
+ 
+     // save the context state using stream saving
+     llama_io_write_file io(&file);
+-    state_seq_write_data(io, seq_id, 0);
++    state_seq_write_data(io, seq_id, flags & ~LLAMA_STATE_SEQ_FLAGS_ON_DEVICE);
+ 
+     const size_t res = file.tell();
+     GGML_ASSERT(res == sizeof(uint32_t) * 3 + sizeof(llama_token) * n_token_count + io.n_bytes());
+@@ -4368,10 +4372,14 @@ size_t llama_state_seq_set_data_ext(llama_context * ctx, const uint8_t * src, si
+ }
+ 
+ size_t llama_state_seq_save_file(llama_context * ctx, const char * filepath, llama_seq_id seq_id, const llama_token * tokens, size_t n_token_count) {
++    return llama_state_seq_save_file_ext(ctx, filepath, seq_id, tokens, n_token_count, 0);
++}
++
++size_t llama_state_seq_save_file_ext(llama_context * ctx, const char * filepath, llama_seq_id seq_id, const llama_token * tokens, size_t n_token_count, llama_state_seq_flags flags) {
+     ctx->synchronize();
+ 
+     try {
+-        return ctx->state_seq_save_file(seq_id, filepath, tokens, n_token_count);
++        return ctx->state_seq_save_file(seq_id, filepath, tokens, n_token_count, flags);
+     } catch (const std::exception & err) {
+         LLAMA_LOG_ERROR("%s: error saving sequence state file: %s\n", __func__, err.what());
+         return 0;
+diff --git a/src/llama-context.h b/src/llama-context.h
+index 95b722628..22a73fbcd 100644
+--- a/src/llama-context.h
++++ b/src/llama-context.h
+@@ -185,7 +185,8 @@ struct llama_context {
+           llama_seq_id   seq_id,
+             const char * filepath,
+      const llama_token * tokens,
+-                size_t   n_token_count);
++                size_t   n_token_count,
++ llama_state_seq_flags   flags = 0);
+ 
+     //
+     // perf
+diff --git a/src/llama-io.h b/src/llama-io.h
+index 0aca73310..b145c63e6 100644
+--- a/src/llama-io.h
++++ b/src/llama-io.h
+@@ -17,6 +17,9 @@ public:
+     // bytes written so far
+     virtual size_t n_bytes() = 0;
+ 
++    // true for writers that only count bytes (state size queries); they do not read the src of write()
++    virtual bool size_only() const { return false; }
++
+     void write_string(const std::string & str);
+ };
+ 
+diff --git a/src/llama-kv-cache.cpp b/src/llama-kv-cache.cpp
+index 67f38ae6c..c51d57455 100644
+--- a/src/llama-kv-cache.cpp
++++ b/src/llama-kv-cache.cpp
+@@ -4,13 +4,16 @@
+ #include "llama-io.h"
+ #include "llama-model.h"
+ #include "llama-context.h"
++#include "llama-kvz.h"
+ 
+ #include <algorithm>
+ #include <cassert>
+ #include <cmath>
+ #include <cstring>
++#include <functional>
+ #include <limits>
+ #include <map>
++#include <memory>
+ #include <stdexcept>
+ #include <unordered_map>
+ 
+@@ -2110,8 +2113,6 @@ void llama_kv_cache::state_write(llama_io_write_i & io, llama_seq_id seq_id, lla
+         return;
+     }
+ 
+-    GGML_UNUSED(flags);
+-
+     io.write(&n_stream, sizeof(n_stream));
+ 
+     for (uint32_t s = 0; s < n_stream; ++s) {
+@@ -2170,7 +2171,7 @@ void llama_kv_cache::state_write(llama_io_write_i & io, llama_seq_id seq_id, lla
+         }
+ 
+         state_write_meta(io, cr, seq_id);
+-        state_write_data(io, cr);
++        state_write_data(io, cr, flags);
+     }
+ }
+ 
+@@ -2283,6 +2284,149 @@ void llama_kv_cache::state_write_meta(llama_io_write_i & io, const cell_ranges_t
+     }
+ }
+ 
++//
++// kvz session state (LLAMA_STATE_SEQ_FLAGS_KVZ): each layer's K rows and V rows, exactly as the plain state would hold
++// them, are entropy-coded as one block (u64 size, then the block). The layer count carries a mark, so readers detect
++// the form and older readers stop at their layer-count check.
++//
++
++static constexpr uint32_t LLAMA_KVZ_MARK = 0x4b5a0000; // "KZ" in the high half of n_layer
++
++static kvz_layout llama_kvz_layout(ggml_type type) {
++    switch (type) {
++        case GGML_TYPE_F16:
++        case GGML_TYPE_BF16:
++        case GGML_TYPE_K4C: return KVZ_PLANES2; // K4C keys are f16 rows in the session state
++        case GGML_TYPE_F32:  return KVZ_PLANES4;
++        case GGML_TYPE_Q8_0: return KVZ_Q8_0;
++        case GGML_TYPE_Q4_0: return KVZ_Q4_0;
++        default:             return KVZ_RAW;
++    }
++}
++
++// grow-only per-thread buffers: a fresh multi-MiB allocation per layer would fault in every page again
++static uint8_t * llama_kvz_buf(int i, size_t size) {
++    thread_local std::unique_ptr<uint8_t[]> buf[3];
++    thread_local size_t cap[3] = {0, 0, 0};
++    if (size > cap[i] || !buf[i]) {
++        buf[i].reset(new uint8_t[size ? size : 1]);
++        cap[i] = size;
++    }
++    return buf[i].get();
++}
++
++// collects the bytes one layer's rows would write
++class llama_io_write_rows : public llama_io_write_i {
++public:
++    llama_io_write_rows(uint8_t * dst, size_t size) : dst(dst), cap(size) {}
++
++    void write(const void * src, size_t size) override {
++        reserve(size);
++        memcpy(dst + n, src, size);
++        n += size;
++    }
++
++    void write_tensor(ggml_tensor * tensor, size_t offset, size_t size) override {
++        reserve(size);
++        ggml_backend_tensor_get(tensor, dst + n, offset, size);
++        n += size;
++    }
++
++    size_t n_bytes() override {
++        return n;
++    }
++
++private:
++    void reserve(size_t size) const {
++        if (n + size > cap) {
++            throw std::runtime_error("kvz: layer state larger than its rows");
++        }
++    }
++
++    uint8_t * dst;
++    size_t    cap;
++    size_t    n = 0;
++};
++
++// replays decoded rows to one layer's reader
++class llama_io_read_rows : public llama_io_read_i {
++public:
++    llama_io_read_rows(const uint8_t * src, size_t size) : src(src), left(size) {}
++
++    void read(void * dst, size_t size) override {
++        take(size);
++        memcpy(dst, src, size);
++        src += size;
++    }
++
++    void read_tensor(ggml_tensor * tensor, size_t offset, size_t size) override {
++        take(size);
++        ggml_backend_tensor_set(tensor, src, offset, size);
++        src += size;
++    }
++
++    size_t n_bytes() override {
++        return n;
++    }
++
++    bool done() const {
++        return left == 0;
++    }
++
++private:
++    void take(size_t size) {
++        if (size > left) {
++            throw std::runtime_error("kvz: layer state shorter than its rows");
++        }
++        left -= size;
++        n += size;
++    }
++
++    const uint8_t * src;
++    size_t left;
++    size_t n = 0;
++};
++
++static void llama_kvz_write(llama_io_write_i & io, ggml_type type, size_t rows, size_t row_size,
++                            const std::function<void(llama_io_write_i &)> & write_rows) {
++    const size_t raw = rows * row_size;
++    if (io.size_only()) {
++        static const uint8_t unread = 0;
++        io.write(&unread, sizeof(uint64_t) + kvz_bound(raw));
++        return;
++    }
++    uint8_t * src = llama_kvz_buf(0, raw);
++    llama_io_write_rows rw(src, raw);
++    write_rows(rw);
++    if (rw.n_bytes() != raw) {
++        throw std::runtime_error("kvz: layer state shorter than its rows");
++    }
++    uint8_t * dst = llama_kvz_buf(1, kvz_bound(raw));
++    const uint64_t size = kvz_encode(llama_kvz_layout(type), src, rows, row_size, dst, kvz_default_threads());
++    io.write(&size, sizeof(size));
++    io.write(dst, size);
++}
++
++static void llama_kvz_read(llama_io_read_i & io, size_t rows, size_t row_size, const std::function<void(llama_io_read_i &)> & read_rows) {
++    const size_t raw = rows * row_size;
++    uint64_t size;
++    io.read(&size, sizeof(size));
++    if (size > kvz_bound(raw)) {
++        throw std::runtime_error("kvz: block size out of range");
++    }
++    uint8_t * src = llama_kvz_buf(1, size);
++    io.read(src, size);
++    uint8_t * dst = llama_kvz_buf(2, raw);
++    if (!kvz_decode(src, size, dst, rows, row_size, kvz_default_threads())) {
++        throw std::runtime_error("kvz: corrupt KV block");
++    }
++    llama_io_read_rows rr(dst, raw);
++    read_rows(rr);
++    if (!rr.done()) {
++        throw std::runtime_error("kvz: layer state longer than its rows");
++    }
++}
++
+ // K4C keys in session state: f16 rows (state_write_k4c), re-quantized into the destination groups on read.
+ void llama_kv_cache::state_write_k4c(llama_io_write_i & io, ggml_tensor * k, uint32_t il, const cell_ranges_t & cr) const {
+     const int64_t dk = hparams.n_embd_head_k(il), n_embd = hparams.n_embd_k_gqa(il);
+@@ -2355,14 +2499,21 @@ void llama_kv_cache::k4c_clear_cells(ggml_tensor * k, uint32_t il, const std::ve
+     }
+ }
+ 
+-void llama_kv_cache::state_write_data(llama_io_write_i & io, const cell_ranges_t & cr) const {
++void llama_kv_cache::state_write_data(llama_io_write_i & io, const cell_ranges_t & cr, llama_state_seq_flags flags) const {
+     const auto & cells = v_cells[cr.strm];
+ 
+     const uint32_t v_trans = this->v_trans ? 1 : 0;
+     const uint32_t n_layer = layers.size();
+ 
++    const bool kvz = (flags & LLAMA_STATE_SEQ_FLAGS_KVZ) && !(flags & LLAMA_STATE_SEQ_FLAGS_ON_DEVICE);
++    const uint32_t n_layer_w = n_layer | (kvz ? LLAMA_KVZ_MARK : 0);
++    size_t n_cells = 0;
++    for (const auto & range : cr.data) {
++        n_cells += range.second - range.first;
++    }
++
+     io.write(&v_trans, sizeof(v_trans));
+-    io.write(&n_layer, sizeof(n_layer));
++    io.write(&n_layer_w, sizeof(n_layer_w));
+ 
+     // Iterate and write all the keys first, each row is a cell
+     // Get whole range at a time
+@@ -2381,7 +2532,11 @@ void llama_kv_cache::state_write_data(llama_io_write_i & io, const cell_ranges_t
+             // K4C groups span 32 cells: write the dequantized rows as f16 (re-quantized on read, wherever they land)
+             const uint64_t k_size_row = (uint64_t) n_embd_k_gqa * sizeof(ggml_fp16_t);
+             io.write(&k_size_row, sizeof(k_size_row));
+-            state_write_k4c(io, k, il, cr);
++            if (kvz) {
++                llama_kvz_write(io, k->type, n_cells, k_size_row, [&](llama_io_write_i & o) { state_write_k4c(o, k, il, cr); });
++            } else {
++                state_write_k4c(io, k, il, cr);
++            }
+             continue;
+         }
+ 
+@@ -2390,10 +2545,17 @@ void llama_kv_cache::state_write_data(llama_io_write_i & io, const cell_ranges_t
+         io.write(&k_size_row, sizeof(k_size_row));
+ 
+         // Read each range of cells of k_size length and write out
+-        for (const auto & range : cr.data) {
+-            const size_t range_size = range.second - range.first;
+-            const size_t buf_size = range_size * k_size_row;
+-            io.write_tensor(k, range.first * k_size_row, buf_size);
++        auto write_k = [&](llama_io_write_i & o) {
++            for (const auto & range : cr.data) {
++                const size_t range_size = range.second - range.first;
++                const size_t buf_size = range_size * k_size_row;
++                o.write_tensor(k, range.first * k_size_row, buf_size);
++            }
++        };
++        if (kvz) {
++            llama_kvz_write(io, k->type, n_cells, k_size_row, write_k);
++        } else {
++            write_k(io);
+         }
+     }
+ 
+@@ -2417,10 +2579,17 @@ void llama_kv_cache::state_write_data(llama_io_write_i & io, const cell_ranges_t
+             io.write(&v_size_row, sizeof(v_size_row));
+ 
+             // Read each range of cells of v_size length and write out
+-            for (const auto & range : cr.data) {
+-                const size_t range_size = range.second - range.first;
+-                const size_t buf_size = range_size * v_size_row;
+-                io.write_tensor(v, range.first * v_size_row, buf_size);
++            auto write_v = [&](llama_io_write_i & o) {
++                for (const auto & range : cr.data) {
++                    const size_t range_size = range.second - range.first;
++                    const size_t buf_size = range_size * v_size_row;
++                    o.write_tensor(v, range.first * v_size_row, buf_size);
++                }
++            };
++            if (kvz) {
++                llama_kvz_write(io, v->type, n_cells, v_size_row, write_v);
++            } else {
++                write_v(io);
+             }
+         }
+     } else {
+@@ -2667,6 +2836,9 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+     io.read(&v_trans, sizeof(v_trans));
+     io.read(&n_layer, sizeof(n_layer));
+ 
++    const bool kvz = (n_layer & 0xFFFF0000u) == LLAMA_KVZ_MARK;
++    n_layer &= kvz ? 0xFFFFu : 0xFFFFFFFFu;
++
+     if (n_layer != layers.size()) {
+         LLAMA_LOG_ERROR("%s: mismatched layer count (%u instead of %u)\n", __func__, n_layer, (uint32_t) layers.size());
+         return false;
+@@ -2707,7 +2879,11 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+                 LLAMA_LOG_ERROR("%s: mismatched k4c key row size (layer %d)\n", __func__, il);
+                 return false;
+             }
+-            state_read_k4c(io, k, il, sinfo.idxs[0], cell_count);
++            if (kvz) {
++                llama_kvz_read(io, cell_count, k_size_row_ref, [&](llama_io_read_i & i) { state_read_k4c(i, k, il, sinfo.idxs[0], cell_count); });
++            } else {
++                state_read_k4c(io, k, il, sinfo.idxs[0], cell_count);
++            }
+             continue;
+         }
+         const size_t k_size_row = ggml_row_size(k->type, n_embd_k_gqa);
+@@ -2716,8 +2892,15 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+             return false;
+         }
+ 
+-        for (const auto & r : runs) {
+-            io.read_tensor(k, (size_t) r.from * k_size_row, (size_t) (r.to - r.from) * k_size_row);
++        auto read_k = [&](llama_io_read_i & i) {
++            for (const auto & r : runs) {
++                i.read_tensor(k, (size_t) r.from * k_size_row, (size_t) (r.to - r.from) * k_size_row);
++            }
++        };
++        if (kvz) {
++            llama_kvz_read(io, cell_count, k_size_row, read_k);
++        } else {
++            read_k(io);
+         }
+     }
+ 
+@@ -2750,8 +2933,15 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+                 return false;
+             }
+ 
+-            for (const auto & r : runs) {
+-                io.read_tensor(v, (size_t) r.from * v_size_row, (size_t) (r.to - r.from) * v_size_row);
++            auto read_v = [&](llama_io_read_i & i) {
++                for (const auto & r : runs) {
++                    i.read_tensor(v, (size_t) r.from * v_size_row, (size_t) (r.to - r.from) * v_size_row);
++                }
++            };
++            if (kvz) {
++                llama_kvz_read(io, cell_count, v_size_row, read_v);
++            } else {
++                read_v(io);
+             }
+         }
+     } else {
+diff --git a/src/llama-kv-cache.h b/src/llama-kv-cache.h
+index 28b606ba7..17e314cd6 100644
+--- a/src/llama-kv-cache.h
++++ b/src/llama-kv-cache.h
+@@ -347,7 +347,7 @@ private:
+     };
+ 
+     void state_write_meta(llama_io_write_i & io, const cell_ranges_t & cr, llama_seq_id seq_id = -1) const;
+-    void state_write_data(llama_io_write_i & io, const cell_ranges_t & cr) const;
++    void state_write_data(llama_io_write_i & io, const cell_ranges_t & cr, llama_state_seq_flags flags = 0) const;
+ 
+     // GGML_TYPE_K4C keys (32-cell groups): f16 rows in the session state
+     void state_write_k4c(llama_io_write_i & io, ggml_tensor * k, uint32_t il, const cell_ranges_t & cr) const;
+diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
+index eae050504..e2d341830 100644
+--- a/tools/server/server-context.cpp
++++ b/tools/server/server-context.cpp
+@@ -230,6 +230,9 @@ struct server_slot {
+ 
+     common_memory mem;
+ 
++    // state flags for prompt cache entries and slot files (LLAMA_STATE_SEQ_FLAGS_KVZ with --cache-kvz)
++    llama_state_seq_flags state_flags = LLAMA_STATE_SEQ_FLAGS_NONE;
++
+     // multimodal
+     mtmd_context * mctx = nullptr;
+     mtmd::batch_ptr mbatch = nullptr;
+@@ -290,6 +293,10 @@ struct server_slot {
+             return false;
+         }
+ 
++        if (state_flags & LLAMA_STATE_SEQ_FLAGS_KVZ) {
++            return prompt_save_kvz(prompt_cache);
++        }
++
+         const size_t cur_size_tgt =           llama_state_seq_get_size_ext(ctx_tgt, id, LLAMA_STATE_SEQ_FLAGS_NONE);
+         const size_t cur_size_dft = ctx_dft ? llama_state_seq_get_size_ext(ctx_dft, id, LLAMA_STATE_SEQ_FLAGS_NONE) : 0;
+ 
+@@ -311,6 +318,39 @@ struct server_slot {
+         return true;
+     }
+ 
++    // kvz entries: the coded size is known only after coding, so code into a scratch buffer first and let the cache
++    // budget the actual size (an entry costs what it occupies)
++    bool prompt_save_kvz(server_prompt_cache & prompt_cache) const {
++        const int64_t t0 = ggml_time_us();
++        std::vector<uint8_t> tgt, dft;
++        auto get = [&](llama_context * ctx, std::vector<uint8_t> & out, size_t & n_raw) {
++            n_raw = llama_state_seq_get_size_ext(ctx, id, LLAMA_STATE_SEQ_FLAGS_NONE);
++            const size_t bound = llama_state_seq_get_size_ext(ctx, id, state_flags);
++            std::unique_ptr<uint8_t[]> buf(new uint8_t[bound ? bound : 1]); // pages beyond the coded size are never touched
++            const size_t n = llama_state_seq_get_data_ext(ctx, buf.get(), bound, id, state_flags);
++            out.assign(buf.get(), buf.get() + n);
++            return n > 0;
++        };
++        size_t raw_tgt = 0, raw_dft = 0;
++        if (!get(ctx_tgt, tgt, raw_tgt) || (ctx_dft && !get(ctx_dft, dft, raw_dft))) {
++            return false;
++        }
++
++        SRV_TRC(" - saving prompt with length %d, state size = %.3f MiB coded from %.3f MiB (kvz, %.0f ms; draft: %.3f MiB)\n",
++                (int) prompt.tokens.size(), (tgt.size() + dft.size()) / (1024.0 * 1024.0), (raw_tgt + raw_dft) / (1024.0 * 1024.0),
++                (ggml_time_us() - t0) / 1000.0, dft.size() / (1024.0 * 1024.0));
++
++        auto * cur = prompt_cache.alloc(prompt, tgt.size(), dft.size());
++        if (cur == nullptr) {
++            return false;
++        }
++
++        cur->data.main = std::move(tgt);
++        cur->data.drft = std::move(dft);
++
++        return true;
++    }
++
+     bool prompt_load(server_prompt_cache & prompt_cache, const server_tokens & tokens) {
+         bool res = prompt_cache.load(prompt, tokens, ctx_tgt, ctx_dft, id);
+         if (!res) {
+@@ -1385,6 +1425,7 @@ private:
+ 
+             slot.id      = i;
+             slot.ctx_tgt = ctx_tgt;
++            slot.state_flags = params_base.cache_kvz ? LLAMA_STATE_SEQ_FLAGS_KVZ : LLAMA_STATE_SEQ_FLAGS_NONE;
+             slot.ctx_dft = ctx_dft;
+             slot.mem.init(ctx_tgt, ctx_dft);
+             slot.spec    = spec.get();
+@@ -1457,6 +1498,9 @@ private:
+                 SRV_TRC("prompt cache is enabled, size limit: %d MiB\n", params_base.cache_ram_mib);
+             }
+             SRV_TRC("%s", "use `--cache-ram 0` to disable the prompt cache\n");
++            if (params_base.cache_kvz) {
++                SRV_INF("%s", "prompt cache entries and slot files are entropy-coded (kvz)\n");
++            }
+ 
+             prompt_cache = std::make_unique<server_prompt_cache>(params_base.cache_ram_mib, n_ctx);
+         } else {
+@@ -2735,9 +2779,9 @@ private:
+                     }
+ 
+                     GGML_ASSERT(packed.size() % sizeof(llama_token) == 0);
+-                    const size_t nwrite = llama_state_seq_save_file(
++                    const size_t nwrite = llama_state_seq_save_file_ext(
+                         ctx_tgt, filepath.c_str(), slot->id,
+-                        reinterpret_cast<const llama_token *>(packed.data()), packed.size() / sizeof(llama_token));
++                        reinterpret_cast<const llama_token *>(packed.data()), packed.size() / sizeof(llama_token), slot->state_flags);
+                     if (nwrite == 0) {
+                         send_error(task, "Unable to save slot", ERROR_TYPE_SERVER);
+                         break;
