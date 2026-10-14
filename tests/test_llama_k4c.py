@@ -33,6 +33,7 @@ def test_patch_and_apply_script_are_consistent():
     assert "GGML_TYPE_K4C" in patch and "ggml_set_rows_k4c" in patch and "ggml-k4c.c" in patch
     assert "ggml_k4c_update_group" in (K4C / "ggml-k4c.c").read_text()
     assert "k4c_q8, the long-context default" in patch  # -ctk k4c without -ctv selects V q8_0
+    assert "state_write_k4c_native" in patch and "LLAMA_K4C_STATE" in patch  # native session state, old form on request
 
 
 @pytest.mark.skipif(_llama_dir() is None, reason="no built llama.cpp checkout with k4c/apply.sh applied (KURN_LLAMA_CPP)")
@@ -64,3 +65,22 @@ def test_kshift_through_llama(tmp_path):
     r = subprocess.run([str(exe), os.environ["KURN_LLAMA_MODEL"], os.environ["KURN_LLAMA_TEXT"], "k4c_q4", "k4c_q8"], capture_output=True,
                        text=True, timeout=1800)  # fmt: skip
     assert r.returncode == 0, r.stdout[-3000:]
+
+
+@pytest.mark.skipif(_llama_dir() is None or not os.environ.get("KURN_LLAMA_MODEL"),
+                    reason="needs a built checkout (KURN_LLAMA_CPP) and a Qwen3-class GGUF (KURN_LLAMA_MODEL) plus KURN_LLAMA_TEXT")
+def test_native_session_state(tmp_path):
+    """Native K4C session state: byte-identical state and bit-identical logits after restore; older f16-row files load."""
+    d, bindir = _llama_dir()
+    exe = tmp_path / "test_k4c_state"
+    subprocess.run(["g++", "-O2", "-std=c++17", f"-I{d}/include", f"-I{d}/ggml/include", str(K4C / "test_k4c_state.cpp"), f"-L{bindir}",
+                    "-lllama", "-lggml", "-lggml-base", f"-Wl,-rpath,{bindir}", "-o", str(exe)], check=True)  # fmt: skip
+    m, t = os.environ["KURN_LLAMA_MODEL"], os.environ["KURN_LLAMA_TEXT"]
+    run = lambda *a, **env: subprocess.run([str(exe), a[0], m, t, *a[1:]], capture_output=True, text=True, timeout=1800, env=dict(os.environ, **env))
+    for kv in ("k4c_q4", "k4c_q8"):
+        r = run("exact", kv)
+        assert r.returncode == 0 and "bit-identical yes" in r.stdout, r.stdout[-2000:]
+        old = str(tmp_path / f"old_{kv}.bin")
+        assert run("save", kv, old, LLAMA_K4C_STATE="f16").returncode == 0
+        r = run("load", kv, old)
+        assert r.returncode == 0, r.stdout[-2000:]

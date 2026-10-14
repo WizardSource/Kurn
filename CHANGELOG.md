@@ -67,6 +67,14 @@ All notable changes to this project are documented here. The format follows
   prefill parity; complex decode 2.1x, MLP decode 1.9x.
 - `hc_bench` (checks, benchmarks, synthetic quaternion MLP), `kurn.hypercomplex` references, `tests/test_hypercomplex.py`.
 
+### Changed: k4c session state stores native group records
+- K4C keys in session state (slot files, `--cache-ram`, `llama_state_seq_*`) are no longer f16 rows: groups owned by the
+  saved sequence are stored as their bytes, the partial last group as the codec's exact f16 values, groups shared with
+  other sequences as f16 rows. Qwen3-1.7B at 32K tokens: k4c_q4 2,296 -> 1,065 MiB (2.16x), k4c_q8 2,744 -> 1,513 MiB.
+- Restore at the same in-group offsets is byte-exact with bit-identical logits afterwards (`k4c/test_k4c_state.cpp`);
+  at other offsets records are re-encoded. The row-size field tells the forms apart, so older f16-row files load;
+  `LLAMA_K4C_STATE=f16` writes the old form.
+
 ### Changed: k4c_q8 is the long-context k4c default
 - Position-bucketed KL / ΔPPL vs F16 weights + F16 KV on three 32K-token windows of released math papers (Qwen3-1.7B Q8_0
   weights): k4c_q8 stays within the 2% ΔPPL budget in every paper and 8K band (worst +1.83%, mean +0.76 / +1.16 / +0.78 /
