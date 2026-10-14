@@ -1,8 +1,9 @@
-"""Fused epilogues (kg_epi) on the CPU warp emulator, plus their spec rules and ptxas checks.
+"""Fused epilogues (kg_epi) and wide verify on the CPU warp emulator, plus their spec rules and ptxas checks.
 
 - epi=swiglu: W = [gate; up] (N = 2F rows), Y[m][f] = silu(gate . x) * (up . x), GEMV and tensor-core GEMM
 - epi=fv: Freivalds silent-data-corruption check fused into the GEMM epilogue (no false alarm on clean runs, every block
   checked, a corrupted weight tile caught), with split-K, packed-direct weights and every Freivalds block size
+- GEMV cols=16: wide verify (9-16 columns) in one pass over the weights
 """
 
 import pytest
@@ -46,6 +47,18 @@ def test_fused_epilogue_matches_reference(ov):
             assert fv["detected"] > 0 and fv["worst"] < 0.1, fv  # corrupted tile caught; clean runs far below tau
 
 
+@needs_emu
+@pytest.mark.parametrize("fmt", ["q4_0", "mxfp4", "q1_0"])
+def test_wide_verify_single_pass(fmt):
+    """cols=16: 9-16 columns in one pass over the weights (grid.y = 1), exact against the reference."""
+    from kurn.gpu.ablate import _gemv
+
+    c = _gemv(fmt, "sm_80", cols=16)
+    assert c and c["cols"] == 16 and "(M + 16 - 1) / 16" in codegen.generate(c)
+    for m in (9, 12, 16):
+        assert emu.run(c, m=m, seed=m)["ok"]
+
+
 def _mutant(c, old, new):
     src = codegen.generate(c)
     assert old in src, old
@@ -87,7 +100,9 @@ def test_spec_rules():
     for bad, msg in (({**SW, "weights": "q4_0", "wm": 4}, "multiple of 32"), ({**SW, "weights": "q4_0", "splitk": 2}, "no split-K"),
                      ({**FV, "weights": "q4_0", "bm": 128, "wm": 2, "fvb": 64}, "fvb >= bm"),
                      ({"op": "gemv", "weights": "q4_0", "epi": "fv"}, "not allowed"),
-                     ({"op": "gemm", "weights": "q4_0", "fvb": 256}, "not allowed")):  # fmt: skip
+                     ({"op": "gemm", "weights": "q4_0", "fvb": 256}, "not allowed"),
+                     ({"op": "gemv", "weights": "q1_0", "epi": "swiglu", "sub": 1, "cols": 4, "unroll": 2, "xlayout": "blocks"},
+                      "at most 4")):  # fmt: skip
         with pytest.raises(gs.SpecError, match=msg):
             gs.resolve(bad)
     assert gs.resolve({**FV, "weights": "q4_0"})["fvb"] == 256 and gs.resolve({"op": "gemm", "weights": "q4_0"})["fvb"] == 0

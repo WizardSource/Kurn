@@ -33,6 +33,19 @@ All notable changes to this project are documented here. The format follows
 - Fingerprint traffic per call is 10 bytes per K per block: 1.7% / 7% / 28% of Q4_0 weight bytes at fvb 1024 / 256 /
   64. bigVerify's sensitivity, in contrast, grows with smaller blocks.
 
+### Added: single-pass wide verify (GEMV `cols=16`)
+- The dp4a GEMV takes `cols=16`, so 9-16 columns stream the weights once (`cols=8` made two passes). The engine's bn=16
+  tiles were already single-pass.
+- Legal at unroll 1 for Q4_0, IQ4_NL, Q2_0, Q1_0, MXFP4 and NVFP4 (256-512 threads). The register limits are measured
+  by ptxas on sm_80 / sm_90 / sm_100 / sm_120 and merged into gemv_threads.json.
+  - `tools/gemv_threads.py --cols` measures and merges only those column counts.
+  - It now skips combinations the static cols × unroll cap forbids and records them as 0: 1176 instead of 4788
+    configurations.
+- Exact on the emulator for all ten GEMV formats × 3 layouts at 9 / 12 / 16 columns.
+- The new limits also make SwiGLU GEMVs with up to 8 columns legal: 594 such variants at their largest block sizes show
+  0 spills on 4 archs. The exception is Q1_0 with sub=1: it expands 2 × 128 values per lane, so it is capped at
+  cols × unroll ≤ 4 (measured spills otherwise).
+
 ### Kit: `kurn gpu ablate` (run by run_gpu_check.sh; DRYRUN builds the kernels only)
 - Three experiments:
   - ffn: plain kernel + separate SwiGLU kernel (`bench_gpu run --swiglu-after 1`, one graph) vs fused, Llama-3-8B

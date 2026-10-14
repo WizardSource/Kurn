@@ -8,7 +8,8 @@ for every tpr and minb (1, 2, 4) giving that block size on every arch, and 0 whe
 
     PATH=/usr/local/cuda/bin:$PATH python tools/gemv_threads.py [--jobs N] [--formats mxfp4,nvfp4 [--archs sm_80,sm_100,sm_120]]
 
-With --formats, only those formats are measured and merged into the existing table (other rows are kept).
+With --formats, only those formats are measured and merged into the existing table (other rows are kept); --cols
+likewise restricts the measurement (and the merge) to those column counts.
 """
 
 import argparse
@@ -49,10 +50,14 @@ def main():
     ap.add_argument("--jobs", type=int, default=None)
     ap.add_argument("--formats", help="measure only these formats and merge them into the existing table")
     ap.add_argument("--archs", help=f"archs to compile for (default {','.join(ARCHS)})")
+    ap.add_argument("--cols", help="measure only these column counts (e.g. 16) and merge them into the existing table")
     a = ap.parse_args()
-    fmts = a.formats.split(",") if a.formats else list(spec.FORMATS)
+    fmts = a.formats.split(",") if a.formats else spec.formats_for("gemv")
+    only_cols = {int(x) for x in a.cols.split(",")} if a.cols else None
     archs = tuple(a.archs.split(",")) if a.archs else ARCHS
-    spec.INVALID[:] = [r for r in spec.INVALID if r not in spec.GEMV_SPILL_RULES]
+    # the static cols * unroll cap stays: what it forbids is never legal, so it is recorded as 0 without compiling
+    cap = spec.GEMV_SPILL_RULES[1]
+    spec.INVALID[:] = [r for r in spec.INVALID if r not in spec.GEMV_SPILL_RULES or r is cap]
     lim, alive = {}, None  # a tier is measured only for the keys that compiled clean at every smaller one
     for tier, pairs in sorted(TIERS.items()):
         cs = [
@@ -62,7 +67,7 @@ def main():
             for t in TPRS
             if 1 <= nt // t <= 32
             for c in variants(f, nt, m if m > 1 else 0, t)
-            if alive is None or key(c) in alive
+            if (alive is None or key(c) in alive) and (only_cols is None or c["cols"] in only_cols)
         ]
         print(f"block size {tier}: {len(cs)} configurations x {len(archs)} archs", file=sys.stderr)
         spills = {}
@@ -76,12 +81,16 @@ def main():
                 lim[k] = tier
         alive = {k for k, sp in spills.items() if not sp}
     limits, gk = {}, spec.GEMV_KEYS
-    old = json.load(open(OUT)) if a.formats else {"limits": {}, "measured_with": {}}
-    if a.formats:
-        limits = {k: v for k, v in old["limits"].items() if k.split()[0] not in fmts}
+    merge = bool(a.formats or only_cols)
+    old = json.load(open(OUT)) if merge else {"limits": {}, "measured_with": {}}
+    if merge:
+        limits = {k: v for k, v in old["limits"].items()
+                  if not (k.split()[0] in fmts and (only_cols is None or int(k.split("cols=")[1]) in only_cols))}  # fmt: skip
     for w in fmts:
         p = {"op": "gemv", "weights": w}
         for xl, sub, cols, unroll in itertools.product(gk["xlayout"](p), gk["sub"](p), gk["cols"](p), gk["unroll"](p)):
+            if only_cols is not None and cols not in only_cols:
+                continue
             row = limits.setdefault(spec.gemv_threads_key(w, xl, sub, cols), {})
             row[str(unroll)] = lim.get((w, xl, sub, cols, unroll), 0)
     meta = {
@@ -90,9 +99,10 @@ def main():
         "tpr": list(TPRS),
         "threads_minb": {str(k): [list(p) for p in v] for k, v in TIERS.items()},
     }
-    if a.formats:  # keep the original measurement record; note the merged formats
+    if merge:  # keep the original measurement record; note what was merged
+        tag = ",".join(fmts) + (f" cols={','.join(map(str, sorted(only_cols)))}" if only_cols else "")
         meta = {**old["measured_with"], "merged": {**old["measured_with"].get("merged", {}),
-                                                   ",".join(fmts): {"nvcc": meta["nvcc"], "archs": list(archs)}}}  # fmt: skip
+                                                   tag: {"nvcc": meta["nvcc"], "archs": list(archs)}}}  # fmt: skip
     lines = [f"  {json.dumps(k)}: {json.dumps(v, sort_keys=True)}" for k, v in sorted(limits.items())]
     with open(OUT, "w") as fh:
         fh.write('{\n "measured_with": ' + json.dumps(meta) + ',\n "limits": {\n' + ",\n".join(lines) + "\n }\n}\n")
