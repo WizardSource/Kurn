@@ -6,6 +6,10 @@
 # - generates kurn attention kernels (gen_ggml_attn.py; $ATTN_CONFIG = its --config) and makes kurn
 #   attention the first FLASH_ATTN_EXT implementation (kurn-attn.cpp, ggml's kernel as fallback)
 # - registers the buffer type first in ggml-cpu's extra buffer list and adds the sources to CMake
+# - installs kurn's memory system (memsys/ggml-kurn-mem.{c,h} into ggml-base): CPU buffers, the CPU backend's work
+#   buffer and the KURN buffer on huge pages, NUMA placement (GGML_KURN_HUGEPAGES, GGML_KURN_NUMA; see the header).
+#   memsys/apply.sh adds the llama.cpp side (KV / compute tags, per-stream KV placement, --hugepages, --kurn-numa,
+#   llama-bench --energy).
 # Re-running regenerates the kernels (e.g. with a new --config); the edits are idempotent.
 # --patch writes `git diff` of the checkout (relative to its HEAD) to OUT.patch.
 # Needs a Python with kurn importable: $KURN_PYTHON (default: /opt/kenv/bin/python, else python3),
@@ -26,6 +30,8 @@ CPU=$L/ggml/src/ggml-cpu
 mkdir -p "$CPU/kurn"
 cp "$HERE/ggml-kurn/kurn-buft.cpp" "$HERE/ggml-kurn/kurn-buft.h" "$HERE/ggml-kurn/kurn-attn.cpp" \
   "$HERE/ggml-kurn/kurn-attn.h" "$HERE/ggml-kurn/kurn-native-vfy.cpp" "$HERE/ggml-kurn/kurn-native-vfy.h" "$CPU/kurn/"
+cp "$HERE/memsys/ggml-kurn-mem.h" "$L/ggml/include/"
+cp "$HERE/memsys/ggml-kurn-mem.c" "$L/ggml/src/"
 PYTHONPATH="$HERE/../../src${PYTHONPATH:+:$PYTHONPATH}" "$PY" "$HERE/gen_ggml_sources.py" "$CPU/kurn" \
   --ggml-h "$L/ggml/include/ggml.h" "${GEN_ARGS[@]}"
 PYTHONPATH="$HERE/../../src${PYTHONPATH:+:$PYTHONPATH}" "$PY" "$HERE/gen_ggml_attn.py" "$CPU/kurn" \
@@ -47,6 +53,31 @@ if "ggml-cpu/kurn" not in s:
 elif "GLOB GGML_CPU_KURN_SOURCES CONFIGURE_DEPENDS" not in s:  # checkouts patched before CONFIGURE_DEPENDS
     s = s.replace("file(GLOB GGML_CPU_KURN_SOURCES ", "file(GLOB GGML_CPU_KURN_SOURCES CONFIGURE_DEPENDS ", 1)
     open(p, "w").write(s)
+
+# kurn memory system: ggml-kurn-mem.c in ggml-base; the CPU buffer type and the CPU backend's work buffer use it
+# (anchors chosen outside the context lines of k4c/llama-k4c.patch, which is applied after this script)
+def edit(p, old, new):
+    s = open(p).read()
+    if new in s:
+        return
+    assert s.count(old) == 1, f"{p}: anchor not found: {old[:60]!r}"
+    open(p, "w").write(s.replace(old, new, 1))
+edit(f"{L}/ggml/src/CMakeLists.txt", "            ggml-opt.cpp\n", "            ggml-opt.cpp\n            ggml-kurn-mem.c\n")
+edit(f"{L}/ggml/src/CMakeLists.txt", "            ../include/gguf.h\n", "            ../include/gguf.h\n            ../include/ggml-kurn-mem.h\n")
+p = f"{L}/ggml/src/ggml-backend.cpp"
+edit(p, '#include "ggml-impl.h"\n', '#include "ggml-impl.h"\n#include "ggml-kurn-mem.h"\n')
+edit(p, "    GGML_ASSERT(buffer);\n    ggml_aligned_free(buffer->context, buffer->size);",
+     "    GGML_ASSERT(buffer);\n    ggml_kurn_mem_free(buffer->context, buffer->size);")
+edit(p, "    void * data = ggml_aligned_malloc(size);\n\n    if (data == NULL) {\n        GGML_LOG_ERROR(\"%s: failed to allocate buffer of size %zu\\n\"",
+     "    void * data = ggml_kurn_mem_alloc(size, ggml_kurn_mem_get_tag());\n\n    if (data == NULL) {\n        GGML_LOG_ERROR(\"%s: failed to allocate buffer of size %zu\\n\"")
+p = f"{L}/ggml/src/ggml-cpu/ggml-cpu.cpp"
+edit(p, '#include "ggml-cpu.h"\n#include "repack.h"\n', '#include "ggml-cpu.h"\n#include "ggml-kurn-mem.h"\n#include "repack.h"\n')
+edit(p, "    delete[] cpu_ctx->work_data;\n    delete cpu_ctx;", "    ggml_kurn_mem_free(cpu_ctx->work_data, cpu_ctx->work_size);\n    delete cpu_ctx;")
+edit(p, "        cpu_plan->cplan.work_data = new uint8_t[cpu_plan->cplan.work_size];",
+     "        cpu_plan->cplan.work_data = (uint8_t *) ggml_kurn_mem_alloc(cpu_plan->cplan.work_size, GGML_KURN_MEM_WORK);")
+edit(p, "    delete[] cpu_plan->cplan.work_data;\n    delete cpu_plan;", "    ggml_kurn_mem_free(cpu_plan->cplan.work_data, cpu_plan->cplan.work_size);\n    delete cpu_plan;")
+edit(p, "        delete[] cpu_ctx->work_data;\n        cpu_ctx->work_data = new uint8_t[cplan.work_size];",
+     "        ggml_kurn_mem_free(cpu_ctx->work_data, cpu_ctx->work_size);\n        cpu_ctx->work_data = (uint8_t *) ggml_kurn_mem_alloc(cplan.work_size, GGML_KURN_MEM_WORK);")
 p = f"{L}/ggml/src/ggml-cpu/ggml-cpu.cpp"
 s = open(p).read()
 if "kurn-buft.h" not in s:
@@ -78,7 +109,7 @@ if "kurn-attn.h" not in s:
     open(p, "w").write(s)
 EOF
 if [ -n "$PATCH" ]; then
-  (cd "$L" && git add -N ggml/src/ggml-cpu/kurn && git diff HEAD -- ggml) > "$PATCH"
+  (cd "$L" && git add -N ggml/src/ggml-cpu/kurn ggml/src/ggml-kurn-mem.c ggml/include/ggml-kurn-mem.h && git diff HEAD -- ggml) > "$PATCH"
   echo "wrote $PATCH ($(wc -l < "$PATCH") lines)"
 fi
 echo "kurn buffer type applied to $L; rebuild with: cmake --build build -j"

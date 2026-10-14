@@ -33,6 +33,13 @@
 // Activations are quantized once per op, split across all threads by blocks, and the per-block
 // tables the kernels need (scales, block sums) are built in the same pass (the generated
 // `_xprep` / `_packed_x` entry points), so the number of kernel calls per op costs nothing extra.
+//
+// Memory (memsys/ggml-kurn-mem.h): the buffer comes from ggml_kurn_mem_alloc, so the repacked weights sit on
+// 2 MB / 1 GB pages where the host has them (GGML_KURN_HUGEPAGES). On multi-node hosts (GGML_KURN_NUMA) every
+// weight's rows are split into one contiguous shard per node (multiples of NUMA_SHARD rows, in proportion to the
+// node's CPUs), each shard's pages are placed on its node before the repack touches them, and the threads of a
+// node take rows of their own shard only (row_chunks within the shard, on a per-node chunk counter). A row is
+// still computed by one thread over all of K, so results do not depend on the split; single-node: no change.
 #include "kurn-buft.h"
 
 #if defined(__AVX512F__) && defined(__AVX512BW__) && defined(__AVX512VNNI__)
@@ -44,6 +51,7 @@
 #include "traits.h"
 #include "kurn_dispatch.h"
 #include "kurn-native-vfy.h"
+#include "ggml-kurn-mem.h"
 
 #include <immintrin.h>
 #include <x86intrin.h>
@@ -55,6 +63,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #if defined(__AMX_INT8__) && defined(__linux__)
@@ -258,6 +267,114 @@ struct row_chunks {
         r1 = std::min(N, std::min(ng, g1) * align);
     }
 };
+
+// NUMA: shards are multiples of this many rows (a multiple of every kernel's row_align and row pass)
+constexpr int64_t NUMA_SHARD = 128;
+constexpr int KURN_MAX_NODES = 64;
+
+// nodes the rows of an op are split over: 1 unless NUMA placement is on and every node has a thread
+int numa_nodes(int nth) {
+    const int nn = ggml_kurn_numa_n_nodes();
+    if (nn <= 1 || nn > KURN_MAX_NODES) {
+        return 1;
+    }
+    for (int n = 0; n < nn; n++) {
+        if (ggml_kurn_numa_first_thread(n + 1, nth) == ggml_kurn_numa_first_thread(n, nth)) {
+            return 1;
+        }
+    }
+    return nn;
+}
+
+// per-node chunk counters of a threadpool (ggml's own counter is per threadpool too)
+struct alignas(64) node_counter {
+    std::atomic<int64_t> v{0};
+};
+struct numa_counters {
+    node_counter c[KURN_MAX_NODES];
+};
+
+numa_counters * counters_for(const ggml_threadpool * tp) {
+    thread_local const ggml_threadpool * last = nullptr;
+    thread_local numa_counters * last_c = nullptr;
+    if (tp == last && last_c) {
+        return last_c;
+    }
+    static std::mutex mu;
+    static std::unordered_map<const ggml_threadpool *, std::unique_ptr<numa_counters>> all;
+    std::lock_guard<std::mutex> lock(mu);
+    auto & c = all[tp];
+    if (!c) {
+        c = std::make_unique<numa_counters>();
+    }
+    last = tp;
+    last_c = c.get();
+    return last_c;
+}
+
+// Called where ith 0 sets ggml's chunk counter, before the barrier that precedes the row loop.
+void rows_begin(const ggml_compute_params * p) {
+    if (p->ith != 0) {
+        return;
+    }
+    ggml_threadpool_chunk_set(p->threadpool, p->nth);
+    const int nn = numa_nodes(p->nth);
+    if (nn > 1) {
+        numa_counters * c = counters_for(p->threadpool);
+        for (int n = 0; n < nn; n++) {
+            c->c[n].v.store(ggml_kurn_numa_first_thread(n + 1, p->nth) - ggml_kurn_numa_first_thread(n, p->nth),
+                            std::memory_order_relaxed);
+        }
+    }
+}
+
+// Rows [0, N) of an op in row_chunks: every thread over all rows on ggml's counter, or (NUMA) the threads of
+// each node over that node's shard on the node's counter. f(r0, r1, item) for item in [0, n_items) per chunk
+// (MUL_MAT_ID: active experts).
+template <class F>
+void for_rows(const ggml_compute_params * p, int64_t N, int64_t align, int64_t pass, int64_t n_items, F && f) {
+    const int nn = numa_nodes(p->nth);
+    if (nn <= 1) {
+        const row_chunks rc(N, align, pass, p->nth);
+        const int64_t nchunk = rc.n * n_items;
+        for (int64_t c = p->ith; c < nchunk; c = nchunk > p->nth ? ggml_threadpool_chunk_add(p->threadpool, 1) : nchunk) {
+            int64_t r0, r1;
+            rc.range(N, c % rc.n, r0, r1);
+            f(r0, r1, c / rc.n);
+        }
+        return;
+    }
+    const int node = ggml_kurn_numa_node_of_thread(p->ith, p->nth);
+    const int t0 = ggml_kurn_numa_first_thread(node, p->nth), lnth = ggml_kurn_numa_first_thread(node + 1, p->nth) - t0;
+    const int64_t s0 = ggml_kurn_numa_split(N, node, NUMA_SHARD), n = ggml_kurn_numa_split(N, node + 1, NUMA_SHARD) - s0;
+    if (n <= 0) {
+        return;
+    }
+    std::atomic<int64_t> & ctr = counters_for(p->threadpool)->c[node].v;
+    const row_chunks rc(n, align, pass, lnth);
+    const int64_t nchunk = rc.n * n_items;
+    for (int64_t c = p->ith - t0; c < nchunk; c = nchunk > lnth ? ctr.fetch_add(1, std::memory_order_relaxed) : nchunk) {
+        int64_t r0, r1;
+        rc.range(n, c % rc.n, r0, r1);
+        f(s0 + r0, s0 + r1, c / rc.n);
+    }
+}
+
+// place each node's row shard of a weight ([N rows], row r at byte off(r) of data) on that node
+template <class Off>
+void numa_place(uint8_t * data, size_t bytes, int64_t N, Off && off) {
+    const int nn = ggml_kurn_numa_n_nodes();
+    if (nn <= 1) {
+        return;
+    }
+    for (int n = 0; n < nn; n++) {
+        const size_t a = std::min(bytes, off(ggml_kurn_numa_split(N, n, NUMA_SHARD)));
+        const size_t b = n + 1 == nn ? bytes : std::min(bytes, off(ggml_kurn_numa_split(N, n + 1, NUMA_SHARD)));
+        if (b > a) {
+            ggml_kurn_numa_bind(data + a, b - a, n);
+        }
+    }
+}
 
 // ------------------------------------------------------------------------------------------
 // AMX prefill for Q8_0 on the i16 layout. A record (16 rows x 32 values) is 16 fp16 scales
@@ -982,6 +1099,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
     }
 
     bool compute_forward(ggml_compute_params * params, ggml_tensor * op) override {
+        ggml_kurn_numa_pin_thread(params->ith, params->nth);
         if (op->op == GGML_OP_MUL_MAT) {
             mul_mat(params, op);
             return true;
@@ -1022,19 +1140,14 @@ struct tensor_traits : ggml::cpu::tensor_traits {
                 dst[k] = (uint16_t) ((__m128i) _mm_cvtneps_pbh(_mm_set1_ps(src[k])))[0];
             }
         }
-        if (params->ith == 0) {
-            ggml_threadpool_chunk_set(params->threadpool, params->nth);
-        }
+        rows_begin(params);
         ggml_barrier(params->threadpool);
         static const int64_t bpass = env_int("GGML_KURN_BF16_PASS", 64);
-        const row_chunks rc(N, balign, std::max(balign, bpass / balign * balign), params->nth);
-        for (int64_t c = params->ith; c < rc.n; c = rc.n > params->nth ? ggml_threadpool_chunk_add(params->threadpool, 1) : rc.n) {
-            int64_t r0, r1;
-            rc.range(N, c, r0, r1);
+        for_rows(params, N, balign, std::max(balign, bpass / balign * balign), 1, [&](int64_t r0, int64_t r1, int64_t) {
             if (r0 < r1) {
                 amx_bf16_gemm(data[0], bpack, balign, bkalign, A, M, (float *) op->data, K, N, r0, r1);
             }
-        }
+        });
     }
 #endif
 
@@ -1055,27 +1168,22 @@ struct tensor_traits : ggml::cpu::tensor_traits {
             const float * src = (const float *) ((const char *) src1->data + i11 * src1->nb[1] + i12 * src1->nb[2] + i13 * src1->nb[3]);
             ggml_get_type_traits_cpu(vdt)->from_float(src, wq + c * xrow, K);
         }
-        if (params->ith == 0) {
-            ggml_threadpool_chunk_set(params->threadpool, params->nth);
-        }
+        rows_begin(params);
         ggml_barrier(params->threadpool);
-        const row_chunks rc(N, ralign, rpass, params->nth);
         float * Y = (float *) op->data;
         const char * W = (const char *) data[0];
         static_assert((int) KURN_NATIVE_Q6_K == (int) GGML_TYPE_Q6_K && (int) KURN_NATIVE_Q5_K == (int) GGML_TYPE_Q5_K, "kurn-native-vfy.h type ids");
         static const bool own = env_int("GGML_KURN_NATIVE_VFY", 1) != 0;  // 0: ggml's vec_dot per row and column
-        for (int64_t c = params->ith; c < rc.n; c = rc.n > params->nth ? ggml_threadpool_chunk_add(params->threadpool, 1) : rc.n) {
-            int64_t r0, r1;
-            rc.range(N, c, r0, r1);
+        for_rows(params, N, ralign, rpass, 1, [&](int64_t r0, int64_t r1, int64_t) {
             if (own && kurn_native_vfy(ntype, W, wrow, wq, xrow, Y, K, N, M, r0, r1)) {
-                continue;
+                return;
             }
             for (int64_t n = r0; n < r1; n++) {
                 for (int64_t m = 0; m < M; m++) {
                     tt->vec_dot((int) K, Y + m * N + n, 0, W + n * wrow, 0, wq + m * xrow, 0, 1);
                 }
             }
-        }
+        });
     }
 
     void mul_mat(ggml_compute_params * params, ggml_tensor * op) {
@@ -1103,9 +1211,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         const uint64_t t0 = prof ? __rdtsc() : 0;
         quantize_rows(params, src1, ggml_get_type_traits_cpu(vdt)->from_float, wq, xrow, xw);
         const xprep_ref xr = { xw, M, 0 };
-        if (params->ith == 0) {
-            ggml_threadpool_chunk_set(params->threadpool, params->nth);
-        }
+        rows_begin(params);
         const uint64_t t1 = prof ? __rdtsc() : 0;
         ggml_barrier(params->threadpool);
         const uint64_t t2 = prof ? __rdtsc() : 0;
@@ -1113,12 +1219,9 @@ struct tensor_traits : ggml::cpu::tensor_traits {
             prep(params, wq, xrow, M, K, dx, nc);
             ggml_barrier(params->threadpool);
         }
-        const row_chunks rc(N, k->row_align, k->row_pass, params->nth);
-        for (int64_t c = params->ith; c < rc.n; c = rc.n > params->nth ? ggml_threadpool_chunk_add(params->threadpool, 1) : rc.n) {
-            int64_t r0, r1;
-            rc.range(N, c, r0, r1);
+        for_rows(params, N, k->row_align, k->row_pass, 1, [&](int64_t r0, int64_t r1, int64_t) {
             run(0, wq, xrow, (float *) op->data, K, N, M, r0, r1, xr, dx, nc);
-        }
+        });
         if (prof) {
             const uint64_t t3 = __rdtsc();
             kurn_profile::slot & sl = g_prof.t[params->ith];
@@ -1177,7 +1280,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
                     act[act[E]++] = e;
                 }
             }
-            ggml_threadpool_chunk_set(params->threadpool, nth);
+            rows_begin(params);
             std::vector<int64_t> pos(off, off + E);
             for (int64_t t = 0; t < ids->ne[1]; t++) {
                 for (int64_t i = 0; i < n_ids; i++) {
@@ -1200,12 +1303,8 @@ struct tensor_traits : ggml::cpu::tensor_traits {
             prep(params, gx, xrow, nsel, K, dx, nc);
             ggml_barrier(params->threadpool);
         }
-        const row_chunks rc(N, k->row_align, k->row_pass, nth);
-        const int64_t nchunk = rc.n * act[E];
-        for (int64_t c = ith; c < nchunk; c = nchunk > nth ? ggml_threadpool_chunk_add(params->threadpool, 1) : nchunk) {
-            const int64_t e = act[c / rc.n];
-            int64_t r0, r1;
-            rc.range(N, c % rc.n, r0, r1);
+        for_rows(params, N, k->row_align, k->row_pass, act[E], [&](int64_t r0, int64_t r1, int64_t item) {
+            const int64_t e = act[item];
             float * Y = tmp + off[e] * N;
             if (cnt[e] == 1) {  // write straight into dst
                 const int64_t t = sel[off[e]] / n_ids, i = sel[off[e]] % n_ids;
@@ -1213,7 +1312,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
             }
             const xprep_ref xr = { xw, nsel, off[e] };
             run((int) e, gx + off[e] * xrow, xrow, Y, K, N, cnt[e], r0, r1, xr, dx + off[e] * nk, nc + off[e] * nk);
-        }
+        });
         ggml_barrier(params->threadpool);
         for (int64_t j = ith; j < nsel; j += nth) {
             const int64_t t = sel[j] / n_ids, i = sel[j] % n_ids;
@@ -1227,7 +1326,9 @@ struct tensor_traits : ggml::cpu::tensor_traits {
 
 // ------------------------------------------------------------------------------------------
 struct buffer_ctx {
-    ggml_backend_buffer_t inner;
+    ggml_backend_buffer_t inner;  // CPU buffer over data
+    void * data = nullptr;
+    size_t size = 0;
     std::vector<std::unique_ptr<tensor_traits>> traits;
     std::mutex mu;
 };
@@ -1235,6 +1336,7 @@ struct buffer_ctx {
 void buf_free(ggml_backend_buffer_t b) {
     auto * c = (buffer_ctx *) b->context;
     ggml_backend_buffer_free(c->inner);
+    ggml_kurn_mem_free(c->data, c->size);
     delete c;
 }
 
@@ -1261,6 +1363,7 @@ enum ggml_status buf_init_tensor(ggml_backend_buffer_t b, ggml_tensor * t) {
                                                       : pack_bf16_native<deq_block_q5_K, sizeof(block_q5_K_n)>;
             }
             tt->data.push_back((uint8_t *) t->data);
+            numa_place((uint8_t *) t->data, ggml_nbytes(t), t->ne[1], [&](int64_t r) { return (size_t) r * t->nb[1]; });
             if (verbose()) {
                 GGML_LOG_INFO("kurn: %s [%lld x %lld] %s native layout (%s)\n", t->name, (long long) t->ne[0],
                               (long long) t->ne[1], ggml_type_name(t->type),
@@ -1301,6 +1404,9 @@ enum ggml_status buf_init_tensor(ggml_backend_buffer_t b, ggml_tensor * t) {
         uint8_t * p = (uint8_t *) t->data + e * tt->stride;
         tt->data.push_back(p);
         tt->views.push_back(k->view(p, t->ne[0], t->ne[1]));
+        // row r of the repacked layout starts at bytes(K, r) - bytes(K, 0) (row groups, then padding groups)
+        const size_t pad = k->bytes(t->ne[0], 0);
+        numa_place(p, tt->stride, t->ne[1], [&](int64_t r) { return k->bytes(t->ne[0], r) - pad; });
     }
     t->extra = tt.get();
     std::lock_guard<std::mutex> lock(c->mu);
@@ -1352,12 +1458,19 @@ const char * buft_name(ggml_backend_buffer_type_t) {
 }
 
 ggml_backend_buffer_t buft_alloc(ggml_backend_buffer_type_t buft, size_t size) {
-    ggml_backend_buffer_t inner = ggml_backend_buft_alloc_buffer(ggml_backend_cpu_buffer_type(), size);
+    void * data = ggml_kurn_mem_alloc(size, GGML_KURN_MEM_WEIGHTS);
+    if (!data) {
+        return nullptr;
+    }
+    ggml_backend_buffer_t inner = ggml_backend_cpu_buffer_from_ptr(data, size);
     if (!inner) {
+        ggml_kurn_mem_free(data, size);
         return nullptr;
     }
     auto * c = new buffer_ctx;
     c->inner = inner;
+    c->data = data;
+    c->size = size;
     return ggml_backend_buffer_init(buft, buf_iface, c, size);
 }
 

@@ -31,7 +31,10 @@
 #include "ggml-cpu-impl.h"
 #include "ggml-impl.h"
 #include "kattn_dispatch.h"
+#include "ggml-kurn-mem.h"
 
+#include <immintrin.h>
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -222,14 +225,38 @@ void log_shape(const ggml_tensor * dst, const kurn_fa_kernel * kern, const char 
 
 // Buffers owned by the thread that runs ith 0 of a graph (the caller of ggml_graph_compute), so
 // graphs computed concurrently from different threads never share them.
+// NUMA stream groups: a spin barrier for the threads of one node
+struct alignas(64) group_barrier {
+    std::atomic<int> count{0};
+    std::atomic<int> gen{0};
+
+    void wait(int n) {
+        const int g = gen.load(std::memory_order_acquire);
+        if (count.fetch_add(1, std::memory_order_acq_rel) == n - 1) {
+            count.store(0, std::memory_order_relaxed);
+            gen.fetch_add(1, std::memory_order_release);
+        } else {
+            while (gen.load(std::memory_order_acquire) == g) {
+                _mm_pause();
+            }
+        }
+    }
+};
+
+constexpr int FA_MAX_NODES = 64;
+
 struct fa_state {
     void * ws = nullptr;   // kattn workspace: zero-filled when allocated, kurn resets it after every call
     size_t ws_size = 0;
     void * kvp = nullptr;  // kattn_pack buffer
     size_t kvp_size = 0;
+    void * wsn = nullptr;  // NUMA stream groups: one workspace per node, wsn_stride bytes apart
+    size_t wsn_size = 0, wsn_stride = 0;
+    group_barrier gb[FA_MAX_NODES];
     ~fa_state() {
         free(ws);
         free(kvp);
+        free(wsn);
     }
 };
 
@@ -252,6 +279,21 @@ void grow(const ggml_compute_params * params, void ** buf, size_t * size, size_t
         *size = need;
     }
     ggml_barrier(params->threadpool);
+}
+
+// Nodes that run KV streams on their own threads: llama-kv-cache.cpp places cache stream s on node s % n_nodes
+// (kurn NUMA). 1 = all threads on every stream (single node, one stream, or a node without a thread).
+int stream_nodes(int nth, int64_t n_stream) {
+    const int nn = ggml_kurn_numa_n_nodes();
+    if (nn <= 1 || nn > FA_MAX_NODES || n_stream < 2) {
+        return 1;
+    }
+    for (int n = 0; n < nn; n++) {
+        if (ggml_kurn_numa_first_thread(n + 1, nth) == ggml_kurn_numa_first_thread(n, nth)) {
+            return 1;
+        }
+    }
+    return nn;
 }
 
 }  // namespace
@@ -294,8 +336,7 @@ extern "C" bool ggml_kurn_flash_attn_ext(const ggml_compute_params * params, ggm
     const int64_t G = q->ne[2] / k->ne[2];
     const bool pack = c.pack && !c.exact && kern->engine != 0 && q->ne[1] > kern->tile_q && q->ne[1] * G > kern->dec_rows;
 
-    for (int64_t s = 0; s < n_stream; s++) {
-        kattn_args a;
+    auto make_args = [&](int64_t s, kattn_args & a) {
         memset(&a, 0, sizeof a);
         a.n_q = q->ne[1];
         a.n_kv = k->ne[1];
@@ -325,6 +366,51 @@ extern "C" bool ggml_kurn_flash_attn_ext(const ggml_compute_params * params, ggm
         a.out = (float *) ((char *) dst->data + s * dst->nb[3]);
         a.o_s_head = dst->nb[1] / sizeof(float);
         a.o_s_tok = dst->nb[2] / sizeof(float);
+    };
+
+    // kurn NUMA with several KV streams (llama-server slots): stream s runs on the threads of the node that holds
+    // its cache. Exact mode does not depend on the thread count, so its output is unchanged; fast mode's KV splits
+    // follow the thread count. Not with the packed prefill path, which shares one pack buffer.
+    const int nn = pack ? 1 : stream_nodes(nth, n_stream);
+    if (nn > 1) {
+        int64_t base = 0;  // cache stream of the view's stream 0
+        if (k->view_src && k->nb[3] > 0) {
+            base = ((const char *) k->data - (const char *) k->view_src->data) / (int64_t) k->nb[3];
+        }
+        kattn_args a;
+        make_args(0, a);
+        int lmax = 0;
+        for (int n = 0; n < nn; n++) {
+            lmax = std::max(lmax, ggml_kurn_numa_first_thread(n + 1, nth) - ggml_kurn_numa_first_thread(n, nth));
+        }
+        // the stride only grows (and growing reallocates zero-filled), so each node's kattn header stays where the
+        // previous call left it reset; every thread reads the old stride before grow's barrier
+        const size_t per = std::max((kern->workspace(&a, lmax) + 4095) & ~(size_t) 4095, st->wsn_stride);
+        grow(params, &st->wsn, &st->wsn_size, per * nn);
+        if (ith == 0) {
+            st->wsn_stride = per;
+        }
+        const int node = ggml_kurn_numa_node_of_thread(ith, nth);
+        const int t0 = ggml_kurn_numa_first_thread(node, nth), lnth = ggml_kurn_numa_first_thread(node + 1, nth) - t0;
+        void * ws = (char *) st->wsn + per * node;
+        bool first = true;
+        for (int64_t s = 0; s < n_stream; s++) {
+            if ((base + s / rk3) % nn != node) {
+                continue;
+            }
+            if (!first) {
+                st->gb[node].wait(lnth);  // the node's previous kattn call must be done on all its threads
+            }
+            first = false;
+            make_args(s, a);
+            kern->run(&a, ws, ith - t0, lnth);
+        }
+        return true;
+    }
+
+    for (int64_t s = 0; s < n_stream; s++) {
+        kattn_args a;
+        make_args(s, a);
 
         if (s > 0) {
             ggml_barrier(params->threadpool);  // the previous stream's kattn call must be done on every thread
