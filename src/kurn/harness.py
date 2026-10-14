@@ -76,12 +76,48 @@ def check_extra(c):
     return extra
 
 
+CHECK_THREADS = 3
+
+
+def main_loop_rows(c):
+    """Rows one thread needs for one full pass of the kernel's widest row blocking: `rows` register groups
+    of 16 rows (32 for l32) per pass, times `rgroup` for composed layouts. Native layouts count rows, not
+    groups, so this over-covers them, which is harmless."""
+    group = 32 if c.get("layout") == "l32" else 16
+    return group * max(1, int(c.get("rows") or 1)) * max(1, int(c.get("rgroup") or 1))
+
+
+def check_shapes(c):
+    """The default correctness shapes: the awkward one (row tails, uneven thread slices) and one where every
+    check thread runs at least one full main-loop pass (plus a 16-row margin for the 16-row alignment of the
+    thread chunks and a 37-row tail). The awkward shape alone (N=200 over 3 threads) never reaches the main
+    loop of a rows=8 vnni16 kernel, which needs 128 rows per thread."""
+    small = ["--M", "40", "--N", "100"] if c["op"] == "gemm" else check_extra(c)
+    t = min(CHECK_THREADS, c["threads"])
+    n_main = t * (main_loop_rows(c) + 16) + 37
+    big = ["--K", "2048", "--N", str(n_main)]
+    if c["op"] == "gemm":
+        big += ["--M", "40"]
+    elif c["op"] == "verify":
+        big += ["--M", str(max(2, c["cols"] - 1))]
+    return [small, big]
+
+
 def check(so, c, extra=None, harness=None):
-    """Numerical check on awkward sizes (row tails, uneven thread slices). Returns the row."""
-    if extra is None:
-        extra = ["--M", "40", "--N", "100"] if c["op"] == "gemm" else check_extra(c)
-    c = {**c, "threads": min(3, c["threads"]), "wait": "spin"}
-    return bench(so, c, "hot", 0, extra, harness)
+    """Numerical check. With `extra`, one run on that shape; without, every shape of check_shapes(c), returning
+    the first failing row, else the row with the largest relative error."""
+    cc = {**c, "threads": min(CHECK_THREADS, c["threads"]), "wait": "spin"}
+    if extra is not None:
+        return bench(so, cc, "hot", 0, extra, harness)
+    worst = None
+    for shape in check_shapes(c):
+        row = bench(so, cc, "hot", 0, shape, harness)
+        row["shape"] = " ".join(shape)
+        if row["check"] == "FAIL":
+            return row
+        if worst is None or row["relerr"] > worst["relerr"]:
+            worst = row
+    return worst
 
 
 def bandwidth(threads, streams=0, harness=None, detail=False):
