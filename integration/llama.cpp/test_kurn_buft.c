@@ -11,6 +11,9 @@
 //                                                     under benchlock.sh, threads pinned)
 //   test_kurn_buft bf16                             the AMX-BF16 prefill path: its error against an f32
 //                                                     reference must stay within 2x of ggml's own vec_dot
+//   test_kurn_buft freivalds                        Freivalds oracle (bigVerify-style secret-probe checksums) on
+//                                                     the AMX-BF16 path: no false alarm on real outputs, and planted
+//                                                     faults (one entry, one 16x16 tile) rejected
 //
 // Every mode but bf16 checks exact results, so it runs with GGML_KURN_EXACT=1 (batch-invariant matmuls only:
 // the Q8_0 AMX-INT8 kernel and the verify kernels) unless GGML_KURN_EXACT is set in the environment.
@@ -358,6 +361,112 @@ static void case_stress(ggml_backend_t be, enum ggml_type t, int64_t K, int64_t 
     graph_free(&g); free(wq); free(x); free(first); free(got); free(ref);
 }
 
+// ---------------------------------------------------------------------------------------------------------
+// Freivalds oracle for KL-mode (non-exact) kernels, after bigVerify's tensor checks (github.com/WizardSource/bigVerify,
+// docs/bigverify-tensor.md): for a claim C ~ X W^T (X: M x K activations, W: N x K dequantized weights), split the N
+// output columns into blocks of 64, draw t = 2 secret +-1 probe vectors r per block, and compare C r with X (W r)
+// computed in double from the f32 inputs. Error model of the AMX-BF16 path: activations and dequantized weights
+// rounded to bf16 (each product off by <= 2^-8 relative), fp32 accumulation over K. Statistical mode as in
+// bigVerify's monitoring default: the rounding errors of one output sum like a random walk, so a correct output is
+// within (2^-8 + K u_32) * q_mj (q_mj = sqrt(sum_k x_mk^2 w_jk^2)), and over the secret signs the block
+// checksum of correct outputs exceeds lambda * sqrt(sum_j b_mj^2) with probability <= alpha (Hoeffding, alpha = 2^-40
+// per check). sum_j q_mj^2 = x_m^2 . (sum_j w_j^2), so the threshold costs one more fingerprint-sized pass: the check
+// is O(M K t N / 64 + M N), against O(M N K) for the product. Test-only; nothing here runs in llama.cpp.
+typedef struct { int rejected, checks; double worst, tau_max; } fv_result;
+
+static uint64_t fv_seed(void) {
+    uint64_t s = 0;
+    FILE *f = fopen("/dev/urandom", "rb");
+    if (!f || fread(&s, sizeof s, 1, f) != 1) s = 0x9e3779b97f4a7c15ull ^ (uint64_t)(size_t)&s;
+    if (f) fclose(f);
+    return s | 1;
+}
+
+static fv_result freivalds_check(const float *x, const float *w, const float *c, int64_t K, int64_t N, int64_t M) {
+    const int64_t B = 64, G = (N + B - 1) / B;
+    const int t = 2;
+    uint64_t r = fv_seed();
+    const double alpha = ldexp(1.0, -40), lam = sqrt(2 * log(2.0 * (double)M * G * t / alpha));
+    const double u_in = ldexp(1.0, -8), u_acc = ldexp(1.0, -24);
+    double *wr = malloc(sizeof(double) * K * t), *w2 = malloc(sizeof(double) * K);
+    signed char *sg = malloc((size_t)B * t);
+    fv_result res = {0, 0, 0, 0};
+    for (int64_t g = 0; g < G; g++) {
+        const int64_t j0 = g * B, j1 = j0 + B < N ? j0 + B : N;
+        for (int64_t i = 0; i < (j1 - j0) * t; i++) { r ^= r << 13; r ^= r >> 7; r ^= r << 17; sg[i] = (r >> 40) & 1 ? 1 : -1; }
+        for (int64_t k = 0; k < K; k++) {
+            double s2 = 0;
+            for (int p = 0; p < t; p++) wr[p * K + k] = 0;
+            for (int64_t j = j0; j < j1; j++) {
+                const double v = w[j * K + k];
+                for (int p = 0; p < t; p++) wr[p * K + k] += sg[p * B + (j - j0)] * v;
+                s2 += v * v;
+            }
+            w2[k] = s2;
+        }
+        for (int64_t m = 0; m < M; m++) {
+            const float *xm = x + m * K;
+            double q2 = 0;
+            for (int64_t k = 0; k < K; k++) q2 += (double)xm[k] * xm[k] * w2[k];
+            // per-output bound b_mj = (u_in + K u_acc) q_mj (accumulation: a_mj <= sqrt(K) q_mj and a sqrt(K) u_acc random
+            // walk), summed in quadrature over the block: sqrt(sum_j b_mj^2) = (u_in + K u_acc) sqrt(x_m^2 . sum_j w_j^2)
+            const double bq = (u_in + (double)K * u_acc) * sqrt(q2);
+            const double tau = lam * bq + 1e-30;
+            if (tau > res.tau_max) res.tau_max = tau;
+            for (int p = 0; p < t; p++) {
+                double lhs = 0, rhs = 0;
+                for (int64_t j = j0; j < j1; j++) lhs += sg[p * B + (j - j0)] * (double)c[m * N + j];
+                for (int64_t k = 0; k < K; k++) rhs += (double)xm[k] * wr[p * K + k];
+                const double ratio = fabs(lhs - rhs) / tau;
+                res.checks++;
+                if (!(ratio <= 1)) res.rejected++;
+                if (ratio > res.worst || ratio != ratio) res.worst = ratio;
+            }
+        }
+    }
+    free(wr); free(w2); free(sg);
+    return res;
+}
+
+static void dequant_rows(enum ggml_type t, const void *wq, int64_t K, int64_t N, float *wf) {
+    const size_t wrow = ggml_row_size(t, K);
+    for (int64_t n = 0; n < N; n++) ggml_get_type_traits(t)->to_float((const char *)wq + n * wrow, wf + n * K, K);
+}
+
+// AMX-BF16 path through the oracle: every real output accepted; one entry moved by the output RMS (above the 2 tau floor), and one 16 x 16
+// tile replaced by another tile's values (what lost AMX tile state looks like), both rejected
+static void case_freivalds(ggml_backend_t be, enum ggml_type t, int64_t K, int64_t N, int64_t M, int threads) {
+    const size_t wrow = ggml_row_size(t, K);
+    void *wq = malloc(wrow * N);
+    quantize(t, K, N, wq, 0.05f);
+    float *x = malloc(sizeof(float) * K * M), *wf = malloc(sizeof(float) * K * N), *got = malloc(sizeof(float) * N * M);
+    for (int64_t i = 0; i < K * M; i++) x[i] = frand() * (1 + (i / 64) % 3);
+    dequant_rows(t, wq, K, N, wf);
+    graph g = mm_graph(be, t, K, N, M, 1);
+    ggml_backend_cpu_set_n_threads(be, threads);
+    ggml_backend_tensor_set(g.w, wq, 0, ggml_nbytes(g.w));
+    ggml_backend_tensor_set(g.x, x, 0, ggml_nbytes(g.x));
+    ggml_backend_graph_compute(be, g.gf);
+    ggml_backend_tensor_get(g.out, got, 0, sizeof(float) * N * M);
+    const fv_result ok = freivalds_check(x, wf, got, K, N, M);
+    double rms = 0;
+    for (int64_t i = 0; i < N * M; i++) rms += (double)got[i] * got[i];
+    rms = sqrt(rms / (N * M));
+    const int64_t mi = M / 2, ni = N / 3;
+    got[mi * N + ni] += (float)rms;
+    const fv_result f1 = freivalds_check(x, wf, got, K, N, M);
+    got[mi * N + ni] -= (float)rms;
+    for (int64_t m = 0; m < 16 && m < M; m++)
+        for (int64_t n = 0; n < 16; n++) got[m * N + 32 + n] = got[((m + 16) % M) * N + 64 + n];
+    const fv_result f2 = freivalds_check(x, wf, got, K, N, M);
+    char what[240];
+    snprintf(what, sizeof what, "freivalds %s K=%ld N=%ld M=%ld T=%d: clean %d/%d rejected (worst %.3f of threshold), "
+             "floor 2*tau = %.2f x output RMS, entry fault (1x RMS) %s, tile fault %s", ggml_type_name(t), (long)K, (long)N, (long)M,
+             threads, ok.rejected, ok.checks, ok.worst, 2 * ok.tau_max / rms, f1.rejected ? "caught" : "MISSED", f2.rejected ? "caught" : "MISSED");
+    report(ok.rejected == 0 && f1.rejected > 0 && f2.rejected > 0, what, ok.worst);
+    graph_free(&g); free(wq); free(x); free(wf); free(got);
+}
+
 static int64_t kmult(enum ggml_type t) {
     const int64_t b = ggml_blck_size(t);
     return b < 32 ? 32 : b;
@@ -368,7 +477,8 @@ int main(int argc, char **argv) {
     const int bf16 = argc > 1 && !strcmp(argv[1], "bf16");
     const int native = argc > 1 && !strcmp(argv[1], "native");  // native [types]: Q6_K / Q5_K in ggml's layout, not exact mode
     const int stress = argc > 7 && !strcmp(argv[1], "stress");  // stress TYPE K N M THREADS REPS (exactness from the env)
-    if (!bf16 && !stress && !native && !getenv("GGML_KURN_EXACT")) setenv("GGML_KURN_EXACT", "1", 1);
+    const int fv = argc > 1 && !strcmp(argv[1], "freivalds");
+    if (!bf16 && !stress && !native && !fv && !getenv("GGML_KURN_EXACT")) setenv("GGML_KURN_EXACT", "1", 1);
     kurn = find_kurn();
     if (!kurn) { printf("KURN buffer type not available (GGML_KURN=0 or no AVX-512 VNNI)\n"); return 1; }
     ggml_backend_t be = ggml_backend_cpu_init();
@@ -378,6 +488,20 @@ int main(int argc, char **argv) {
             if (ggml_type_name((enum ggml_type)i) && !strcmp(ggml_type_name((enum ggml_type)i), argv[2])) t = (enum ggml_type)i;
         case_stress(be, t, atoll(argv[3]), atoll(argv[4]), atoll(argv[5]), atoi(argv[6]), atoi(argv[7]));
         printf("%d passed, %d failed\n", npass, nfail);
+        ggml_backend_free(be);
+        return nfail;
+    }
+    if (fv) {
+        if (!__builtin_cpu_supports("amx-bf16") || (getenv("GGML_KURN_EXACT") && atoi(getenv("GGML_KURN_EXACT")))) {
+            printf("freivalds: needs the AMX-BF16 path (AMX-BF16 CPU, not exact mode), skipped\n");
+            return 0;
+        }
+        const enum ggml_type ts[] = {GGML_TYPE_Q8_0, GGML_TYPE_Q4_K, GGML_TYPE_Q6_K, GGML_TYPE_Q5_K};
+        const int64_t ms[] = {32, 37, 64, 129};
+        for (size_t ti = 0; ti < sizeof ts / sizeof *ts; ti++)
+            for (size_t mi = 0; mi < sizeof ms / sizeof *ms; mi++)
+                case_freivalds(be, ts[ti], 2048 + 2048 * (int64_t)(mi & 1), 1024 + 64 * (int64_t)mi, ms[mi], 1 + (int)mi * 2);
+        printf("freivalds: %d passed, %d failed\n", npass, nfail);
         ggml_backend_free(be);
         return nfail;
     }
