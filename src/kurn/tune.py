@@ -286,7 +286,7 @@ def tune(
 #   3. successive halving: time all at a short budget, keep the best 1/eta, re-time the
 #      survivors with eta x the budget (interleaved rounds), until `keep` remain;
 #   4. coordinate descent from the survivors: one key at a time, every other legal value;
-#      a move is accepted only if it wins an interleaved re-measurement by > `min_gain`.
+#      a move is accepted only if the paired-CI gate (`_confirm`) shows a win of more than `min_gain`.
 # Builds run in parallel (`jobs`); timing is always serial.
 
 SEARCH_SKIP = ("threads", "wait", "op", "weights", "target")
@@ -630,27 +630,88 @@ def search(
     return res, stats
 
 
-def _confirm(a, b, regime, obj, secs, extra, harness, static_w, reps=3):
-    """Interleaved confirmation; one failed repetition disqualifies a candidate.
+CONFIRM_MIN_PAIRS = 6
+CONFIRM_MAX_PAIRS = 14
+CONFIRM_ALPHA = 0.05
+CONFIRM_BOOT = 2000
 
-    Update all metric fields from the same sample set so the returned objective
-    cannot disagree with stale energy/latency fields. Keep the helper's
-    (objective median, objective median) return shape.
+
+def bootstrap_ci(ratios, alpha=CONFIRM_ALPHA, n_boot=CONFIRM_BOOT):
+    """(lo, hi) percentile bootstrap interval of the median of `ratios`. The resampling is seeded by the
+    sample count, so the same measurements always give the same interval (and the same decision)."""
+    import random
+
+    rng = random.Random(len(ratios))
+    meds = sorted(statistics.median(rng.choices(ratios, k=len(ratios))) for _ in range(n_boot))
+    return meds[int(alpha / 2 * n_boot)], meds[int((1 - alpha / 2) * n_boot) - 1]
+
+
+def paired_gate(ratios, min_gain, alpha=CONFIRM_ALPHA):
+    """Three-valued decision on paired ratios challenger/incumbent (lower is better):
+    1 = the whole CI of the median ratio is below 1 - min_gain (a min_gain win), 0 = the CI lies above
+    1 - min_gain (cannot be a min_gain win), None = unresolved. Returns (gate, lo, hi)."""
+    lo, hi = bootstrap_ci(ratios, alpha)
+    if hi < 1 - min_gain:
+        return 1, lo, hi
+    if lo > 1 - min_gain:
+        return 0, lo, hi
+    return None, lo, hi
+
+
+def _confirm(a, b, regime, obj, secs, extra, harness, static_w, min_gain=0.02,
+             min_pairs=CONFIRM_MIN_PAIRS, max_pairs=CONFIRM_MAX_PAIRS):
+    """Paired-CI confirmation of challenger b against incumbent a; one failed measurement disqualifies a
+    candidate.
+
+    Pairs are measured back to back with alternating order (a b, b a, ...), from min_pairs up to max_pairs
+    (two more pairs per unresolved round, CONFIRM_ALPHA split over the looks). b["_gate"] is paired_gate()'s decision on the ratios b/a: only 1
+    admits b. The old rule (median of 3 interleaved repetitions beating the incumbent by > min_gain)
+    admitted 2 of 10 A/A trials on a shared host, i.e. identical code "won" by up to 9%.
+
+    All metric fields are updated from the same sample set so the returned objective cannot disagree with
+    stale energy/latency fields. Returns (objective median of a, objective median of b) as before.
     """
-    _positive_int("reps", reps)
+    _positive_int("min_pairs", min_pairs)
+    _positive_int("max_pairs", max_pairs, min_pairs)
     samples = ([], [])
-    for _ in range(reps):
-        for r, acc in zip((a, b), samples):
-            acc.append(_safe_measure(r["c"], r["so"], regime, secs, extra, harness, static_w))
+    ratios = []
+    gate, lo, hi = None, None, None
+    valid = True
+    # the decision is looked at after min_pairs and after every 2 more pairs: split alpha over the looks
+    # (Bonferroni) so stopping at the first resolved look does not inflate false admissions
+    alpha_look = CONFIRM_ALPHA / (1 + (max_pairs - min_pairs + 1) // 2)
+    while valid and len(ratios) < max_pairs:
+        target = min_pairs if not ratios else min(max_pairs, len(ratios) + 2)
+        while valid and len(ratios) < target:
+            order = (0, 1) if len(ratios) % 2 == 0 else (1, 0)
+            got = {}
+            for i in order:
+                r = (a, b)[i]
+                m = _safe_measure(r["c"], r["so"], regime, secs, extra, harness, static_w)
+                samples[i].append(m)
+                if m is None:
+                    valid = False
+                    break
+                got[i] = m
+            if valid:
+                ratios.append(got[1][obj] / got[0][obj] if got[0][obj] > 0 else float("inf"))
+        if valid:
+            gate, lo, hi = paired_gate(ratios, min_gain, alpha_look)
+            if gate is not None:
+                break
     medians = []
     for r, ms in zip((a, b), samples):
-        r["_valid"] = all(m is not None for m in ms)
+        r["_valid"] = bool(ms) and all(m is not None for m in ms)
         if r["_valid"]:
             summary = summarize_measurements(ms)
             r.update(summary)
             medians.append(summary[obj])
         else:
             medians.append(float("inf"))
+    b["_gate"] = gate if a["_valid"] and b["_valid"] else 0
+    b["_ratio"] = statistics.median(ratios) if ratios else None
+    b["_ci"] = (lo, hi)
+    b["_pairs"] = len(ratios)
     return tuple(medians)
 
 
@@ -692,10 +753,12 @@ def _coordinate_descent(spec, space, best, regime, obj, secs, min_gain, max_move
                 continue
             ch = min(trial, key=lambda r: r[obj])
             if ch[obj] < inc[obj] * (1 - min_gain):
-                a, b = _confirm(inc, ch, regime, obj, secs, extra, harness, static_w)
-                stats["measurements"] += 6
-                if b < a * (1 - min_gain):
-                    log(f"move {k}={ch['ov'][k]}: {a:.2f} -> {b:.2f} ({obj})")
+                a, b = _confirm(inc, ch, regime, obj, secs, extra, harness, static_w, min_gain)
+                stats["measurements"] += 2 * ch.get("_pairs", 3)
+                if ch.get("_gate") == 1:
+                    lo, hi = ch["_ci"]
+                    log(f"move {k}={ch['ov'][k]}: {a:.2f} -> {b:.2f} ({obj}), ratio {ch['_ratio']:.3f} "
+                        f"CI [{lo:.3f}, {hi:.3f}] over {ch['_pairs']} pairs")
                     ch[obj] = b
                     if not any(r is inc for r in best):
                         best.append(inc)
