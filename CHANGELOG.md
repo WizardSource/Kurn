@@ -5,6 +5,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Added: compact quaternion and complex linear layers (`integration/hypercomplex/`)
+- `kurn-hc.{h,cpp}`: layers that keep D = 4 (quaternion) or D = 2 (complex) components per weight instead of the
+  D^2 reals of the expansion, in f32 or Q8_0-per-component (`KURN_HC_Q8`, kurn i16 records per component).
+- GEMV and 1-8 column verify kernels compute the Hamilton / complex product from shared loads, input-component-outer
+  (`p = o ^ q`); 9-31 columns (and exact mode) run them over 8-column groups; 32+ columns use AMX-BF16 on the expansion
+  built per L2 panel.
+- Every path is bit-identical to kurn's real Q8_0 kernels on the expanded matrix (block-planar layout), fast and
+  exact mode; activations quantized with ggml's `quantize_row_q8_0`, reproduced bit for bit.
+- Qwen3-8B-width layers (4096 x 12288 real), paired CI: quaternion decode 3.1x, MLP decode 4.15x, 8 columns 2.0x,
+  prefill parity; complex decode 2.1x, MLP decode 1.9x.
+- `hc_bench` (checks, benchmarks, synthetic quaternion MLP), `kurn.hypercomplex` references, `tests/test_hypercomplex.py`.
+
 ### Added: one-pass AMX verify kernel for Q8_0 at 9-16 columns
 - `kurn-amx-vfy.cpp`: M-row AMX-INT8 tiles on kurn's i16 records, block-order scaling as in the GEMV, so every column
   is bit-identical to one-token decoding; three row groups per pass; preemption guard as in the other AMX paths.
