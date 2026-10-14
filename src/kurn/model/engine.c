@@ -211,14 +211,27 @@ static float *P[2];     // [2][T][N_EMBD] partial residual vectors
 static uint16_t *KC, *VC;  // [layer][kv head][pos][D], f16 (llama.cpp's default KV type)
 static float *LOGITS;
 static int USE_THP = 1;
+// KURN_HUGEPAGES: auto (default: 2 MB hugetlb while the pool lasts, then THP), 1g (1 GB pages for buffers of at least
+// 1 GB, else 2 MB), 2m, thp, 4k. KURN_THP=0 is the same as 4k. What backs each byte goes to stderr at exit.
+enum { HP_AUTO, HP_1G, HP_2M, HP_THP, HP_4K };
+static int HP_MODE = HP_AUTO;
+static _Atomic size_t HP_BYTES[4];  // hugetlb 1G, hugetlb 2M, THP (madvised), 4K
 
 static inline size_t kv_at(int l, int h, int pos) { return (((size_t)l * N_KV + h) * MAX_CTX + pos) * D; }
 static inline float *part(int buf, int t) { return P[buf] + (size_t)t * N_EMBD; }
 
 static void *big_alloc(size_t sz) {
+    for (int k = 0; k < 2; k++) {  // hugetlb: 1 GB pages (1g mode, >= 1 GB), then 2 MB pages
+        const size_t pg = k ? (size_t)2 << 20 : (size_t)1 << 30;
+        if (!(k ? HP_MODE <= HP_2M : HP_MODE == HP_1G && sz >= pg)) continue;
+        const size_t r = (sz + pg - 1) & ~(pg - 1);
+        void *p = mmap(NULL, r, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | ((k ? 21 : 30) << 26), -1, 0);
+        if (p != MAP_FAILED) { HP_BYTES[k] += r; return p; }
+    }
     void *p = mmap(NULL, sz, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (p == MAP_FAILED) { perror("mmap"); exit(1); }
-    if (USE_THP) madvise(p, sz, MADV_HUGEPAGE);
+    if (USE_THP && HP_MODE != HP_4K && madvise(p, sz, MADV_HUGEPAGE) == 0) HP_BYTES[2] += sz;
+    else { madvise(p, sz, MADV_NOHUGEPAGE); HP_BYTES[3] += sz; }
     return p;
 }
 static void *arena_take(sched_t *s, size_t sz) {
@@ -951,6 +964,10 @@ int main(int argc, char **argv) {
     }
     parse_wait();
     if (getenv("KURN_THP") && !strcmp(getenv("KURN_THP"), "0")) USE_THP = 0;
+    if (getenv("KURN_HUGEPAGES")) {
+        const char *h = getenv("KURN_HUGEPAGES");
+        HP_MODE = !strcmp(h, "1g") ? HP_1G : !strcmp(h, "2m") ? HP_2M : !strcmp(h, "thp") ? HP_THP : !strcmp(h, "4k") ? HP_4K : HP_AUTO;
+    }
     if (getenv("KURN_PFWAIT")) PF_MAX = atol(getenv("KURN_PFWAIT"));
     BLK = W_BLK_BYTES();
     int fd = open(argv[1], O_RDONLY);
@@ -1096,5 +1113,7 @@ int main(int argc, char **argv) {
         if (G_kld && G_kld_cmp) printf(" kld_top32 %.6f top1_agree %.4f over %ld", G_kl / G_kl_n, (double)G_top1 / G_kl_n, G_kl_n);
         if (KVF || G_kld) printf("\n");
     }
+    fprintf(stderr, "kurn engine mem: hugetlb 1G %.0f MiB, hugetlb 2M %.0f MiB, THP %.0f MiB, 4K %.0f MiB\n", HP_BYTES[0] / 1048576.0,
+            HP_BYTES[1] / 1048576.0, HP_BYTES[2] / 1048576.0, HP_BYTES[3] / 1048576.0);
     return 0;
 }
