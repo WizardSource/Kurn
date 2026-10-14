@@ -45,6 +45,7 @@
 #include "traits.h"
 #include "kurn_dispatch.h"
 #include "kurn-native-vfy.h"
+#include "kurn-amx-vfy.h"
 #include "vec.h"
 
 #include <immintrin.h>
@@ -921,6 +922,13 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         return amx && M >= amx_min();
     }
 
+    // 9..16 columns of Q8_0: kurn-amx-vfy.cpp (M-row tiles, one pass over the weights, bit-identical to the GEMV per
+    // column) instead of two 8-column VNNI passes. GGML_KURN_AMX_VFY=0 turns it off.
+    bool use_amx_vfy(int64_t M) const {
+        static const bool on = env_int("GGML_KURN_AMX_VFY", 1) != 0;
+        return amx && on && M > KURN_VFY_MAX && M <= 16 && M < amx_min();
+    }
+
     // xw: shared activation prep of these columns (k->xprep layout for xc columns, starting at column xc0)
     struct xprep_ref {
         const void * ws = nullptr;
@@ -968,6 +976,12 @@ struct tensor_traits : ggml::cpu::tensor_traits {
             return;
         }
 #if KURN_HAVE_AMX
+        if (dx && use_amx_vfy(M)) {
+            static const int ng = std::min(3, std::max(1, env_int("GGML_KURN_AMX_VFY_NG", 3)));
+            if (kurn_amx_vfy_q8_0(data[e], K, X, xrow, dx, nc, Y, N, M, r0, r1, ng)) {
+                return;
+            }
+        }
         if (dx && use_amx(M)) {
             const int64_t full = M / 16 * 16;
             amx2_q8_0(data[e], K / 32, X, xrow, dx, Y, K, N, full, r0, r1);
@@ -1211,7 +1225,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         const uint64_t t1 = prof ? __rdtsc() : 0;
         ggml_barrier(params->threadpool);
         const uint64_t t2 = prof ? __rdtsc() : 0;
-        if (use_amx(M)) {
+        if (use_amx(M) || use_amx_vfy(M)) {
             prep(params, wq, xrow, M, K, dx, nc);
             ggml_barrier(params->threadpool);
         }
@@ -1304,7 +1318,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         }
         ggml_barrier(params->threadpool);
         const int64_t max_cnt = *std::max_element(cnt, cnt + E);
-        if (use_amx(max_cnt)) {
+        if (use_amx(max_cnt) || (amx && max_cnt > KURN_VFY_MAX)) {
             prep(params, gx, xrow, nsel, K, dx, nc);
             ggml_barrier(params->threadpool);
         }
@@ -1493,7 +1507,7 @@ bool fused_group(ggml_compute_params * params, ggml_tensor ** ops, int G, ggml_t
         ggml_threadpool_chunk_set(params->threadpool, nth);
     }
     ggml_barrier(params->threadpool);
-    if (path == KP_K && t0.use_amx(M)) {
+    if (path == KP_K && (t0.use_amx(M) || t0.use_amx_vfy(M))) {
         t0.prep(params, wq, xrow, M, K, dx, nc);
         ggml_barrier(params->threadpool);
     }
