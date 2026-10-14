@@ -156,3 +156,6 @@ def test_buffer_type_checker_smoke(tmp_path):
     for env in ({"GGML_KURN_EXACT": "1", "GGML_KURN_AMX": "0"}, {}):
         r = subprocess.run([str(exe), "native"], capture_output=True, text=True, timeout=1200, env={**os.environ, **env})
         assert r.returncode == 0, (env, r.stdout[-4000:])
+    # TQ1_0 / TQ2_0 as bitmap + signs (kurn-tbm.cpp): bit-identical to the TQ2_0 records; AVX-512 only with AMX off
+    r = subprocess.run([str(exe), "tbm", "smoke"], capture_output=True, text=True, timeout=1200, env=dict(os.environ, GGML_KURN_AMX="0"))
+    assert r.returncode == 0, r.stdout[-4000:]

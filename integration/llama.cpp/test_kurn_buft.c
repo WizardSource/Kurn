@@ -6,6 +6,7 @@
 //
 //   test_kurn_buft [smoke|quick|full] [type,...]     exit code = number of failing cases
 //   test_kurn_buft native [q6_K,q5_K]               native-layout Q6_K / Q5_K below the AMX-BF16 threshold
+//   test_kurn_buft tbm [smoke]                      TQ1_0 / TQ2_0 as bitmap + signs: bit-identical to TQ2_0 records
 //   test_kurn_buft case TYPE K N M THREADS [REPS]   one MUL_MAT case
 //   test_kurn_buft determinism TYPE K N M THREADS REPS   repeat-run bit-identity (run AMX cases
 //                                                     under benchlock.sh, threads pinned)
@@ -358,6 +359,49 @@ static void case_stress(ggml_backend_t be, enum ggml_type t, int64_t K, int64_t 
     graph_free(&g); free(wq); free(x); free(first); free(got); free(ref);
 }
 
+// exact ternary weights d * {-1, 0, +1} with zero fraction z (one +-d per 256 values so that d is that value)
+static void quantize_ternary(enum ggml_type t, int64_t K, int64_t rows, void *dst, float z) {
+    float *f = malloc(sizeof(float) * K * rows);
+    for (int64_t i = 0; i < K * rows; i++) {
+        const float sc = 0.01f * (float)(1 + (i / K) % 7) * (1 + (i / 256) % 3);
+        f[i] = 0.5f * (frand() + 1.0f) < z ? 0.0f : (frand() < 0 ? -sc : sc);
+        if (i % 256 == 0) f[i] = frand() < 0 ? -sc : sc;
+    }
+    ggml_quantize_chunk(t, f, dst, 0, rows, K, NULL);
+    free(f);
+}
+
+// TQ1_0 / TQ2_0 as presence bitmap + signs (GGML_KURN_TBM=1) must give bit-identical results to the TQ2_0
+// records (GGML_KURN_TBM=0; TQ1_0 converted to TQ2_0 blocks): same codes, same per-column arithmetic
+static void case_tbm_exact(ggml_backend_t be, enum ggml_type t, int64_t K, int64_t N, int64_t M, int threads, float z) {
+    const size_t wrow = ggml_row_size(t, K);
+    void *wq = malloc(wrow * N);
+    quantize_ternary(t, K, N, wq, z);
+    float *x = malloc(sizeof(float) * K * M);
+    for (int64_t i = 0; i < K * M; i++) x[i] = frand() * (1 + (i / 64) % 3);
+    float *y[2], *ref = malloc(sizeof(float) * N * M);
+    for (int mode = 0; mode < 2; mode++) {
+        setenv("GGML_KURN_TBM", mode ? "1" : "0", 1);
+        graph g = mm_graph(be, t, K, N, M, 1);
+        ggml_backend_cpu_set_n_threads(be, threads);
+        ggml_backend_tensor_set(g.w, wq, 0, ggml_nbytes(g.w));
+        ggml_backend_tensor_set(g.x, x, 0, ggml_nbytes(g.x));
+        ggml_backend_graph_compute(be, g.gf);
+        y[mode] = malloc(sizeof(float) * N * M);
+        ggml_backend_tensor_get(g.out, y[mode], 0, sizeof(float) * N * M);
+        graph_free(&g);
+    }
+    setenv("GGML_KURN_TBM", "1", 1);
+    ref_matmul(t, wq, x, K, N, M, ref);
+    const double e = relerr(y[1], ref, N * M);
+    const int same = memcmp(y[0], y[1], sizeof(float) * N * M) == 0;
+    char what[200];
+    snprintf(what, sizeof what, "tbm %s K=%ld N=%ld M=%ld T=%d z=%.2f: %s TQ2_0 records", ggml_type_name(t), (long)K, (long)N, (long)M,
+             threads, z, same ? "==" : "!=");
+    report(same && e < 1e-4, what, e);
+    free(wq); free(x); free(y[0]); free(y[1]); free(ref);
+}
+
 static int64_t kmult(enum ggml_type t) {
     const int64_t b = ggml_blck_size(t);
     return b < 32 ? 32 : b;
@@ -415,6 +459,41 @@ int main(int argc, char **argv) {
         for (int r = 0; r < (argc > 7 ? atoi(argv[7]) : 1); r++)
             case_mm(be, t, atoll(argv[3]), atoll(argv[4]), atoll(argv[5]), 1, atoi(argv[6]), 0);
         printf("%d passed, %d failed\n", npass, nfail);
+        ggml_backend_free(be);
+        return nfail;
+    }
+    if (argc > 1 && !strcmp(argv[1], "tbm")) {
+        // TQ1_0 / TQ2_0 as presence bitmap + signs: bit-identical to the TQ2_0 records at every width (GEMV,
+        // verify kernels, row-chunked prefill, AMX-INT8 prefill from 32 columns), dense data (two-load
+        // decode), batch invariance and MUL_MAT_ID; `tbm smoke` runs a subset
+        const int sm = argc > 2 && !strcmp(argv[2], "smoke");
+        const enum ggml_type ts[] = {GGML_TYPE_TQ2_0, GGML_TYPE_TQ1_0};
+        const float zs[] = {0.42f, 0.02f, 0.0f, 0.9f};  // 0.02: near-full words at unaligned offsets (two-load records)
+        const int64_t Ms[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 16, 31, 32, 33, 48, 64, 129};
+        for (size_t ti = 0; ti < 2; ti++) {
+            const enum ggml_type t = ts[ti];
+            const int nfail0 = nfail, npass0 = npass;
+            worst = 0;
+            for (size_t zi = 0; zi < 4; zi++)
+                for (size_t mi = 0; mi < sizeof Ms / sizeof *Ms; mi += sm ? 3 : 1) {
+                    case_tbm_exact(be, t, 256, 17, Ms[mi], 3, zs[zi]);
+                    case_tbm_exact(be, t, 2560, 1000, Ms[mi], 1 + (int)(mi + zi) % 8, zs[zi]);
+                    if (!sm) case_tbm_exact(be, t, 6912, 333, Ms[mi], 8, zs[zi]);
+                }
+            case_tbm_exact(be, t, 32768, 48, 1, 8, 0.42f);
+            case_tbm_exact(be, t, 32768, 48, 40, 8, 0.02f);
+            case_tbm_exact(be, t, 1024, 1, 3, 2, 0.42f);
+            setenv("GGML_KURN_TBM", "1", 1);
+            case_mm(be, t, 2048, 1000, 3, 1, 8, 1);  // reused buffer
+            case_mm(be, t, 1024, 64, 2, 3, 4, 0);    // broadcast over ne12
+            case_invariance_all(be, t, 2048, 1000, sm ? 20 : 40);
+            case_mmid(be, t, 1024, 160, 16, 4, 1, 1, 8);
+            case_mmid(be, t, 1024, 160, 16, 4, 9, 0, 3);
+            if (!sm) case_mmid(be, t, 2048, 512, 16, 8, 64, 1, 8);
+            printf("%-7s %4d passed, %d failed (worst relerr %.1e, bitmap + signs)\n", ggml_type_name(t), npass - npass0,
+                   nfail - nfail0, worst);
+        }
+        printf("tbm: %d passed, %d failed\n", npass, nfail);
         ggml_backend_free(be);
         return nfail;
     }
