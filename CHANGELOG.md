@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Changed: attention tile engine pads query rows to 4, not 32, on the f32 and AVX512-BF16 engines
+- `ka_tile` computed every tile for 32 query rows (the AMX tile height) on every engine. The f32 and AVX512-BF16 engines
+  work in 4-row register blocks, so decode-sized tiles (n_q x G = 1-8 rows) now compute 4-8 rows. Rows are independent:
+  outputs are bit-identical to before (42 cases, three engines), and batch invariance of the `exact` llama.cpp mode holds.
+- llama.cpp exact mode (`GGML_KURN_FA_MODE=exact`), Qwen3-1.7B Q8_0, tg32: 1.22x / 1.42x / 1.50x at depth 4K / 16K / 32K
+  (29.7 -> 36.2, 10.5 -> 15.0, 6.2 -> 9.2 tok/s); 8-token batches 1.14-1.23x. Fast mode's decode engine is unchanged.
+
 ### Added: GPU kit v2 - one command, one report, like-for-like attention baselines
 - `contrib/gpu-check/run_kit.sh` (QUICK=1 / full / DRYRUN=1) runs every GPU check from a copy of the kit:
   - the toolchain preflight (split installs included);

@@ -1329,7 +1329,9 @@ static void ka_tile(ka_item *it, const ka_tile_buf *b) {
     const kattn_args *a = it->a;
     const ka_plan *p = it->p;
     const int64_t Rv = it->nt * p->G;            /* valid rows */
-    const int64_t Rc = (Rv + 31) & ~(int64_t)31; /* rows computed */
+    /* rows computed: AMX tiles cover 32 rows (2 x 16); the f32 and AVX512-BF16 engines work in blocks of 4, so a
+     * decode-sized tile (n_q x G of 1-8 rows) costs 4-8 rows instead of 32. Rows are independent: same results. */
+    const int64_t Rc = KA_ENGINE == 2 ? (Rv + 31) & ~(int64_t)31 : (Rv + 3) & ~(int64_t)3;
 #if KA_QK8
     int8_t *Q8 = (int8_t *)b->Q; /* int8 rows, then the row scales (the bf16 Q buffer has room for both) */
     float *sq = (float *)(Q8 + p->Rpad * KA_DK), *sk = (float *)((uint8_t *)b->Kp + KA_TK * KA_DK);
