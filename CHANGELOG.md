@@ -12,7 +12,7 @@ All notable changes to this project are documented here. The format follows
 - Restores are byte-exact: the restored state equals the plain one, and the next tokens' logits are bit-identical.
 - Coding: per-channel static rANS over f16 byte planes and Q8_0 / Q4_0 scales and codes (`llama-kvz.{h,cpp}`).
 - Sizes on real Qwen3 caches: F16 1.19x, Q8_0 1.12x, k4c_q4 state 1.17x (zstd -3: 1.02-1.11x).
-- Speed: ~1.7 / 2.2 GB/s encode / decode for F16 on 8 threads.
+- Speed: ~1.5 / 1.9 GB/s encode / decode for F16 on 8 threads.
 - Tests: `test_kvz.cpp` (codec, ASan / UBSan), `test_kvz_state.cpp` (every cache type on a real model),
   `server_kvz_test.py` and `tests/test_llama_kvz.py`.
 
