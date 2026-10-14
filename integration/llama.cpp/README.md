@@ -287,7 +287,8 @@ found (`KURN_LLAMA_CPP`).
 ## k4c KV cache (`k4c/`)
 
 `k4c/apply.sh LLAMA_DIR` (after `apply.sh`) adds `GGML_TYPE_K4C`, kurn's k4c key format, as a llama.cpp K cache type:
-`-ctk k4c -ctv q4_0` is kurn's `k4c_q4`, `-ctv q8_0` its `k4c_q8` (`-ctk k4c_q4` / `-ctk k4c_q8` set both). Keys are
+`-ctk k4c` is kurn's `k4c_q8` (V q8_0, the long-context default), `-ctk k4c -ctv q4_0` its `k4c_q4` (`-ctk k4c_q4` /
+`-ctk k4c_q8` set both). Keys are
 quantized to 4 bits per channel over groups of 32 cache cells (f16 scale and min per channel and group, 5 bits per value
 on average); kurn's attention reads the groups directly (`kurn-attn.cpp`, kernels `kattn_*_k4c_q4/q8_*`).
 
@@ -307,6 +308,8 @@ on average); kurn's attention reads the groups directly (`kurn-attn.cpp`, kernel
   read as floats (`ggml_get_rows_k4c`: the exact f16 values while the codec keeps them, else the 4-bit ones), rotated
   by their position delta with the f16 cache's RoPE and written back (`ggml_set_rows_k4c`), which re-encodes their
   groups. `test_kshift.cpp` runs it through llama.cpp: KL to F16 KV after a shift is within noise of the KL without one.
+- **Which V:** k4c_q8 holds the 2% perplexity budget at 8-32K tokens of depth; k4c_q4 is marginal there (see
+  `docs/kurn-kv-backlog-results.md` in the project). V is Hadamard-rotated by llama.cpp's `attn_rot_v` for both.
 - **Not supported:** the non-FA path, V types other than Q4_0 / Q8_0, MLA models, cache sizes that are not a multiple
   of 32, non-CPU buffers.
 

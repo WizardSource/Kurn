@@ -67,6 +67,13 @@ All notable changes to this project are documented here. The format follows
   prefill parity; complex decode 2.1x, MLP decode 1.9x.
 - `hc_bench` (checks, benchmarks, synthetic quaternion MLP), `kurn.hypercomplex` references, `tests/test_hypercomplex.py`.
 
+### Changed: k4c_q8 is the long-context k4c default
+- Position-bucketed KL / ΔPPL vs F16 weights + F16 KV on three 32K-token windows of released math papers (Qwen3-1.7B Q8_0
+  weights): k4c_q8 stays within the 2% ΔPPL budget in every paper and 8K band (worst +1.83%, mean +0.76 / +1.16 / +0.78 /
+  +0.72% for 0-8 / 8-16 / 16-24 / 24-32K; F16 KV +0.50 / +0.60 / +0.30 / +0.14%); k4c_q4 is marginal (worst +2.10%).
+  KL rises with depth for both (k4c_q8 0.0073 at 0-4K -> 0.0124 at 28-32K).
+- `-ctk k4c` without `-ctv` now means k4c_q8 (V q8_0) instead of an error; `-ctv q4_0` still gives k4c_q4.
+
 ### Added: K-shift for k4c KV caches (llama-server context shift and --cache-reuse)
 - `get_can_shift()` is no longer false for K4C. The K-shift graph reads the shifted cells (`ggml_get_rows_k4c`: the
   codec's exact f16 values for recently written groups, else the 4-bit values), applies the f16 cache's RoPE by the

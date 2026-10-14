@@ -32,6 +32,7 @@ def test_patch_and_apply_script_are_consistent():
         assert f"+++ b/{f}" in patch
     assert "GGML_TYPE_K4C" in patch and "ggml_set_rows_k4c" in patch and "ggml-k4c.c" in patch
     assert "ggml_k4c_update_group" in (K4C / "ggml-k4c.c").read_text()
+    assert "k4c_q8, the long-context default" in patch  # -ctk k4c without -ctv selects V q8_0
 
 
 @pytest.mark.skipif(_llama_dir() is None, reason="no built llama.cpp checkout with k4c/apply.sh applied (KURN_LLAMA_CPP)")
