@@ -710,10 +710,11 @@ size_t kvz_encode(kvz_layout layout, const uint8_t * src, size_t rows, size_t rb
                 }
                 normalize(acc.data(), A, &p.freq[k * A]);
             }
+            // chunks need not follow contexts: each builds the tables of the contexts its columns use
             const size_t n_sym = cols * rows;
-            const size_t n_chunk = std::max<size_t>(1, std::min<size_t>({p.n_ctx, (size_t) 4 * n_threads, n_sym / 65536 + 1}));
+            const size_t n_chunk = std::max<size_t>(1, std::min<size_t>({cols, (size_t) 4 * n_threads, n_sym / 65536 + 1}));
             for (size_t k = 0; k <= n_chunk; ++k) {
-                p.chunk_col.push_back(std::min(cols, (k * p.n_ctx / n_chunk) * cw));
+                p.chunk_col.push_back(k * cols / n_chunk);
             }
             p.chunk.resize(n_chunk);
             for (size_t k = 0; k < n_chunk; ++k) {
