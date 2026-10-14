@@ -19,6 +19,10 @@ struct ggml_tensor;
 bool ggml_kurn_fused_mul_mat(const struct ggml_compute_params * params, struct ggml_tensor ** ops, int n_ops,
                              struct ggml_tensor * glu);
 
+// Compute thread count for ggml-cpu's backend (ggml_backend_cpu_set_n_threads): n_threads, or less after a failed
+// AMX self-test when the threads would oversubscribe this process's vCPUs (kurn-amx-selftest.cpp).
+int ggml_kurn_cap_threads(int n_threads);
+
 #ifdef __cplusplus
 }
 #endif

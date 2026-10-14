@@ -7,6 +7,7 @@
 # - generates kurn attention kernels (gen_ggml_attn.py; $ATTN_CONFIG = its --config) and makes kurn
 #   attention the first FLASH_ATTN_EXT implementation (kurn-attn.cpp, ggml's kernel as fallback)
 # - registers the buffer type first in ggml-cpu's extra buffer list and adds the sources to CMake
+# - caps ggml-cpu's compute threads to the vCPUs available when the AMX self-test failed (ggml_kurn_cap_threads)
 # - hooks fused MUL_MAT groups (ffn gate + up + SwiGLU; attention q + k + v) into ggml-cpu's graph fusion
 #   (ggml_cpu_try_fuse_ops), and makes llama.cpp's build_qkv emit q, k, v as consecutive nodes for KURN weights
 # - installs kurn's memory system (memsys/ggml-kurn-mem.{c,h} into ggml-base): CPU buffers, the CPU backend's work
@@ -100,6 +101,13 @@ if "kurn-buft.h" not in s:
 
 #if defined(__AMX_INT8__) && defined(__AVX512VNNI__)
 """, 1)
+    open(p, "w").write(s)
+p = f"{L}/ggml/src/ggml-cpu/ggml-cpu.cpp"
+s = open(p).read()
+if "ggml_kurn_cap_threads" not in s:  # thread cap after a failed AMX self-test (kurn-amx-selftest.cpp)
+    anchor = "    struct ggml_backend_cpu_context * ctx = (struct ggml_backend_cpu_context *)backend_cpu->context;\n    ctx->n_threads = n_threads;\n"
+    assert s.count(anchor) == 1, "ggml_backend_cpu_set_n_threads anchor not found"
+    s = s.replace(anchor, anchor.replace("ctx->n_threads = n_threads;", "ctx->n_threads = ggml_kurn_cap_threads(n_threads);"), 1)
     open(p, "w").write(s)
 p = f"{L}/ggml/src/ggml-cpu/ops.cpp"
 s = open(p).read()

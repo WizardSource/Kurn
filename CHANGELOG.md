@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Added: thread cap after a failed AMX self-test
+- The guard cannot see a direct switch between two AMX threads on one vCPU (~2.3 us). After a failed self-test,
+  ggml-cpu's compute threads (`ggml_backend_cpu_set_n_threads`, patched by `apply.sh`) are capped to this process's
+  vCPUs: affinity set, cgroup v2 `cpu.max`, and a fair share against other kurn AMX processes on the same CPUs (registry
+  in `/dev/shm/kurn-amx/`). One warning per new thread count, with the `-t` to use; `GGML_KURN_AMX_OVERSUB=warn` keeps
+  the requested count.
+- Running threads of other processes on the same CPUs that used AVX-512 in the last second are reported as possible
+  AMX users (Linux does not expose AMX use), without capping.
+
 ### Changed: AMX preemption guard threshold 8192 -> 4096 cycles
 - Matmuls and the ternary kernel (`GGML_KURN_AMX_GUARD`, plus 128 per k-step), attention (`KA_AMX_GUARD`), the AMX
   verify kernel (`KURN_AMX_GUARD`) and the hypercomplex layers. `tools/amx_selftest.c` saw preemptions return in ~12K cycles, under

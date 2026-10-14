@@ -11,3 +11,8 @@ enum kurn_amx_state {
 // Requests ARCH_REQ_XCOMP_PERM (XTILEDATA) and runs the self-test, once per process; later calls return the
 // cached result. Thread-safe.
 kurn_amx_state kurn_amx_check();
+
+// Thread count for compute when kurn_amx_check() is KURN_AMX_GUARDED: n_threads capped to this process's share of
+// its vCPUs (affinity, cgroup cpu.max, other kurn AMX processes on the same CPUs), with a warning when it caps or
+// sees other processes' vector-heavy threads on those CPUs. GGML_KURN_AMX_OVERSUB=warn warns without capping.
+int kurn_amx_thread_cap(int n_threads);

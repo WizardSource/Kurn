@@ -2052,6 +2052,15 @@ bool ggml_kurn_fused_mul_mat(const struct ggml_compute_params * params, struct g
     return fused_group(const_cast<ggml_compute_params *>(params), ops, n_ops, glu);
 }
 
+int ggml_kurn_cap_threads(int n_threads) {
+#if KURN_HAVE_AMX
+    if (ggml_backend_cpu_kurn_buffer_type() && amx_lossy) {
+        return kurn_amx_thread_cap(n_threads);
+    }
+#endif
+    return n_threads;
+}
+
 ggml_backend_buffer_type_t ggml_backend_cpu_kurn_buffer_type(void) {
     static const bool enabled = [] {
         if (env_int("GGML_KURN", 1) == 0) {
@@ -2073,6 +2082,10 @@ ggml_backend_buffer_type_t ggml_backend_cpu_kurn_buffer_type(void) {
 
 ggml_backend_buffer_type_t ggml_backend_cpu_kurn_buffer_type(void) {
     return nullptr;
+}
+
+int ggml_kurn_cap_threads(int n_threads) {
+    return n_threads;
 }
 
 bool ggml_kurn_fused_mul_mat(const struct ggml_compute_params *, struct ggml_tensor **, int, struct ggml_tensor *) {

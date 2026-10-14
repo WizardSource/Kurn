@@ -16,23 +16,37 @@
 //      =off warns and runs the non-AMX kernels, as GGML_KURN_AMX=0 does.
 // GGML_KURN_AMX_SELFTEST=0, or GGML_KURN_AMX=0 (no AMX use), skips the test. GGML_KURN_VERBOSE=1 also logs
 // a pass.
+//
+// The guard cannot see a direct switch between two AMX threads on one vCPU (one blocks or yields, the other runs
+// briefly): it can complete in ~2.3 us, under any useful threshold. So after a failed test kurn_amx_thread_cap()
+// keeps compute threads within this process's vCPUs: the affinity set, a cgroup v2 cpu.max quota, and a fair share
+// against other kurn processes using AMX on the same CPUs (each registers its requested threads and CPUs in
+// /dev/shm/kurn-amx/<pid>). Linux does not report other processes' AMX use, so running threads of other processes
+// on these CPUs that used AVX-512 within the last second are reported as possible AMX users, without capping.
 #include "kurn-amx-selftest.h"
 
 #if defined(__AMX_INT8__) && defined(__AMX_BF16__) && defined(__linux__)
 
 #include "ggml-impl.h"
 
+#include <dirent.h>
 #include <immintrin.h>
 #include <sched.h>
+#include <signal.h>
 #include <sys/resource.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -221,11 +235,225 @@ kurn_amx_state run_check() {
     return KURN_AMX_OK;
 }
 
+int affinity_cpus(cpu_set_t & cs) {
+    CPU_ZERO(&cs);
+    if (sched_getaffinity(0, sizeof cs, &cs) != 0) {
+        const int n = std::max(1, (int) std::thread::hardware_concurrency());
+        for (int i = 0; i < n && i < CPU_SETSIZE; i++) CPU_SET(i, &cs);
+    }
+    return CPU_COUNT(&cs);
+}
+
+// cgroup v2 cpu.max of this process and its ancestors, as whole CPUs (rounded up); 0 without a quota
+int cgroup_quota_cpus() {
+    FILE * f = fopen("/proc/self/cgroup", "r");
+    if (!f) return 0;
+    char line[4096];
+    std::string path;
+    while (fgets(line, sizeof line, f)) {
+        if (strncmp(line, "0::", 3) == 0) {
+            path = line + 3;
+            while (!path.empty() && (path.back() == '\n' || path.back() == '/')) path.pop_back();
+        }
+    }
+    fclose(f);
+    int best = 0;
+    for (;;) {
+        FILE * q = fopen(("/sys/fs/cgroup" + path + "/cpu.max").c_str(), "r");
+        if (q) {
+            char quota[32] = {0};
+            long long period = 0;
+            if (fscanf(q, "%31s %lld", quota, &period) == 2 && strcmp(quota, "max") != 0 && period > 0) {
+                const int c = (int) std::max(1LL, (atoll(quota) + period - 1) / period);
+                best = best ? std::min(best, c) : c;
+            }
+            fclose(q);
+        }
+        if (path.empty()) break;
+        path.resize(path.rfind('/') == std::string::npos ? 0 : path.rfind('/'));
+    }
+    return best;
+}
+
+std::string registry_dir() {
+    static const std::string d = [] {
+        for (const char * base : {"/dev/shm", "/tmp"}) {
+            const std::string p = std::string(base) + "/kurn-amx";
+            const mode_t old = umask(0);
+            mkdir(p.c_str(), 01777);
+            umask(old);
+            if (access(p.c_str(), W_OK) == 0) return p;
+        }
+        return std::string();
+    }();
+    return d;
+}
+
+void registry_remove() {
+    const std::string d = registry_dir();
+    if (!d.empty()) unlink((d + "/" + std::to_string(getpid())).c_str());
+}
+
+void registry_write(int n, const cpu_set_t & cs) {
+    const std::string d = registry_dir();
+    if (d.empty()) return;
+    static bool at_exit = false;
+    if (!at_exit) {
+        atexit(registry_remove);
+        at_exit = true;
+    }
+    std::string s = "threads=" + std::to_string(n) + " cpus=";
+    for (int i = 0; i < CPU_SETSIZE; i++) {
+        if (CPU_ISSET(i, &cs)) s += std::to_string(i) + ",";
+    }
+    s += "\n";
+    const std::string tmp = d + "/." + std::to_string(getpid()), dst = d + "/" + std::to_string(getpid());
+    FILE * f = fopen(tmp.c_str(), "w");
+    if (!f) return;
+    fputs(s.c_str(), f);
+    fclose(f);
+    rename(tmp.c_str(), dst.c_str());
+}
+
+// other live kurn processes on these CPUs: count, and sum of min(their threads, CPUs shared with us)
+void registry_others(const cpu_set_t & ours, int & procs, int & threads) {
+    procs = threads = 0;
+    const std::string d = registry_dir();
+    DIR * dir = d.empty() ? nullptr : opendir(d.c_str());
+    if (!dir) return;
+    for (struct dirent * e; (e = readdir(dir));) {
+        const long pid = strtol(e->d_name, nullptr, 10);
+        if (pid <= 0 || pid == (long) getpid() || strspn(e->d_name, "0123456789") != strlen(e->d_name)) continue;
+        if (kill((pid_t) pid, 0) != 0 && errno == ESRCH) {
+            unlink((d + "/" + e->d_name).c_str());
+            continue;
+        }
+        FILE * f = fopen((d + "/" + e->d_name).c_str(), "r");
+        if (!f) continue;
+        char buf[8192] = {0};
+        const size_t len = fread(buf, 1, sizeof buf - 1, f);
+        fclose(f);
+        buf[len] = 0;
+        const char * t = strstr(buf, "threads="), * c = strstr(buf, "cpus=");
+        if (!t || !c) continue;
+        int shared = 0;
+        for (const char * p = c + 5; *p >= '0' && *p <= '9';) {
+            char * end;
+            const long cpu = strtol(p, &end, 10);
+            if (cpu >= 0 && cpu < CPU_SETSIZE && CPU_ISSET(cpu, &ours)) shared++;
+            p = *end == ',' ? end + 1 : end;
+        }
+        if (shared) {
+            procs++;
+            threads += std::min(atoi(t + 8), shared);
+        }
+    }
+    closedir(dir);
+}
+
+// running threads of other processes (not registered kurn ones) allowed on our CPUs that used AVX-512 within the
+// last second
+int vector_threads_on(const cpu_set_t & ours) {
+    int n = 0;
+    DIR * proc = opendir("/proc");
+    if (!proc) return 0;
+    const long self = (long) getpid();
+    const std::string reg = registry_dir();
+    for (struct dirent * e; (e = readdir(proc));) {
+        const long pid = strtol(e->d_name, nullptr, 10);
+        if (pid <= 0 || pid == self || (!reg.empty() && access((reg + "/" + e->d_name).c_str(), F_OK) == 0)) continue;
+        const std::string tdir = std::string("/proc/") + e->d_name + "/task";
+        DIR * tasks = opendir(tdir.c_str());
+        if (!tasks) continue;
+        for (struct dirent * t; (t = readdir(tasks));) {
+            const long tid = strtol(t->d_name, nullptr, 10);
+            if (tid <= 0) continue;
+            const std::string base = tdir + "/" + t->d_name;
+            char buf[512] = {0};
+            FILE * f = fopen((base + "/stat").c_str(), "r");
+            if (!f) continue;
+            const size_t len = fread(buf, 1, sizeof buf - 1, f);
+            fclose(f);
+            buf[len] = 0;
+            const char * rp = strrchr(buf, ')');
+            if (!rp || rp[1] != ' ' || rp[2] != 'R') continue;
+            f = fopen((base + "/arch_status").c_str(), "r");
+            long ms = -1;
+            if (f) {
+                if (fscanf(f, "AVX512_elapsed_ms: %ld", &ms) != 1) ms = -1;
+                fclose(f);
+            }
+            if (ms < 0 || ms > 1000) continue;
+            cpu_set_t cs;
+            if (sched_getaffinity((pid_t) tid, sizeof cs, &cs) != 0) continue;
+            CPU_AND(&cs, &cs, &ours);
+            n += CPU_COUNT(&cs) > 0;
+        }
+        closedir(tasks);
+    }
+    closedir(proc);
+    return n;
+}
+
 }  // namespace
 
 kurn_amx_state kurn_amx_check() {
     static const kurn_amx_state s = run_check();
     return s;
+}
+
+int kurn_amx_thread_cap(int n) {
+    if (n < 1 || kurn_amx_check() != KURN_AMX_GUARDED) {
+        return n;
+    }
+    static std::mutex mu;
+    static int last_n = 0, last_cap = 0, warned_n = 0, warned_cap = 0, scanned_n = 0;
+    static std::chrono::steady_clock::time_point last;
+    std::lock_guard<std::mutex> lock(mu);
+    const auto now = std::chrono::steady_clock::now();
+    if (n == last_n && now - last < std::chrono::seconds(2)) {
+        return last_cap;
+    }
+    cpu_set_t cs;
+    const int aff = affinity_cpus(cs), quota = cgroup_quota_cpus();
+    const int vcpus = std::max(1, quota ? std::min(aff, quota) : aff);
+    registry_write(n, cs);
+    int procs, others;
+    registry_others(cs, procs, others);
+    const int cap = n + others > vcpus ? std::max(1, (int) ((int64_t) vcpus * n / (n + others))) : n;
+    const char * pol = getenv("GGML_KURN_AMX_OVERSUB");
+    const bool warn_only = pol && strcmp(pol, "warn") == 0;
+    if (cap < n && (n != warned_n || cap != warned_cap)) {
+        char who[160] = "";
+        if (procs) {
+            snprintf(who, sizeof who, ", shared with %d other kurn process%s using AMX (%d thread%s)", procs,
+                     procs > 1 ? "es" : "", others, others > 1 ? "s" : "");
+        }
+        GGML_LOG_WARN("kurn: AMX: %d threads on %d available vCPUs (affinity %d%s%s%s). After the failed AMX self-test, "
+                      "two AMX threads switching on one vCPU can lose tile data faster than the preemption guard detects. "
+                      "%s\n", n, vcpus, aff, quota ? ", cgroup quota " : "", quota ? std::to_string(quota).c_str() : "",
+                      who,
+                      warn_only ? ("Keeping " + std::to_string(n) + " threads (GGML_KURN_AMX_OVERSUB=warn); run with -t " +
+                                   std::to_string(cap) + ".").c_str()
+                                : ("Using " + std::to_string(cap) + " threads; run with -t " + std::to_string(cap) +
+                                   " (GGML_KURN_AMX_OVERSUB=warn keeps " + std::to_string(n) + ").").c_str());
+        warned_n = n;
+        warned_cap = cap;
+    }
+    if (n != scanned_n) {
+        scanned_n = n;
+        const int vec = vector_threads_on(cs);
+        if (vec && std::min(n, cap) + vec > vcpus) {
+            GGML_LOG_WARN("kurn: AMX: %d running thread%s of other processes on these %d vCPUs used AVX-512 in the last "
+                          "second. If they run AMX too, their switches with kurn's threads can bypass the preemption guard: "
+                          "give kurn and them separate CPUs, or use GGML_KURN_AMX_SELFTEST_ACTION=off.\n", vec,
+                          vec > 1 ? "s" : "", vcpus);
+        }
+    }
+    last_n = n;
+    last_cap = warn_only ? n : cap;
+    last = now;
+    return last_cap;
 }
 
 #else
@@ -234,6 +462,10 @@ kurn_amx_state kurn_amx_check() {
 #include <sys/syscall.h>
 #include <unistd.h>
 #endif
+
+int kurn_amx_thread_cap(int n_threads) {
+    return n_threads;
+}
 
 kurn_amx_state kurn_amx_check() {
 #if defined(__linux__) && defined(__x86_64__)

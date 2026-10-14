@@ -128,6 +128,7 @@ The model log shows `KURN model buffer size = ...` when weights were repacked. N
 | `GGML_KURN_AMX_GUARD=N` | preemption guard threshold in TSC cycles (4096, plus 128 per k-step of the guarded step; attention and the AMX verify kernel use a fixed 4096). If `GGML_KURN_VERBOSE=1` reports many recomputed steps (slower memory), raise it toward 8192; after a failed self-test, values above 8192 are ignored |
 | `GGML_KURN_AMX_SELFTEST=0` | skip the AMX startup self-test (below); `GGML_KURN_AMX_SELFTEST_MS` sets its budget (20 ms) |
 | `GGML_KURN_AMX_SELFTEST_ACTION=off` | when the self-test sees wrong AMX results, use the non-AMX kernels (as `GGML_KURN_AMX=0`) instead of the default `guard`: AMX kernels with the preemption guard forced on |
+| `GGML_KURN_AMX_OVERSUB=warn` | after a failed self-test, only warn when compute threads oversubscribe this process's vCPUs, instead of capping them (below) |
 | `GGML_KURN_CHUNK_KB=N` | prefill row-chunk size in KiB (default 1024) |
 | `GGML_KURN_CHUNKS=N` | prefill-sized ops (and decode-sized ones with `GGML_KURN_STEAL=0`): N equal row chunks per thread, handed out dynamically (0 = one static range per thread). Default: guided (each thread first streams its own contiguous 3/4 share in whole GEMV passes, the last quarter goes out in single passes); ops with fewer than 4 passes per thread use static ranges |
 | `GGML_KURN_FALLBACK=0` | turn off the per-tensor fallback (below); `GGML_KURN_FALLBACK_N` / `_K` set its thresholds (512 / 512) |
@@ -147,6 +148,16 @@ kernels with the guard forced on (`GGML_KURN_AMX_GUARD` above 8192 is ignored) a
 buffer, which has no guard; `GGML_KURN_AMX_SELFTEST_ACTION=off` uses the non-AMX kernels instead. Formats kurn has no
 kernels for still go to ggml's AMX buffer. `tools/amx_selftest.c` is the standalone version, for measuring mismatch
 rates under load.
+
+**Thread cap after a failed self-test.** The guard cannot see a direct switch between two AMX threads on one vCPU
+(about 2.3 µs). So after a failed self-test, ggml-cpu's compute threads (`ggml_backend_cpu_set_n_threads`, patched by
+`apply.sh`) are capped to this process's vCPUs:
+- the CPU affinity set, and a cgroup v2 `cpu.max` quota;
+- a fair share against other kurn processes using AMX on the same CPUs, which register in `/dev/shm/kurn-amx/`.
+
+kurn warns once per new thread count, with the `-t` value to use. `GGML_KURN_AMX_OVERSUB=warn` keeps the requested
+count. Linux does not report other processes' AMX use, so kurn only warns about running threads of other processes on
+the same CPUs that used AVX-512 in the last second.
 
 **Per-tensor fallback.** kurn declines a weight (llama.cpp then gives it to the next extra buffer) when ggml's AMX
 buffer can take it and it is in the shape range where kurn is not measured to win: N <= 512 or K < 512 (Q8_0 2048 x 512
