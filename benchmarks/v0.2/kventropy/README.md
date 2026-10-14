@@ -68,9 +68,9 @@ kvz with 8 threads, on 32K-token blocks (8B Q8_0 / k4c at 16K):
 
 | block | encode | decode | 1 thread enc / dec |
 |---|---|---|---|
-| F16 K / V | 1.5-1.6 GB/s | 1.8-2.0 GB/s | 0.31 / 0.38 GB/s |
-| Q8_0 K | 1.2 GB/s | 1.7-1.8 GB/s | 0.23 / 0.27 GB/s |
-| Q8_0 V | 1.5 GB/s | 2.3 GB/s | 0.29 / 0.36 GB/s |
-| Q4_0 V | 0.8-0.9 GB/s | 1.0 GB/s | 0.16 / 0.21 GB/s |
+| F16 K / V | 1.5-1.6 GB/s | 1.7-1.9 GB/s | 0.31 / 0.38 GB/s |
+| Q8_0 K | 1.1-1.2 GB/s | 1.6 GB/s | 0.24 / 0.27 GB/s |
+| Q8_0 V | 1.25-1.4 GB/s | 1.8-2.1 GB/s | 0.29 / 0.36 GB/s |
+| Q4_0 V | 0.8 GB/s | 0.9 GB/s | 0.16 / 0.17 GB/s |
 
-zstd -3 runs at 1.0-1.4 GB/s on 8 threads for 1.02-1.12x.
+zstd -3 runs at 0.8-1.4 GB/s on 8 threads for 1.02-1.12x.
