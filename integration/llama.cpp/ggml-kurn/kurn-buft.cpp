@@ -47,6 +47,7 @@
 #include "kurn-native-vfy.h"
 #include "kurn-amx-vfy.h"
 #include "vec.h"
+#include "kurn-tbm.h"
 
 #include <immintrin.h>
 #include <x86intrin.h>
@@ -155,10 +156,18 @@ bool keep_with_ggml(const ggml_tensor * w) {
     return on && ggml_amx_takes(w) && (w->ne[1] <= max_n || w->ne[0] < min_k);
 }
 
+// Ternary tensors (TQ1_0, TQ2_0) may be repacked as presence bitmap + signs (kurn-tbm.cpp) instead of
+// TQ2_0 records; TQ1_0 tensors use the TQ2_0 kernel entry (same activations, same values) either way.
+// GGML_KURN_TBM=0: never; 1: always; default: when the tensor's zero fraction is at least
+// GGML_KURN_TBM_Z / 1000 (default 300 = 0.30). Read at every set_tensor.
+bool tbm_source(const ggml_tensor * w) {
+    return (w->type == GGML_TYPE_TQ1_0 || w->type == GGML_TYPE_TQ2_0) && kurn_tbm_available();
+}
+
 // Shapes the kernels handle: 2D or 3D (expert-stacked) contiguous weights, K within the
 // generated kernels' limits, minus the per-tensor fallback.
 const kurn_kernel * kernel_for(const ggml_tensor * w) {
-    const kurn_kernel * k = find_kernel(w->type);
+    const kurn_kernel * k = find_kernel(w->type == GGML_TYPE_TQ1_0 && tbm_source(w) ? GGML_TYPE_TQ2_0 : w->type);
     if (!k || w->ne[3] != 1 || w->ne[0] % k->k_multiple != 0 || w->ne[0] > KURN_MAX_K || w->ne[1] < 1) {
         return nullptr;
     }
@@ -202,7 +211,9 @@ bool native_for(const ggml_tensor * w) {
 }
 
 size_t expert_bytes(const kurn_kernel * k, const ggml_tensor * w) {
-    return k->bytes(w->ne[0], w->ne[1]);  // multiple of 64
+    const size_t b = k->bytes(w->ne[0], w->ne[1]);  // multiple of 64
+    // the bitmap layout's size depends on the data: room for its worst case, the unused tail is never touched
+    return tbm_source(w) ? std::max(b, kurn_tbm_bytes(w->ne[0], w->ne[1])) : b;
 }
 
 // narrowest generated verify kernel with at least m columns (exact width when there is one)
@@ -893,6 +904,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
     ggml_type ntype = GGML_TYPE_COUNT;  // native-layout weight (k == nullptr): ggml blocks, ggml vec_dot below amx_min
     int64_t ralign = 16, rpass = 64;    // row granularity for row_chunks
     int64_t nrows = 1;                  // weight rows (ne[1]); Y's column stride can differ in fused ops
+    bool tbm = false;                   // TQ1_0 / TQ2_0 repacked as bitmap + signs (kurn-tbm.cpp), set at set_tensor
 
     bool use_bf16(int64_t M) const {
 #if KURN_HAVE_AMX
@@ -971,6 +983,10 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         if (r0 >= r1) {
             return;
         }
+        if (tbm) {
+            run_tbm(e, X, xrow, Y, K, N, M, r0, r1);
+            return;
+        }
         if (M <= KURN_VFY_MAX) {
             cols(pk, X, xrow, Y, K, N, M, r0, r1, xr);
             return;
@@ -1002,6 +1018,33 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         for (int64_t a = r0; a < r1; a += chunk) {
             const int64_t b = std::min(r1, a + chunk);
             cols(pk, X, xrow, Y, K, N, M, a, b, xr);
+        }
+    }
+
+    // bitmap + signs: kurn-tbm.cpp kernels on the raw Q8_K activations (no xprep); from GGML_KURN_TBM_AMX_MIN
+    // (default 32) columns, multiples of 16 on AMX-INT8 (same per-column arithmetic, so batch invariant and
+    // allowed in exact mode), the rest in groups of 8 columns over row chunks that stay in L2
+    void run_tbm(int e, const char * X, size_t xrow, float * Y, int64_t K, int64_t N, int64_t M, int64_t r0, int64_t r1) const {
+#if KURN_HAVE_AMX
+        static const int64_t amx_cols = std::max(16, env_int("GGML_KURN_TBM_AMX_MIN", 32));
+        if (amx_ok && amx_mm_enabled() && kurn_tbm_amx_available() && M >= amx_cols) {
+            const int64_t full = M / 16 * 16;
+            kurn_tbm_amx(data[e], X, xrow, Y, K, N, full, r0, r1);
+            X += full * xrow;
+            Y += full * N;
+            M -= full;
+        }
+#endif
+        if (M <= 0) {
+            return;
+        }
+        static const int64_t chunk_bytes = (int64_t) env_int("GGML_KURN_CHUNK_KB", 1024) * 1024;
+        const int64_t chunk = M <= KURN_VFY_MAX ? r1 - r0 : std::max<int64_t>(64, chunk_bytes / std::max<int64_t>(1, K / 4)) / 64 * 64;
+        for (int64_t a = r0; a < r1; a += chunk) {
+            const int64_t b = std::min(r1, a + chunk);
+            for (int64_t c0 = 0; c0 < M; c0 += KURN_VFY_MAX) {
+                kurn_tbm_cols(data[e], X + c0 * xrow, xrow, Y + c0 * N, K, N, std::min<int64_t>(KURN_VFY_MAX, M - c0), a, b);
+            }
         }
     }
 
@@ -1209,7 +1252,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         float * dx = (float *) align64(wq + xrow * M);
         int32_t * nc = (int32_t *) (dx + M * (K / 32));
         static const bool use_xprep = env_int("GGML_KURN_XPREP", 1) != 0;
-        void * xw = k->xprep && use_xprep ? align64((char *) dx + amx_bytes(M, K)) : nullptr;
+        void * xw = k->xprep && use_xprep && !tbm ? align64((char *) dx + amx_bytes(M, K)) : nullptr;
         const bool prof = g_prof.on && M <= KURN_VFY_MAX && params->ith < kurn_profile::MAXT;
         const uint64_t t0 = prof ? __rdtsc() : 0;
         quantize_rows(params, src1, ggml_get_type_traits_cpu(vdt)->from_float, wq, xrow, xw);
@@ -1276,7 +1319,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         int64_t * act = (int64_t *) align64(sel + nsel);    // experts with tokens, act[E] = count
         float * dx = (float *) align64(act + E + 1);
         int32_t * nc = (int32_t *) (dx + nsel * nk);
-        void * xw = k->xprep ? align64((char *) dx + amx_bytes(nsel, K)) : nullptr;
+        void * xw = k->xprep && !tbm ? align64((char *) dx + amx_bytes(nsel, K)) : nullptr;
         const int ith = params->ith, nth = params->nth;
 
         quantize_rows(params, src1, ggml_get_type_traits_cpu(vdt)->from_float, wq, xrow, nullptr);
@@ -1679,6 +1722,61 @@ enum ggml_status buf_init_tensor(ggml_backend_buffer_t b, ggml_tensor * t) {
     return GGML_STATUS_SUCCESS;
 }
 
+// TQ1_0 / TQ2_0: bitmap + signs when GGML_KURN_TBM says so (see tbm_source), else TQ2_0 records (TQ1_0
+// converted to TQ2_0 blocks first). One layout per tensor (all experts), so MUL_MAT_ID runs one kernel family.
+void set_ternary(tensor_traits * tt, ggml_tensor * t, const void * data) {
+    const int64_t K = t->ne[0], N = t->ne[1], E = t->ne[2];
+    const char * me = getenv("GGML_KURN_TBM");
+    const int mode = me && *me ? atoi(me) : 2;
+    const double zmin = 1e-3 * env_int("GGML_KURN_TBM_Z", 300);
+    int64_t zeros = 0, sampled = 0;
+    const int64_t step = std::max<int64_t>(1, N / 64);  // ~64 rows per expert decide auto mode
+    if (mode == 2) {
+        for (int64_t e = 0; e < E; e++) {
+            zeros += kurn_tbm_zeros(t->type, (const char *) data + e * t->nb[2], K, N, step);
+            sampled += (N + step - 1) / step * K;
+        }
+    }
+    bool use = mode == 1 || (mode == 2 && zeros >= zmin * (double) sampled);
+    size_t used = 0;
+    int64_t dense = 0;
+    if (use) {
+        for (int64_t e = 0; e < E && use; e++) {
+            int64_t de = 0;
+            const size_t u = kurn_tbm_pack(t->type, (const char *) data + e * t->nb[2], K, N, tt->data[e], &de);
+            use = u > 0;
+            used += u;
+            dense += de;
+        }
+    }
+    tt->tbm = use;
+    if (!use) {
+        std::vector<uint8_t> tq2;
+        for (int64_t e = 0; e < E; e++) {
+            const char * src = (const char *) data + e * t->nb[2];
+            if (t->type == GGML_TYPE_TQ1_0) {
+                tq2.resize((size_t) (K / 256) * N * 66);
+                kurn_tbm_tq1_to_tq2(src, tq2.data(), K / 256 * N);
+                src = (const char *) tq2.data();
+            }
+            tt->k->pack(src, K, N, tt->data[e]);
+        }
+    }
+    if (verbose()) {
+        const double nat = (double) ggml_nbytes(t);
+        if (use) {
+            const double bpw = 8.0 * (double) used / ((double) K * N * E);
+            GGML_LOG_INFO("kurn: repack %s [%lld x %lld x %lld] %s -> bitmap+signs, %.4f bpw (z ~ %.3f; %zu -> %zu bytes, %.1f%% of "
+                          "native; %lld two-load records)\n", t->name, (long long) K, (long long) N, (long long) E,
+                          ggml_type_name(t->type), bpw, 2.0625 - bpw, (size_t) nat, used, 100.0 * used / nat, (long long) dense);
+        } else {
+            GGML_LOG_INFO("kurn: repack %s [%lld x %lld x %lld] %s -> %s%s\n", t->name, (long long) K, (long long) N, (long long) E,
+                          ggml_type_name(t->type), tt->k->config,
+                          mode == 2 && sampled ? (" (bitmap+signs not used: sampled z below GGML_KURN_TBM_Z)") : "");
+        }
+    }
+}
+
 void buf_set_tensor(ggml_backend_buffer_t, ggml_tensor * t, const void * data, size_t offset, size_t size) {
     auto * tt = (tensor_traits *) t->extra;
     if (!tt || !tt->k) {
@@ -1686,6 +1784,10 @@ void buf_set_tensor(ggml_backend_buffer_t, ggml_tensor * t, const void * data, s
         return;
     }
     GGML_ASSERT(offset == 0 && size == ggml_nbytes(t));
+    if (tbm_source(t)) {
+        set_ternary(tt, t, data);
+        return;
+    }
     if (verbose()) {
         GGML_LOG_INFO("kurn: repack %s [%lld x %lld x %lld] %s -> %s (%zu -> %zu bytes)\n", t->name, (long long) t->ne[0],
                       (long long) t->ne[1], (long long) t->ne[2], ggml_type_name(t->type), tt->k->config, size,
