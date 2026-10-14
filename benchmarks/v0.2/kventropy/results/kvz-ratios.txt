@@ -1,0 +1,241 @@
+== 1.7b wiki-test f16 4096
+K: raw 224.0 MiB -> kvz 190.4 MiB (1.177x), encode 0.21 GB/s, decode 0.28 GB/s, zstd-3 1.068x at 0.28 GB/s
+V: raw 224.0 MiB -> kvz 190.3 MiB (1.177x), encode 0.27 GB/s, decode 0.45 GB/s, zstd-3 1.108x at 0.32 GB/s
+total: 1.177x, threads 4, rows 4096, bit-exact
+== 1.7b wiki-test f16 8192
+K: raw 448.0 MiB -> kvz 376.9 MiB (1.189x), encode 0.37 GB/s, decode 0.50 GB/s, zstd-3 1.067x at 0.44 GB/s
+V: raw 448.0 MiB -> kvz 380.2 MiB (1.178x), encode 0.40 GB/s, decode 0.52 GB/s, zstd-3 1.107x at 0.43 GB/s
+total: 1.183x, threads 4, rows 8192, bit-exact
+== 1.7b wiki-test f16 16384
+K: raw 896.0 MiB -> kvz 750.6 MiB (1.194x), encode 0.45 GB/s, decode 0.55 GB/s, zstd-3 1.067x at 0.59 GB/s
+V: raw 896.0 MiB -> kvz 757.8 MiB (1.182x), encode 0.43 GB/s, decode 0.55 GB/s, zstd-3 1.109x at 0.62 GB/s
+total: 1.188x, threads 4, rows 16384, bit-exact
+== 1.7b wiki-test f16 32768
+K: raw 1792.0 MiB -> kvz 1497.2 MiB (1.197x), encode 0.47 GB/s, decode 0.60 GB/s, zstd-3 1.067x at 0.71 GB/s
+V: raw 1792.0 MiB -> kvz 1509.4 MiB (1.187x), encode 0.79 GB/s, decode 0.95 GB/s, zstd-3 1.110x at 1.23 GB/s
+total: 1.192x, threads 4, rows 32768, bit-exact
+== 1.7b wiki-test q8 4096
+K: raw 119.0 MiB -> kvz 100.7 MiB (1.181x), encode 0.46 GB/s, decode 0.67 GB/s, zstd-3 1.019x at 0.60 GB/s
+V: raw 119.0 MiB -> kvz 112.6 MiB (1.057x), encode 0.37 GB/s, decode 0.48 GB/s, zstd-3 1.061x at 0.60 GB/s
+total: 1.116x, threads 4, rows 4096, bit-exact
+== 1.7b wiki-test q8 8192
+K: raw 238.0 MiB -> kvz 201.2 MiB (1.183x), encode 0.40 GB/s, decode 0.60 GB/s, zstd-3 1.019x at 0.54 GB/s
+V: raw 238.0 MiB -> kvz 224.8 MiB (1.059x), encode 0.22 GB/s, decode 0.28 GB/s, zstd-3 1.060x at 0.36 GB/s
+total: 1.117x, threads 4, rows 8192, bit-exact
+== 1.7b wiki-test q8 16384
+K: raw 476.0 MiB -> kvz 401.2 MiB (1.186x), encode 0.32 GB/s, decode 0.43 GB/s, zstd-3 1.018x at 0.48 GB/s
+V: raw 476.0 MiB -> kvz 448.5 MiB (1.061x), encode 0.24 GB/s, decode 0.30 GB/s, zstd-3 1.062x at 0.51 GB/s
+total: 1.120x, threads 4, rows 16384, bit-exact
+== 1.7b wiki-test q8 32768
+K: raw 952.0 MiB -> kvz 803.5 MiB (1.185x), encode 0.37 GB/s, decode 0.44 GB/s, zstd-3 1.018x at 0.64 GB/s
+V: raw 952.0 MiB -> kvz 896.1 MiB (1.062x), encode 0.28 GB/s, decode 0.36 GB/s, zstd-3 1.063x at 0.65 GB/s
+total: 1.120x, threads 4, rows 32768, bit-exact
+== 1.7b wiki-test k4cq4 4096
+K: raw 224.0 MiB -> kvz 190.4 MiB (1.177x), encode 0.21 GB/s, decode 0.28 GB/s, zstd-3 1.068x at 0.29 GB/s
+V: raw 63.0 MiB -> kvz 58.0 MiB (1.085x), encode 0.08 GB/s, decode 0.10 GB/s, zstd-3 1.073x at 0.34 GB/s
+total: 1.155x, threads 4, rows 4096, bit-exact
+== 1.7b wiki-test k4cq4 8192
+K: raw 448.0 MiB -> kvz 376.9 MiB (1.189x), encode 0.37 GB/s, decode 0.49 GB/s, zstd-3 1.067x at 0.45 GB/s
+V: raw 126.0 MiB -> kvz 116.0 MiB (1.086x), encode 0.12 GB/s, decode 0.14 GB/s, zstd-3 1.073x at 0.38 GB/s
+total: 1.164x, threads 4, rows 8192, bit-exact
+== 1.7b wiki-test k4cq4 16384
+K: raw 896.0 MiB -> kvz 750.6 MiB (1.194x), encode 0.46 GB/s, decode 0.56 GB/s, zstd-3 1.067x at 0.62 GB/s
+V: raw 252.0 MiB -> kvz 231.9 MiB (1.086x), encode 0.16 GB/s, decode 0.21 GB/s, zstd-3 1.076x at 0.35 GB/s
+total: 1.168x, threads 4, rows 16384, bit-exact
+== 1.7b wiki-test k4cq4 32768
+K: raw 1792.0 MiB -> kvz 1497.2 MiB (1.197x), encode 0.49 GB/s, decode 0.59 GB/s, zstd-3 1.067x at 0.71 GB/s
+V: raw 504.0 MiB -> kvz 463.1 MiB (1.088x), encode 0.23 GB/s, decode 0.32 GB/s, zstd-3 1.076x at 0.51 GB/s
+total: 1.171x, threads 4, rows 32768, bit-exact
+== 1.7b wiki-test k4cq8 4096
+K: raw 224.0 MiB -> kvz 190.4 MiB (1.177x), encode 0.22 GB/s, decode 0.30 GB/s, zstd-3 1.068x at 0.29 GB/s
+V: raw 119.0 MiB -> kvz 112.6 MiB (1.057x), encode 0.16 GB/s, decode 0.22 GB/s, zstd-3 1.061x at 0.42 GB/s
+total: 1.132x, threads 4, rows 4096, bit-exact
+== 1.7b wiki-test k4cq8 8192
+K: raw 448.0 MiB -> kvz 376.9 MiB (1.189x), encode 0.36 GB/s, decode 0.46 GB/s, zstd-3 1.067x at 0.44 GB/s
+V: raw 238.0 MiB -> kvz 224.8 MiB (1.059x), encode 0.20 GB/s, decode 0.27 GB/s, zstd-3 1.060x at 0.37 GB/s
+total: 1.140x, threads 4, rows 8192, bit-exact
+== 1.7b wiki-test k4cq8 16384
+K: raw 896.0 MiB -> kvz 750.6 MiB (1.194x), encode 0.45 GB/s, decode 0.55 GB/s, zstd-3 1.067x at 0.63 GB/s
+V: raw 476.0 MiB -> kvz 448.5 MiB (1.061x), encode 0.25 GB/s, decode 0.31 GB/s, zstd-3 1.062x at 0.50 GB/s
+total: 1.144x, threads 4, rows 16384, bit-exact
+== 1.7b wiki-test k4cq8 32768
+K: raw 1792.0 MiB -> kvz 1497.2 MiB (1.197x), encode 0.51 GB/s, decode 0.60 GB/s, zstd-3 1.067x at 0.70 GB/s
+V: raw 952.0 MiB -> kvz 896.1 MiB (1.062x), encode 0.30 GB/s, decode 0.35 GB/s, zstd-3 1.063x at 0.64 GB/s
+total: 1.147x, threads 4, rows 32768, bit-exact
+== 1.7b code-eval f16 4096
+K: raw 224.0 MiB -> kvz 189.9 MiB (1.180x), encode 0.23 GB/s, decode 0.30 GB/s, zstd-3 1.070x at 0.27 GB/s
+V: raw 224.0 MiB -> kvz 189.8 MiB (1.180x), encode 0.28 GB/s, decode 0.45 GB/s, zstd-3 1.114x at 0.30 GB/s
+total: 1.180x, threads 4, rows 4096, bit-exact
+== 1.7b code-eval f16 8192
+K: raw 448.0 MiB -> kvz 376.8 MiB (1.189x), encode 0.37 GB/s, decode 0.51 GB/s, zstd-3 1.070x at 0.44 GB/s
+V: raw 448.0 MiB -> kvz 379.6 MiB (1.180x), encode 0.38 GB/s, decode 0.53 GB/s, zstd-3 1.115x at 0.42 GB/s
+total: 1.185x, threads 4, rows 8192, bit-exact
+== 1.7b code-eval f16 16384
+K: raw 896.0 MiB -> kvz 750.5 MiB (1.194x), encode 0.44 GB/s, decode 0.55 GB/s, zstd-3 1.069x at 0.61 GB/s
+V: raw 896.0 MiB -> kvz 756.7 MiB (1.184x), encode 0.47 GB/s, decode 0.56 GB/s, zstd-3 1.116x at 0.64 GB/s
+total: 1.189x, threads 4, rows 16384, bit-exact
+== 1.7b code-eval f16 32768
+K: raw 1792.0 MiB -> kvz 1498.2 MiB (1.196x), encode 0.49 GB/s, decode 0.60 GB/s, zstd-3 1.069x at 0.71 GB/s
+V: raw 1792.0 MiB -> kvz 1509.5 MiB (1.187x), encode 0.50 GB/s, decode 0.61 GB/s, zstd-3 1.115x at 0.82 GB/s
+total: 1.192x, threads 4, rows 32768, bit-exact
+== 1.7b code-eval q8 4096
+K: raw 119.0 MiB -> kvz 101.3 MiB (1.174x), encode 0.19 GB/s, decode 0.30 GB/s, zstd-3 1.018x at 0.35 GB/s
+V: raw 119.0 MiB -> kvz 112.3 MiB (1.059x), encode 0.16 GB/s, decode 0.21 GB/s, zstd-3 1.066x at 0.44 GB/s
+total: 1.114x, threads 4, rows 4096, bit-exact
+== 1.7b code-eval q8 8192
+K: raw 238.0 MiB -> kvz 202.3 MiB (1.176x), encode 0.24 GB/s, decode 0.32 GB/s, zstd-3 1.018x at 0.35 GB/s
+V: raw 238.0 MiB -> kvz 224.8 MiB (1.059x), encode 0.20 GB/s, decode 0.26 GB/s, zstd-3 1.067x at 0.34 GB/s
+total: 1.114x, threads 4, rows 8192, bit-exact
+== 1.7b code-eval q8 16384
+K: raw 476.0 MiB -> kvz 403.6 MiB (1.179x), encode 0.28 GB/s, decode 0.40 GB/s, zstd-3 1.018x at 0.47 GB/s
+V: raw 476.0 MiB -> kvz 449.3 MiB (1.059x), encode 0.23 GB/s, decode 0.31 GB/s, zstd-3 1.068x at 0.47 GB/s
+total: 1.116x, threads 4, rows 16384, bit-exact
+== 1.7b code-eval q8 32768
+K: raw 952.0 MiB -> kvz 809.8 MiB (1.176x), encode 0.35 GB/s, decode 0.43 GB/s, zstd-3 1.017x at 0.65 GB/s
+V: raw 952.0 MiB -> kvz 898.8 MiB (1.059x), encode 0.30 GB/s, decode 0.35 GB/s, zstd-3 1.067x at 0.59 GB/s
+total: 1.114x, threads 4, rows 32768, bit-exact
+== 1.7b code-eval k4cq4 4096
+K: raw 224.0 MiB -> kvz 189.9 MiB (1.180x), encode 0.21 GB/s, decode 0.31 GB/s, zstd-3 1.070x at 0.28 GB/s
+V: raw 63.0 MiB -> kvz 57.9 MiB (1.089x), encode 0.08 GB/s, decode 0.12 GB/s, zstd-3 1.108x at 0.22 GB/s
+total: 1.158x, threads 4, rows 4096, bit-exact
+== 1.7b code-eval k4cq4 8192
+K: raw 448.0 MiB -> kvz 376.8 MiB (1.189x), encode 0.32 GB/s, decode 0.42 GB/s, zstd-3 1.070x at 0.43 GB/s
+V: raw 126.0 MiB -> kvz 115.9 MiB (1.087x), encode 0.12 GB/s, decode 0.17 GB/s, zstd-3 1.103x at 0.28 GB/s
+total: 1.165x, threads 4, rows 8192, bit-exact
+== 1.7b code-eval k4cq4 16384
+K: raw 896.0 MiB -> kvz 750.5 MiB (1.194x), encode 0.41 GB/s, decode 0.50 GB/s, zstd-3 1.069x at 0.57 GB/s
+V: raw 252.0 MiB -> kvz 231.6 MiB (1.088x), encode 0.17 GB/s, decode 0.24 GB/s, zstd-3 1.100x at 0.24 GB/s
+total: 1.169x, threads 4, rows 16384, bit-exact
+== 1.7b code-eval k4cq4 32768
+K: raw 1792.0 MiB -> kvz 1498.1 MiB (1.196x), encode 0.45 GB/s, decode 0.54 GB/s, zstd-3 1.069x at 0.69 GB/s
+V: raw 504.0 MiB -> kvz 462.7 MiB (1.089x), encode 0.22 GB/s, decode 0.29 GB/s, zstd-3 1.094x at 0.42 GB/s
+total: 1.171x, threads 4, rows 32768, bit-exact
+== 1.7b code-eval k4cq8 4096
+K: raw 224.0 MiB -> kvz 189.9 MiB (1.180x), encode 0.22 GB/s, decode 0.31 GB/s, zstd-3 1.070x at 0.25 GB/s
+V: raw 119.0 MiB -> kvz 112.3 MiB (1.059x), encode 0.17 GB/s, decode 0.24 GB/s, zstd-3 1.066x at 0.42 GB/s
+total: 1.135x, threads 4, rows 4096, bit-exact
+== 1.7b code-eval k4cq8 8192
+K: raw 448.0 MiB -> kvz 376.8 MiB (1.189x), encode 0.33 GB/s, decode 0.41 GB/s, zstd-3 1.070x at 0.38 GB/s
+V: raw 238.0 MiB -> kvz 224.8 MiB (1.059x), encode 0.20 GB/s, decode 0.25 GB/s, zstd-3 1.067x at 0.31 GB/s
+total: 1.140x, threads 4, rows 8192, bit-exact
+== 1.7b code-eval k4cq8 16384
+K: raw 896.0 MiB -> kvz 750.5 MiB (1.194x), encode 0.43 GB/s, decode 0.50 GB/s, zstd-3 1.069x at 0.58 GB/s
+V: raw 476.0 MiB -> kvz 449.3 MiB (1.059x), encode 0.24 GB/s, decode 0.29 GB/s, zstd-3 1.068x at 0.49 GB/s
+total: 1.143x, threads 4, rows 16384, bit-exact
+== 1.7b code-eval k4cq8 32768
+K: raw 1792.0 MiB -> kvz 1498.1 MiB (1.196x), encode 0.47 GB/s, decode 0.58 GB/s, zstd-3 1.069x at 0.69 GB/s
+V: raw 952.0 MiB -> kvz 898.8 MiB (1.059x), encode 0.35 GB/s, decode 0.44 GB/s, zstd-3 1.067x at 0.74 GB/s
+total: 1.145x, threads 4, rows 32768, bit-exact
+== 8b wiki-test f16 4096
+K: raw 288.0 MiB -> kvz 244.7 MiB (1.177x), encode 0.27 GB/s, decode 0.42 GB/s, zstd-3 1.073x at 0.36 GB/s
+V: raw 288.0 MiB -> kvz 244.7 MiB (1.177x), encode 0.28 GB/s, decode 0.46 GB/s, zstd-3 1.102x at 0.37 GB/s
+total: 1.177x, threads 4, rows 4096, bit-exact
+== 8b wiki-test f16 8192
+K: raw 576.0 MiB -> kvz 484.2 MiB (1.190x), encode 0.38 GB/s, decode 0.51 GB/s, zstd-3 1.073x at 0.49 GB/s
+V: raw 576.0 MiB -> kvz 489.0 MiB (1.178x), encode 0.41 GB/s, decode 0.53 GB/s, zstd-3 1.102x at 0.53 GB/s
+total: 1.184x, threads 4, rows 8192, bit-exact
+== 8b wiki-test f16 16384
+K: raw 1152.0 MiB -> kvz 964.4 MiB (1.194x), encode 0.45 GB/s, decode 0.54 GB/s, zstd-3 1.073x at 0.60 GB/s
+V: raw 1152.0 MiB -> kvz 976.6 MiB (1.180x), encode 0.45 GB/s, decode 0.56 GB/s, zstd-3 1.103x at 0.63 GB/s
+total: 1.187x, threads 4, rows 16384, bit-exact
+== 8b wiki-test q8 4096
+K: raw 153.0 MiB -> kvz 134.0 MiB (1.142x), encode 0.20 GB/s, decode 0.29 GB/s, zstd-3 1.030x at 0.38 GB/s
+V: raw 153.0 MiB -> kvz 145.0 MiB (1.055x), encode 0.17 GB/s, decode 0.22 GB/s, zstd-3 1.055x at 0.43 GB/s
+total: 1.097x, threads 4, rows 4096, bit-exact
+== 8b wiki-test q8 8192
+K: raw 306.0 MiB -> kvz 267.5 MiB (1.144x), encode 0.26 GB/s, decode 0.36 GB/s, zstd-3 1.030x at 0.33 GB/s
+V: raw 306.0 MiB -> kvz 289.6 MiB (1.056x), encode 0.19 GB/s, decode 0.24 GB/s, zstd-3 1.055x at 0.33 GB/s
+total: 1.098x, threads 4, rows 8192, bit-exact
+== 8b wiki-test q8 16384
+K: raw 612.0 MiB -> kvz 534.7 MiB (1.145x), encode 0.31 GB/s, decode 0.43 GB/s, zstd-3 1.029x at 0.51 GB/s
+V: raw 612.0 MiB -> kvz 578.7 MiB (1.057x), encode 0.23 GB/s, decode 0.29 GB/s, zstd-3 1.056x at 0.49 GB/s
+total: 1.099x, threads 4, rows 16384, bit-exact
+== 8b wiki-test k4cq4 4096
+K: raw 288.0 MiB -> kvz 244.7 MiB (1.177x), encode 0.25 GB/s, decode 0.39 GB/s, zstd-3 1.073x at 0.35 GB/s
+V: raw 81.0 MiB -> kvz 74.7 MiB (1.084x), encode 0.09 GB/s, decode 0.12 GB/s, zstd-3 1.067x at 0.32 GB/s
+total: 1.155x, threads 4, rows 4096, bit-exact
+== 8b wiki-test k4cq4 8192
+K: raw 576.0 MiB -> kvz 484.2 MiB (1.190x), encode 0.38 GB/s, decode 0.51 GB/s, zstd-3 1.073x at 0.45 GB/s
+V: raw 162.0 MiB -> kvz 149.3 MiB (1.085x), encode 0.11 GB/s, decode 0.15 GB/s, zstd-3 1.067x at 0.37 GB/s
+total: 1.165x, threads 4, rows 8192, bit-exact
+== 8b wiki-test k4cq4 16384
+K: raw 1152.0 MiB -> kvz 964.4 MiB (1.194x), encode 0.67 GB/s, decode 0.83 GB/s, zstd-3 1.073x at 0.81 GB/s
+V: raw 324.0 MiB -> kvz 298.6 MiB (1.085x), encode 0.41 GB/s, decode 0.53 GB/s, zstd-3 1.069x at 0.64 GB/s
+total: 1.169x, threads 4, rows 16384, bit-exact
+== 8b wiki-test k4cq8 4096
+K: raw 288.0 MiB -> kvz 244.7 MiB (1.177x), encode 0.50 GB/s, decode 0.73 GB/s, zstd-3 1.073x at 0.56 GB/s
+V: raw 153.0 MiB -> kvz 145.0 MiB (1.055x), encode 0.37 GB/s, decode 0.46 GB/s, zstd-3 1.055x at 0.55 GB/s
+total: 1.132x, threads 4, rows 4096, bit-exact
+== 8b wiki-test k4cq8 8192
+K: raw 576.0 MiB -> kvz 484.2 MiB (1.190x), encode 0.80 GB/s, decode 1.10 GB/s, zstd-3 1.073x at 0.79 GB/s
+V: raw 306.0 MiB -> kvz 289.6 MiB (1.056x), encode 0.40 GB/s, decode 0.45 GB/s, zstd-3 1.055x at 0.60 GB/s
+total: 1.140x, threads 4, rows 8192, bit-exact
+== 8b wiki-test k4cq8 16384
+K: raw 1152.0 MiB -> kvz 964.4 MiB (1.195x), encode 0.88 GB/s, decode 1.05 GB/s, zstd-3 1.073x at 0.97 GB/s
+V: raw 612.0 MiB -> kvz 578.7 MiB (1.057x), encode 0.41 GB/s, decode 0.48 GB/s, zstd-3 1.056x at 0.81 GB/s
+total: 1.143x, threads 4, rows 16384, bit-exact
+== 8b code-eval f16 4096
+K: raw 288.0 MiB -> kvz 244.2 MiB (1.179x), encode 0.61 GB/s, decode 0.97 GB/s, zstd-3 1.075x at 0.54 GB/s
+V: raw 288.0 MiB -> kvz 244.3 MiB (1.179x), encode 0.68 GB/s, decode 1.13 GB/s, zstd-3 1.107x at 0.55 GB/s
+total: 1.179x, threads 4, rows 4096, bit-exact
+== 8b code-eval f16 8192
+K: raw 576.0 MiB -> kvz 484.5 MiB (1.189x), encode 0.76 GB/s, decode 1.04 GB/s, zstd-3 1.075x at 0.79 GB/s
+V: raw 576.0 MiB -> kvz 488.7 MiB (1.179x), encode 0.79 GB/s, decode 1.10 GB/s, zstd-3 1.108x at 0.79 GB/s
+total: 1.184x, threads 4, rows 8192, bit-exact
+== 8b code-eval f16 16384
+K: raw 1152.0 MiB -> kvz 965.0 MiB (1.194x), encode 0.86 GB/s, decode 1.08 GB/s, zstd-3 1.074x at 0.95 GB/s
+V: raw 1152.0 MiB -> kvz 976.0 MiB (1.180x), encode 0.89 GB/s, decode 1.13 GB/s, zstd-3 1.108x at 1.03 GB/s
+total: 1.187x, threads 4, rows 16384, bit-exact
+== 8b code-eval q8 4096
+K: raw 153.0 MiB -> kvz 135.3 MiB (1.131x), encode 0.49 GB/s, decode 0.73 GB/s, zstd-3 1.029x at 0.60 GB/s
+V: raw 153.0 MiB -> kvz 144.6 MiB (1.058x), encode 0.35 GB/s, decode 0.44 GB/s, zstd-3 1.060x at 0.58 GB/s
+total: 1.093x, threads 4, rows 4096, bit-exact
+== 8b code-eval q8 8192
+K: raw 306.0 MiB -> kvz 270.6 MiB (1.131x), encode 0.59 GB/s, decode 0.84 GB/s, zstd-3 1.029x at 0.56 GB/s
+V: raw 306.0 MiB -> kvz 289.4 MiB (1.057x), encode 0.40 GB/s, decode 0.48 GB/s, zstd-3 1.060x at 0.65 GB/s
+total: 1.093x, threads 4, rows 8192, bit-exact
+== 8b code-eval q8 16384
+K: raw 612.0 MiB -> kvz 539.5 MiB (1.134x), encode 0.69 GB/s, decode 0.95 GB/s, zstd-3 1.029x at 0.82 GB/s
+V: raw 612.0 MiB -> kvz 578.7 MiB (1.058x), encode 0.42 GB/s, decode 0.48 GB/s, zstd-3 1.061x at 0.82 GB/s
+total: 1.095x, threads 4, rows 16384, bit-exact
+== 8b code-eval k4cq4 4096
+K: raw 288.0 MiB -> kvz 244.2 MiB (1.180x), encode 0.63 GB/s, decode 0.97 GB/s, zstd-3 1.075x at 0.56 GB/s
+V: raw 81.0 MiB -> kvz 74.6 MiB (1.086x), encode 0.31 GB/s, decode 0.38 GB/s, zstd-3 1.094x at 0.47 GB/s
+total: 1.158x, threads 4, rows 4096, bit-exact
+== 8b code-eval k4cq4 8192
+K: raw 576.0 MiB -> kvz 484.5 MiB (1.189x), encode 0.79 GB/s, decode 1.08 GB/s, zstd-3 1.075x at 0.74 GB/s
+V: raw 162.0 MiB -> kvz 149.3 MiB (1.085x), encode 0.36 GB/s, decode 0.44 GB/s, zstd-3 1.091x at 0.47 GB/s
+total: 1.164x, threads 4, rows 8192, bit-exact
+== 8b code-eval k4cq4 16384
+K: raw 1152.0 MiB -> kvz 964.9 MiB (1.194x), encode 0.93 GB/s, decode 1.13 GB/s, zstd-3 1.074x at 0.99 GB/s
+V: raw 324.0 MiB -> kvz 298.4 MiB (1.086x), encode 0.45 GB/s, decode 0.59 GB/s, zstd-3 1.090x at 0.56 GB/s
+total: 1.168x, threads 4, rows 16384, bit-exact
+== 8b code-eval k4cq8 4096
+K: raw 288.0 MiB -> kvz 244.2 MiB (1.180x), encode 0.63 GB/s, decode 0.94 GB/s, zstd-3 1.075x at 0.51 GB/s
+V: raw 153.0 MiB -> kvz 144.6 MiB (1.058x), encode 0.36 GB/s, decode 0.47 GB/s, zstd-3 1.060x at 0.62 GB/s
+total: 1.134x, threads 4, rows 4096, bit-exact
+== 8b code-eval k4cq8 8192
+K: raw 576.0 MiB -> kvz 484.5 MiB (1.189x), encode 0.79 GB/s, decode 1.09 GB/s, zstd-3 1.075x at 0.81 GB/s
+V: raw 306.0 MiB -> kvz 289.4 MiB (1.057x), encode 0.40 GB/s, decode 0.45 GB/s, zstd-3 1.060x at 0.61 GB/s
+total: 1.140x, threads 4, rows 8192, bit-exact
+== 8b code-eval k4cq8 16384
+K: raw 1152.0 MiB -> kvz 964.9 MiB (1.194x), encode 0.93 GB/s, decode 1.14 GB/s, zstd-3 1.074x at 1.00 GB/s
+V: raw 612.0 MiB -> kvz 578.7 MiB (1.058x), encode 0.44 GB/s, decode 0.50 GB/s, zstd-3 1.061x at 0.93 GB/s
+total: 1.143x, threads 4, rows 16384, bit-exact
+
+== 8b32k wiki-test f16 4096
+K: raw 288.0 MiB -> kvz 244.7 MiB (1.177x), encode 0.96 GB/s, decode 1.70 GB/s, zstd-3 1.073x at 0.61 GB/s
+V: raw 288.0 MiB -> kvz 244.8 MiB (1.177x), encode 1.03 GB/s, decode 1.87 GB/s, zstd-3 1.102x at 0.68 GB/s
+total: 1.177x, threads 8, rows 4096, bit-exact
+== 8b32k wiki-test f16 8192
+K: raw 576.0 MiB -> kvz 484.2 MiB (1.190x), encode 1.30 GB/s, decode 2.02 GB/s, zstd-3 1.073x at 0.91 GB/s
+V: raw 576.0 MiB -> kvz 489.0 MiB (1.178x), encode 1.47 GB/s, decode 2.29 GB/s, zstd-3 1.102x at 1.05 GB/s
+total: 1.184x, threads 8, rows 8192, bit-exact
+== 8b32k wiki-test f16 16384
+K: raw 1152.0 MiB -> kvz 964.5 MiB (1.194x), encode 1.53 GB/s, decode 1.96 GB/s, zstd-3 1.073x at 1.14 GB/s
+V: raw 1152.0 MiB -> kvz 976.6 MiB (1.180x), encode 1.59 GB/s, decode 2.12 GB/s, zstd-3 1.103x at 1.22 GB/s
+total: 1.187x, threads 8, rows 16384, bit-exact
+== 8b32k wiki-test f16 32768
+K: raw 2304.0 MiB -> kvz 1924.0 MiB (1.198x), encode 1.59 GB/s, decode 1.91 GB/s, zstd-3 1.073x at 1.37 GB/s
+V: raw 2304.0 MiB -> kvz 1947.3 MiB (1.183x), encode 1.54 GB/s, decode 1.85 GB/s, zstd-3 1.104x at 1.36 GB/s
+total: 1.190x, threads 8, rows 32768, bit-exact
