@@ -9,7 +9,8 @@ interleaved i16 layout inside that buffer, so there is one copy of the weights, 
 |---|---|
 | 1 (decode) | kurn GEMV |
 | 2..8 (speculative verify, small batches) | kurn verify kernel of exactly that width: one pass over the weights for all columns |
-| 9..31 | verify kernels over L2-sized row chunks |
+| 9..16, Q8_0 on AMX CPUs | `kurn-amx-vfy.cpp`: all columns in one pass over the weights (M-row AMX-INT8 tiles), bit-identical to the GEMV per column |
+| 9..31 (other formats; Q8_0 17..31) | verify kernels over L2-sized row chunks |
 | 32+ (prefill), AMX CPU (default) | AMX-BF16 GEMM: weights dequantized per panel from the same buffer, bf16 activations, fp32 accumulation |
 | 32+, exact mode or no AMX | Q8_0: AMX-INT8 kernel on the same layout (AMX CPUs); other formats: verify kernels over row chunks |
 
@@ -42,6 +43,18 @@ multiply-accumulate than kurn's Q4_K kernel on Qwen3-8B. Qwen3-8B Q6_K shapes (`
 ggml's AMX buffer; Q5_K 2.7 / 6.8 ms (`vec_dot` 3.6 / 22.4, AMX buffer 3.0 / 7.5). In exact mode the buffer takes them
 too, without AMX-BF16: the native kernels compute every width with the same per-column arithmetic, where ggml's AMX
 buffer (VNNI at one column, tiles at more) is not batch invariant, so Q4_K_M models are batch invariant end to end.
+
+**Wide verify (9-16 columns) in one weight pass.** The VNNI verify kernels stop at 8 columns, so 9-16 columns took
+two passes (the second from L2) and cost 1.4-1.8x a decode step. On AMX CPUs, Q8_0 at 9-16 columns now runs
+`kurn-amx-vfy.cpp`: a kurn i16 record is an AMX B tile, so one `tdpbsud` per record and row group gives the exact int32
+block dots of all M columns (M-row A and C tiles), scaled per block in block order like the GEMV, which keeps every
+column bit-identical to one-token decoding (exact mode included). Three row groups per pass keep three weight streams
+per core (one group per pass was 30-45% slower); accumulators beyond the register file spill to L1. Every block step
+is timed and recomputed after a preemption-length gap, as in the other AMX paths (stress next to AMX interlopers:
+0/59 runs differ; with the guard disabled 1-2/59 differ). The kernel was first written for 2-8 columns, where it does
+not beat the prefetching VNNI kernels. `opbench`, Qwen3-8B Q8_0 shapes, paired CI over 12 pairs: 9 / 12 / 16 columns
+0.930x / 0.877x / 0.813x time (CIs 0.922-0.950, 0.871-0.882, 0.802-0.820). `GGML_KURN_AMX_VFY=0` turns it off,
+`GGML_KURN_AMX_VFY_NG` sets row groups per pass (3).
 
 **Fused FFN gate + up + SwiGLU.** `apply.sh` hooks `ggml_kurn_fused_mul_mat` into ggml-cpu's graph fusion
 (`ggml_cpu_try_fuse_ops`): when `MUL_MAT(gate)`, `MUL_MAT(up)` on the same activations and their `SWIGLU` are
@@ -108,6 +121,7 @@ The model log shows `KURN model buffer size = ...` when weights were repacked. N
 | `GGML_KURN_Q8_BF16=0` | Q8_0 prefill on the AMX-INT8 kernel instead of AMX-BF16 |
 | `GGML_KURN_NATIVE=0` | leave Q6_K / Q5_K weights to ggml |
 | `GGML_KURN_FUSE=0` | no fused MUL_MAT groups (FFN gate + up + SwiGLU run as three nodes) |
+| `GGML_KURN_AMX_VFY=0` | Q8_0 at 9-16 columns on two 8-column VNNI verify passes instead of the one-pass AMX verify kernel; `GGML_KURN_AMX_VFY_NG` row groups per pass (1-3, default 3) |
 | `GGML_KURN_FUSE_QKV=0` | no q + k + v groups (gate + up + SwiGLU stays fused) |
 | `GGML_KURN_STEAL=0` | decode-sized ops (1-8 columns) use the guided row chunks below instead of work stealing |
 | `GGML_KURN_BF16_ROWS`, `_KC`, `_KCH`, `_PASS` | AMX-BF16 blocking: panel rows (128), K chunk (4096), guarded sub-step in 32-value steps (32), row-chunk granularity (64) |

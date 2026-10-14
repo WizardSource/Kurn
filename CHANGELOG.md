@@ -5,6 +5,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Added: one-pass AMX verify kernel for Q8_0 at 9-16 columns
+- `kurn-amx-vfy.cpp`: M-row AMX-INT8 tiles on kurn's i16 records, block-order scaling as in the GEMV, so every column
+  is bit-identical to one-token decoding; three row groups per pass; preemption guard as in the other AMX paths.
+- Qwen3-8B Q8_0 `opbench`, paired CI: 9 / 12 / 16 columns -7% / -12% / -19%. `GGML_KURN_AMX_VFY=0` turns it off.
+
 ### Added: fused attention q + k + v on KURN weights
 - 2-4 consecutive MUL_MATs on the same activations run as one op; `apply.sh` makes llama.cpp's `build_qkv` emit
   q, k, v as consecutive nodes when the weights are in the KURN buffer.
