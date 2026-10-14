@@ -170,9 +170,10 @@ int main(int argc, char ** argv) {
         std::string cost_path = std::string(out) + ".cost";
         FILE * fc = fopen(cost_path.c_str(), "w");
         fprintf(fc, "# kurn verify cost table: target %s, draft %s\n", params.model.path.c_str(), params.speculative.draft.mparams.path.c_str());
-        fprintf(fc, "# threads %d (draft %d), kv %d tokens, median of %d reps; GGML_KURN=%s GGML_KURN_AMX=%s\n", params.cpuparams.n_threads,
-                params_dft.cpuparams.n_threads, kv_tgt, reps, getenv("GGML_KURN") ? getenv("GGML_KURN") : "1",
-                getenv("GGML_KURN_AMX") ? getenv("GGML_KURN_AMX") : "unset (AMX on where usable)");
+        fprintf(fc, "# threads %d (draft %d), kv %d tokens, median of %d reps; GGML_KURN=%s GGML_KURN_AMX=%s GGML_KURN_FA_MODE=%s\n",
+                params.cpuparams.n_threads, params_dft.cpuparams.n_threads, kv_tgt, reps, getenv("GGML_KURN") ? getenv("GGML_KURN") : "1",
+                getenv("GGML_KURN_AMX") ? getenv("GGML_KURN_AMX") : "unset (AMX on where usable)",
+                getenv("GGML_KURN_FA_MODE") ? getenv("GGML_KURN_FA_MODE") : "fast");
         for (int M = 1; M <= m_max; M++) fprintf(fc, "verify %d %.4f\n", M, median(tv[M]));
         for (int M = 1; M <= m_max; M++) fprintf(fc, "draft %d %.4f\n", M, median(td[M]));
         fclose(fc);
