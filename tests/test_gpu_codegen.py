@@ -51,6 +51,7 @@ GOLDEN = {
     "q4_K_gemm_reg_bk64": {"op": "gemm", "weights": "q4_K", "wload": "reg", "bk": 64, "pf": 1},
     "nvfp4_gemm_reg_bn16_f16": {"op": "gemm", "weights": "nvfp4", "wload": "reg", "bn": 16, "xin": "f16", "stages": 3, "pf": 2},
     "tq2_0_gemm_reg_pf3": {"op": "gemm", "weights": "tq2_0", "wload": "reg", "pf": 3},
+    "tbm_gemm_bn8": {"op": "gemm", "weights": "tbm"},  # ternary bitmap + signs: device repack + packed-direct decode
 }  # fmt: skip
 
 needs_nvcc = pytest.mark.skipif(not nvcc(), reason="nvcc not installed")
@@ -69,7 +70,7 @@ def test_golden(name):
 
 def test_golden_covers_every_format_and_op():
     have = {(g["op"], g["weights"]) for g in GOLDEN.values()}
-    want = {("gemv", f) for f in gs.FORMATS} | {("gemm", f) for f in gs.FORMATS}
+    want = {("gemv", f) for f in gs.formats_for("gemv")} | {("gemm", f) for f in gs.formats_for("gemm")}
     assert want <= have
 
 
@@ -114,7 +115,7 @@ def test_covering_configs_do_not_spill(op):
     """The search space holds no spilling configs: every config of the covering sets compiles without spills or stack."""
     from kurn.gpu.toolchain import build_many
 
-    cs = [c for f, d in gs.FORMATS.items() for c in gs.covering_configs(op, f, extra=4)]
+    cs = [c for f in gs.formats_for(op) for c in gs.covering_configs(op, f, extra=4)]
     bad = []
     for c, rep in build_many(cs, lambda c: ptxas_report(c, ("sm_80",))):
         assert not isinstance(rep, Exception), rep

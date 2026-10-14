@@ -56,7 +56,7 @@ def cmd_targets(a):
     print(f"archs: {', '.join(gspec.ARCHS)}")
     print(f"{'op':5} {'weights':7} {'act':5} {'unit':>4}  doc")
     for f, d in gspec.FORMATS.items():
-        for op in ("gemv", "gemm") if d["gemm"] else ("gemv",):
+        for op in (o for o in ("gemv", "gemm") if f in gspec.formats_for(o)):
             print(f"{op:5} {f:7} {d['act']:5} {d['unit']:4}  {d['doc']}")
 
 
@@ -102,8 +102,8 @@ def _configs(a):
         return [c for f in gspec.FORMATS for c, _, _ in default_kernels(f, arch).values()]
     if a.all:
         out = []
-        for f, d in gspec.FORMATS.items():
-            for op in ("gemv", "gemm") if d["gemm"] else ("gemv",):
+        for op in ("gemv", "gemm"):
+            for f in gspec.formats_for(op):
                 out += gspec.covering_configs(op, f, extra=a.extra)
         return out
     sp, space, ov, _ = _load(a)

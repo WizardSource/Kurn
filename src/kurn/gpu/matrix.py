@@ -52,11 +52,19 @@ def engine_tile(fmt, arch, options):
 
 def default_kernels(fmt, arch):
     """KURN's default kernels for a format: {name: (config, mmin, mmax)}; names start with `default-`."""
-    out = {"default-gemv": (resolve({"op": "gemv", "weights": fmt, "arch": arch}), 1, 1)}
+    from .spec import FORMATS, config_key
+
+    out = {}
+    if FORMATS[fmt].get("gemv", True):
+        out["default-gemv"] = (resolve({"op": "gemv", "weights": fmt, "arch": arch}), 1, 1)
     for name, (lo, hi), options in ENGINE_TILES:
         c = engine_tile(fmt, arch, options)
         if c is not None:
             out[f"default-{name}"] = (c, lo, hi)
+    for staged in ("default-mma8", "default-mma16"):  # formats that only run packed (tbm): keep the -reg name once
+        packed = out.get(staged + "-reg")
+        if staged in out and packed and config_key(out[staged][0]) == config_key(packed[0]):
+            del out[staged]
     return out
 
 

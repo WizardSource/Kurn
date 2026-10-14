@@ -5,6 +5,42 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Added: ternary bitmap + signs (`tbm`, KTBM layout v1) on the GPU tensor-core engine
+- The new weight format `tbm` takes the CPU side's settled KTBM v1 buffer: 16-row × 256-value variable-length records
+  (fp16 d[16], a 64-word presence bitmap, sign bits for the nonzeros only) and a per-group offset table. It costs
+  2.0625 − z bpw (z = zero fraction) against TQ2_0's 2.0625. `kurn.gpu.tbm` is an independent v1 encoder and decoder,
+  built from the spec. The C side has the same in `kurn_gpu_ref.h`: `kref_tbm_encode` / `kref_tbm_row`, byte-identical
+  to the Python one.
+- `kg_prepare` repacks v1 on the device at load, in three kernels:
+  - one thread per group walks its records;
+  - one thread scans the per-tile sign sizes;
+  - one warp per record writes the outputs.
+  The outputs, at the same byte budget:
+  - presence bits in mma fragment order (16 bytes per lane per 16×256 tile);
+  - TQ2_0's scale plane;
+  - each lane's signs compacted bit-continuously per tile;
+  - a u32 sign offset per tile.
+  v1's CPU word interleave already maps one 4-value nibble of one row onto two f16x2 A registers, so no layout v2 is
+  needed.
+- The kernel is packed-direct only (`wload=reg`, default `pf 2`):
+  - phase 1 of each ring slot loads presence words and the tile's sign base;
+  - one k-step later, phase 2 computes each lane's sign offset with a warp popcount scan and loads the (at most 5)
+    sign words its signs span;
+  - decode is one 2 KB shared-table lookup per nibble, (mask << 4 | next 4 sign bits) → two finished f16x2 registers.
+  The values and scales are TQ2_0's, so results are **bit-identical to the TQ2_0 packed kernel on the same weights**.
+- Verified on the emulator against the C decoder's exact reference:
+  - 7 tile configs × random / dense / randomized-schedule data;
+  - bit-identity with TQ2_0;
+  - 7 injected bugs caught (scan, nibble placement, sign advance, window offset, repack nibble order, sign prefix,
+    word spill).
+  - ptxas: no spills and no local memory on sm_80 / sm_100 / sm_120; SASS shows HMMA, LDG.128, LDS.64 table lookups,
+    POPC and SHFL.
+  - Hot loop at bk 256: 815 instructions vs TQ2_0's 537 for the same 16 MMAs, against about 0.8× the bytes at
+    40% zeros.
+- Kit v2: the matmul matrix gains `tbm` (harness weights at 40% zeros; GB/s counts its encoded bytes). The reports get
+  a "Ternary bitmap + signs (tbm) vs TQ2_0" ablation (same packed tile, speedup, weight-bytes ratio, 2σ verdict).
+  `formats_for(op)` keeps GEMV-only paths off it.
+
 ### Added: packed-direct weights for the tensor-core GEMM/GEMV engine (`wload=reg`)
 - This applies the "decode packed weights directly into tensor-core operands" transformation (AI lowering, 3.34x on
   BitDelta) to every engine format, including MXFP4, NVFP4, Q4_K, Q8_0 and ternary TQ2_0.
