@@ -1,0 +1,363 @@
+diff --git a/common/arg.cpp b/common/arg.cpp
+index 75fb131f8..2bee7aac7 100644
+--- a/common/arg.cpp
++++ b/common/arg.cpp
+@@ -83,6 +83,15 @@ static const std::vector<common_arg> & get_common_arg_defs() {
+     return options;
+ }
+ 
++// kurn memory-system switches are read from the environment by ggml when it first allocates
++static void kurn_setenv(const char * name, const char * value) {
++#ifdef _WIN32
++    _putenv_s(name, value);
++#else
++    setenv(name, value, 1);
++#endif
++}
++
+ common_arg & common_arg::set_examples(std::initializer_list<enum llama_example> examples) {
+     this->examples = examples;
+     return *this;
+@@ -2738,8 +2747,43 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
+             else if (value == "isolate") { params.numa = GGML_NUMA_STRATEGY_ISOLATE; }
+             else if (value == "numactl") { params.numa = GGML_NUMA_STRATEGY_NUMACTL; }
+             else { throw std::invalid_argument("invalid value"); }
++            // ggml pins threads itself under --numa: kurn's NUMA placement steps aside unless asked for explicitly
++            const char * kn = getenv("GGML_KURN_NUMA");
++            if (kn && (std::string(kn) == "on" || std::string(kn) == "1")) {
++                fprintf(stderr, "warning: --numa ignored, kurn NUMA placement is on (--kurn-numa / GGML_KURN_NUMA)\n");
++                params.numa = GGML_NUMA_STRATEGY_DISABLED;
++            } else {
++                kurn_setenv("GGML_KURN_NUMA", "off");
++            }
+         }
+     ).set_env("LLAMA_ARG_NUMA"));
++    add_opt(common_arg(
++        {"--kurn-numa"}, "MODE",
++        "kurn NUMA placement on multi-node hosts (default: auto = on when the process spans several nodes)\n"
++        "- on/auto: weight rows split per node, KV streams per node, threads pinned per node\n"
++        "- off: no kurn placement (also implied by --numa)",
++        [](common_params & params, const std::string & value) {
++            if (value != "on" && value != "auto" && value != "off" && value != "1" && value != "0") {
++                throw std::invalid_argument("invalid value");
++            }
++            kurn_setenv("GGML_KURN_NUMA", value.c_str());
++            if (value == "on" || value == "1") {
++                params.numa = GGML_NUMA_STRATEGY_DISABLED;
++            }
++        }
++    ).set_env("LLAMA_ARG_KURN_NUMA"));
++    add_opt(common_arg(
++        {"--hugepages"}, "MODE",
++        "page size for weights (KURN), KV cache and compute buffers (default: auto)\n"
++        "- auto: hugetlb 1 GB / 2 MB pages while the pools last, then THP (madvise), then 4 KB\n"
++        "- 1g, 2m: hugetlb from that size down, same fallbacks; thp: madvise only; 4k: small pages; off: ggml's allocator",
++        [](common_params &, const std::string & value) {
++            if (value != "auto" && value != "1g" && value != "2m" && value != "thp" && value != "4k" && value != "off") {
++                throw std::invalid_argument("invalid value");
++            }
++            kurn_setenv("GGML_KURN_HUGEPAGES", value.c_str());
++        }
++    ).set_env("LLAMA_ARG_HUGEPAGES"));
+     add_opt(common_arg(
+         {"-dev", "--device"}, "<dev1,dev2,..>",
+         "comma-separated list of devices to use for offloading (none = don't offload)\n"
+diff --git a/src/llama-context.cpp b/src/llama-context.cpp
+index 27aadf87e..7950bdee8 100644
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -1,5 +1,7 @@
+ #include "llama-context.h"
+ 
++#include "ggml-kurn-mem.h"
++
+ #include "ggml.h"
+ #include "llama-arch.h"
+ #include "llama-graph.h"
+@@ -1439,6 +1441,7 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+             return nullptr;
+         }
+ 
++        ggml_kurn_mem_tag_scope tag(GGML_KURN_MEM_COMPUTE);
+         if (!ggml_backend_sched_alloc_graph(sched.get(), gf)) {
+             LLAMA_LOG_ERROR("%s: failed to allocate graph\n", __func__);
+             ret = GGML_STATUS_ALLOC_FAILED;
+@@ -2563,6 +2566,7 @@ ggml_cgraph * llama_context::graph_reserve(
+     this->n_outputs = save_n_outputs;
+ 
+     // initialize scheduler with the specified graph
++    ggml_kurn_mem_tag_scope tag(GGML_KURN_MEM_COMPUTE);
+     if (split_only) {
+         if (sizes) {
+             ggml_backend_sched_reserve_size(sched.get(), gf, sizes);
+diff --git a/src/llama-kv-cache.cpp b/src/llama-kv-cache.cpp
+index 67f38ae6c..c1a968798 100644
+--- a/src/llama-kv-cache.cpp
++++ b/src/llama-kv-cache.cpp
+@@ -1,5 +1,7 @@
+ #include "llama-kv-cache.h"
+ 
++#include "ggml-kurn-mem.h"
++
+ #include "llama-impl.h"
+ #include "llama-io.h"
+ #include "llama-model.h"
+@@ -290,12 +292,27 @@ llama_kv_cache::llama_kv_cache(
+                 t->buffer = buf; // set dummy buffer for KV cache so that the backend scheduler won't try to allocate it
+             }
+         } else {
++            ggml_kurn_mem_tag_scope tag(GGML_KURN_MEM_KV);
+             buf = ggml_backend_alloc_ctx_tensors_from_buft(ctx.get(), buft); // real buffer
+         }
+         if (!buf) {
+             throw std::runtime_error("failed to allocate buffer for kv cache");
+         }
+ 
++        // kurn NUMA: each stream (sequence) on one node, before the clear below touches the pages; the attention
++        // of stream s runs on that node's threads. One stream stays interleaved over all nodes.
++        const int n_nodes = ggml_kurn_numa_n_nodes();
++        if (n_nodes > 1 && n_stream > 1 && !hparams.no_alloc && ggml_backend_buffer_is_host(buf)) {
++            for (ggml_tensor * t = ggml_get_first_tensor(ctx.get()); t != nullptr; t = ggml_get_next_tensor(ctx.get(), t)) {
++                if (t->view_src == nullptr && t->ne[2] == (int64_t) n_stream) {
++                    for (uint32_t s = 0; s < n_stream; ++s) {
++                        ggml_kurn_numa_bind((char *) t->data + s*t->nb[2], t->nb[2], (int) (s % n_nodes));
++                    }
++                }
++            }
++            LLAMA_LOG_INFO("%s: kurn numa: %u KV streams placed on %d nodes (stream s on node s %% %d)\n", __func__, n_stream, n_nodes, n_nodes);
++        }
++
+         LLAMA_LOG_INFO("%s: %10s KV buffer size = %8.2f MiB\n", __func__, ggml_backend_buffer_name(buf), ggml_backend_buffer_get_size(buf)/1024.0/1024.0);
+ 
+         ggml_backend_buffer_clear(buf, 0);
+diff --git a/src/llama-model.cpp b/src/llama-model.cpp
+index 742bcd5d5..3191ded70 100644
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -1,5 +1,7 @@
+ #include "llama-model.h"
+ 
++#include "ggml-kurn-mem.h"
++
+ #include "llama-arch.h"
+ #include "llama-ext.h"
+ #include "llama-hparams.h"
+@@ -1880,6 +1882,7 @@ bool llama_model_base::load_tensors(llama_model_loader & ml) {
+                     t->buffer = buf; // set dummy buffer for weights so that the backend scheduler won't try to allocate them
+                 }
+             } else {
++                ggml_kurn_mem_tag_scope tag(GGML_KURN_MEM_WEIGHTS);
+                 buf = ggml_backend_alloc_ctx_tensors_from_buft(ctx, buft); // real buffer
+             }
+             if (buf == nullptr) {
+diff --git a/tools/llama-bench/llama-bench.cpp b/tools/llama-bench/llama-bench.cpp
+index e1844aa0f..119505f31 100644
+--- a/tools/llama-bench/llama-bench.cpp
++++ b/tools/llama-bench/llama-bench.cpp
+@@ -25,6 +25,8 @@
+ #include "download.h"
+ #include "fit.h"
+ #include "ggml.h"
++#include "ggml-kurn-mem.h"
++#include "kurn-energy.h"
+ #include "llama.h"
+ #include "log.h"
+ 
+@@ -374,6 +376,7 @@ struct cmd_params {
+     bool                             verbose;
+     bool                             progress;
+     bool                             no_warmup;
++    bool                             energy;
+     output_formats                   output_format;
+     output_formats                   output_format_stderr;
+ };
+@@ -420,6 +423,7 @@ static const cmd_params cmd_params_defaults = {
+     /* verbose              */ false,
+     /* progress             */ false,
+     /* no_warmup            */ false,
++    /* energy               */ false,
+     /* output_format        */ MARKDOWN,
+     /* output_format_stderr */ NONE,
+ };
+@@ -440,6 +444,8 @@ static void print_usage(int /* argc */, char ** argv) {
+     printf("  -v, --verbose                               verbose output\n");
+     printf("  --progress                                  print test progress indicators\n");
+     printf("  --no-warmup                                 skip warmup runs before benchmarking\n");
++    printf("  --energy                                    report joules and tokens per joule (CPU RAPL, GPU NVML;\n");
++    printf("                                              'unavailable' where the host has no counters, e.g. cloud VMs)\n");
+     printf("  -fitt, --fit-target <MiB>                   fit model to device memory with this margin per device in MiB (default: off)\n");
+     printf("  -fitc, --fit-ctx <n>                        minimum ctx size for --fit-target (default: 4096)\n");
+     if (llama_supports_rpc()) {
+@@ -541,6 +547,7 @@ static cmd_params parse_cmd_params(int argc, char ** argv) {
+     params.delay                = cmd_params_defaults.delay;
+     params.progress             = cmd_params_defaults.progress;
+     params.no_warmup            = cmd_params_defaults.no_warmup;
++    params.energy               = cmd_params_defaults.energy;
+     params.offline              = cmd_params_defaults.offline;
+ 
+     if (const char * env = getenv("HF_TOKEN")) {
+@@ -1059,6 +1066,8 @@ static cmd_params parse_cmd_params(int argc, char ** argv) {
+                 params.progress = true;
+             } else if (arg == "--no-warmup") {
+                 params.no_warmup = true;
++            } else if (arg == "--energy") {
++                params.energy = true;
+             } else if (arg == "-fitt" || arg == "--fit-target") {
+                 if (++i >= argc) {
+                     invalid_param = true;
+@@ -1513,6 +1522,10 @@ struct test {
+     int                      n_depth;
+     std::string              test_time;
+     std::vector<uint64_t>    samples_ns;
++    std::vector<double>      samples_cpu_j, samples_gpu_j;  // --energy: joules per repetition
++
++    static bool              energy_on;
++    static bool              energy_cpu, energy_gpu;  // counters exist on this host
+ 
+     test(const cmd_params_instance & inst, const llama_model * lmodel, const llama_context * ctx) :
+         cpu_info(get_cpu_info()),
+@@ -1611,7 +1624,37 @@ struct test {
+             "n_prompt",       "n_gen",          "n_depth",
+             "test_time",      "avg_ns",         "stddev_ns",     "avg_ts",         "stddev_ts"
+         };
+-        return fields;
++        static const std::vector<std::string> fields_energy = [] {
++            std::vector<std::string> f = fields;
++            for (const char * e : { "cpu_joules", "gpu_joules", "tokens_per_joule" }) {
++                f.emplace_back(e);
++            }
++            return f;
++        }();
++        return energy_on ? fields_energy : fields;
++    }
++
++    // "unavailable" when the host has no counter or it did not advance (virtualized RAPL reads 0)
++    static std::string joules_str(const std::vector<double> & j, bool have) {
++        const double a = j.empty() ? 0.0 : ::avg(j);
++        if (!have || !(a > 0.0)) {
++            return "unavailable";
++        }
++        char buf[32];
++        snprintf(buf, sizeof buf, "%.3f", a);
++        return buf;
++    }
++
++    std::string tokens_per_joule_str() const {
++        const bool   c = energy_cpu && !samples_cpu_j.empty() && ::avg(samples_cpu_j) > 0.0;
++        const bool   g = energy_gpu && !samples_gpu_j.empty() && ::avg(samples_gpu_j) > 0.0;
++        if (!c && !g) {
++            return "unavailable";
++        }
++        const double j = (c ? ::avg(samples_cpu_j) : 0.0) + (g ? ::avg(samples_gpu_j) : 0.0);
++        char buf[32];
++        snprintf(buf, sizeof buf, "%.3f", (n_prompt + n_gen) / j);
++        return buf;
+     }
+ 
+     enum field_type { STRING, BOOL, INT, FLOAT };
+@@ -1716,6 +1759,11 @@ struct test {
+                                             std::to_string(stdev_ns()),
+                                             std::to_string(avg_ts()),
+                                             std::to_string(stdev_ts()) };
++        if (energy_on) {
++            values.push_back(joules_str(samples_cpu_j, energy_cpu));
++            values.push_back(joules_str(samples_gpu_j, energy_gpu));
++            values.push_back(tokens_per_joule_str());
++        }
+         return values;
+     }
+ 
+@@ -1730,6 +1778,9 @@ struct test {
+ };
+ 
+ const std::string test::build_commit = llama_commit();
++bool test::energy_on = false;
++bool test::energy_cpu = false;
++bool test::energy_gpu = false;
+ const int         test::build_number = llama_build_number();
+ 
+ struct printer {
+@@ -1860,6 +1911,9 @@ struct markdown_printer : public printer {
+         if (field == "t/s") {
+             return 20;
+         }
++        if (field == "tokens_per_joule") {
++            return 11;
++        }
+         if (field == "size" || field == "params") {
+             return 10;
+         }
+@@ -1957,6 +2011,9 @@ struct markdown_printer : public printer {
+         if (field == "fit_min_ctx") {
+             return "fitc";
+         }
++        if (field == "tokens_per_joule") {
++            return "tok/J";
++        }
+         return field;
+     }
+ 
+@@ -2046,6 +2103,9 @@ struct markdown_printer : public printer {
+         }
+         fields.emplace_back("test");
+         fields.emplace_back("t/s");
++        if (test::energy_on) {
++            fields.emplace_back("tokens_per_joule");
++        }
+ 
+         fprintf(fout, "|");
+         for (const auto & field : fields) {
+@@ -2275,6 +2335,15 @@ int llama_bench(int argc, char ** argv) {
+ 
+     cmd_params params = parse_cmd_params(argc, argv);
+ 
++    kurn_energy_meter meter;
++    if (params.energy) {
++        meter.init();
++        test::energy_on  = true;
++        test::energy_cpu = meter.cpu_ok();
++        test::energy_gpu = meter.gpu_ok();
++        fprintf(stderr, "llama-bench: energy: %s\n", meter.describe().c_str());
++    }
++
+     auto * cpu_dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
+     if (!cpu_dev) {
+         fprintf(stderr, "%s: error: CPU backend is not loaded\n", __func__);
+@@ -2483,6 +2552,8 @@ int llama_bench(int argc, char ** argv) {
+                 }
+             }
+ 
++            const double j_cpu0 = test::energy_on && meter.cpu_ok() ? meter.cpu_joules() : 0.0;
++            const double j_gpu0 = test::energy_on && meter.gpu_ok() ? meter.gpu_joules() : 0.0;
+             uint64_t t_start = get_time_ns();
+ 
+             if (t.n_prompt > 0) {
+@@ -2514,12 +2585,28 @@ int llama_bench(int argc, char ** argv) {
+ 
+             uint64_t t_ns = get_time_ns() - t_start;
+             t.samples_ns.push_back(t_ns);
++            if (test::energy_on) {
++                t.samples_cpu_j.push_back(meter.cpu_ok() ? meter.cpu_joules() - j_cpu0 : 0.0);
++                t.samples_gpu_j.push_back(meter.gpu_ok() ? meter.gpu_joules() - j_gpu0 : 0.0);
++            }
+         }
+ 
+         if (p) {
+             p->print_test(t);
+             fflush(p->fout);
+         }
++        fprintf(stderr, "llama-bench: kurn mem: %s\n", ggml_kurn_mem_summary());
++        if (test::energy_on) {
++            static bool warned = false;
++            const double tsum = std::accumulate(t.samples_ns.begin(), t.samples_ns.end(), 0.0) * 1e-9;
++            const bool   cpu0 = test::energy_cpu && !t.samples_cpu_j.empty() && !(::avg(t.samples_cpu_j) > 0.0);
++            const bool   gpu0 = test::energy_gpu && !t.samples_gpu_j.empty() && !(::avg(t.samples_gpu_j) > 0.0);
++            if ((cpu0 || gpu0) && tsum > 0.05 && !warned) {
++                warned = true;
++                fprintf(stderr, "llama-bench: energy: %s counter did not advance over %.2f s (virtualized RAPL reads 0): "
++                        "reported as unavailable\n", cpu0 ? "cpu" : "gpu", tsum);
++            }
++        }
+ 
+         if (p_err) {
+             p_err->print_test(t);
