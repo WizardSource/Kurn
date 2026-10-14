@@ -280,6 +280,11 @@ class WidthPolicy:
     def observe(self, probs, n_accepted, step_ms, n_tokens):
         """probs: draft-confidence of the verified draft tokens (None entries allowed), n_accepted of them
         accepted; the step took step_ms and committed n_tokens."""
+        self.observe_acc(probs, n_accepted)
+        self.observe_time(step_ms, n_tokens)
+
+    def observe_acc(self, probs, n_accepted):
+        """Acceptance feedback only (empty probs: a step this arm did not draft)."""
         k = len(probs)
         self.idle = 0 if k else self.idle + 1
         d = self.decay
@@ -296,8 +301,86 @@ class WidthPolicy:
                 b = _bin(probs[i])
                 self.bs[b] += ok
                 self.bn[b] += 1.0
+
+    def observe_time(self, step_ms, n_tokens):
+        """Throughput feedback only."""
         self.lam_num = self.lam_decay * self.lam_num + n_tokens
         self.lam_den = self.lam_decay * self.lam_den + step_ms
+
+    def value_at(self, k, draft_ms):
+        """Value of drafting k tokens at the global acceptance rate; k = 0 is not drafting."""
+        lam, a, s, r = self.lam(), self.alpha(), 0.0, 1.0
+        for _ in range(k):
+            r *= a
+            s += r
+        return s - lam * (self.t.verify(k + 1) + k * draft_ms)
+
+    def best_value(self):
+        best = self.value_at(0, self.draft_ms)
+        for k in range(1, self.k_max + 1):
+            best = max(best, self.value_at(k, self.draft_ms))
+        return best
+
+
+class ArmSelector:
+    """Retrieval drafts (n-gram / trajectory lookup: ~no draft time, no confidences) vs a draft model,
+    chosen per step by the same objective, with one shared throughput estimate. Mirrors
+    kurn::arm_selector in kurn-spec-width.h exactly."""
+
+    NONE, RETRIEVAL, MODEL = 0, 1, 2
+
+    def __init__(self, table, k_max_model, k_max_retr, has_model, has_retr, retr_alpha0=0.5, retr_ms=0.0):
+        self.has_model, self.has_retr, self.retr_ms = has_model, has_retr, retr_ms
+        self.model = WidthPolicy(table, k_max=k_max_model)
+        self.retr = WidthPolicy(CostTable(table.verify_ms), k_max=k_max_retr, alpha0=retr_alpha0, use_conf=False)
+
+    def lam(self):
+        return self.model.lam()
+
+    def model_value(self):
+        return self.model.best_value() if self.has_model else self.model.value_at(0, 0.0)
+
+    def take_retrieval(self, L):
+        """Prefix length of an L-token lookup candidate worth verifying; 0 rejects it."""
+        if not self.has_retr or L <= 0:
+            return 0
+        best_k, best = 0, self.retr.value_at(0, self.retr_ms)
+        for k in range(1, min(L, self.retr.k_max) + 1):
+            v = self.retr.value_at(k, self.retr_ms)
+            if v > best + 1e-9:
+                best_k, best = k, v
+        if best_k == 0:
+            return 1 if self.retr.idle + 1 >= self.retr.probe_every else 0
+        return best_k if best + 1e-9 >= self.model_value() else 0
+
+    def allow_model(self, catchup_ms=0.0, horizon_tokens=-1):
+        """Draft with the model this step? catchup_ms (lazy sync) is paid once and weighed against the gain over
+        the remaining horizon_tokens (<= 0: unknown, catch-up ignored); probes only when catch-up is < 1 token."""
+        if not self.has_model:
+            return False
+        none = self.model.value_at(0, 0.0)
+        kb, vb = 0, none
+        for k in range(1, self.model.k_max + 1):
+            v = self.model.value_at(k, self.model.t.draft_step())
+            if v > vb + 1e-9:
+                kb, vb = k, v
+        cost = self.lam() * catchup_ms if horizon_tokens > 0 else 0.0
+        steps = 1e9
+        if horizon_tokens > 0:
+            e, r = 1.0, 1.0
+            for _ in range(kb):
+                r *= self.model.alpha()
+                e += r
+            steps = horizon_tokens / e
+        if (vb - none) * steps > cost + 1e-9:
+            return True
+        return self.model.idle + 1 >= self.model.probe_every and cost <= 1.0
+
+    def observe(self, used, probs, n_accepted, step_ms, n_tokens):
+        self.model.observe_acc(probs if used == self.MODEL else [], n_accepted if used == self.MODEL else 0)
+        self.retr.observe_acc(probs if used == self.RETRIEVAL else [], n_accepted if used == self.RETRIEVAL else 0)
+        self.model.observe_time(step_ms, n_tokens)
+        self.retr.observe_time(step_ms, n_tokens)
 
 
 # --------------------------------------------------------------------------- trace replay
