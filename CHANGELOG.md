@@ -55,6 +55,14 @@ All notable changes to this project are documented here. The format follows
     tile (`--corrupt 1`, `--lambda`).
 - Rendered as "Fused epilogues and wide verify (ablations)" in report.md and the kit v2 report.
 
+### Added: fused FFN gate + up + SwiGLU on KURN weights
+- `ggml_kurn_fused_mul_mat`, hooked into ggml-cpu's graph fusion by `apply.sh`: one activation quantization, one row
+  schedule for both weights, SwiGLU applied to thread-local row tiles; gate and up never reach memory.
+- Bit-identical to the unfused graph, exact mode included (`test_kurn_buft fused`, whole-model logits).
+- Qwen3-8B Q8_0 block graph, paired CI: prefill (512 columns) -4.6%, decode -1.8%; `GGML_KURN_FUSE=0` turns it off.
+- `test_kurn_buft freivalds`: bigVerify-style Freivalds oracle for KL-mode (AMX-BF16) kernels, test-only.
+- `tools/blockbench.c`, `tools/logits_dump.cpp`, `GGML_OPPROF=2`, `benchmarks/v0.3/matmul-opt/`.
+
 ### Added: RSI build - retrieval drafts in the verify selector, speculative probabilities, replay primitives
 - `integration/llama.cpp/rsi/` (`apply.sh`, `llama-rsi.patch`, `kurn-replay.h`, `rsi_check.py`):
   - n-gram / trajectory retrieval drafts and the draft model are two arms of the cost-aware selector

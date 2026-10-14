@@ -6,6 +6,7 @@
 # - generates kurn attention kernels (gen_ggml_attn.py; $ATTN_CONFIG = its --config) and makes kurn
 #   attention the first FLASH_ATTN_EXT implementation (kurn-attn.cpp, ggml's kernel as fallback)
 # - registers the buffer type first in ggml-cpu's extra buffer list and adds the sources to CMake
+# - hooks fused MUL_MAT groups (ffn gate + up + SwiGLU) into ggml-cpu's graph fusion (ggml_cpu_try_fuse_ops)
 # Re-running regenerates the kernels (e.g. with a new --config); the edits are idempotent.
 # --patch writes `git diff` of the checkout (relative to its HEAD) to OUT.patch.
 # Needs a Python with kurn importable: $KURN_PYTHON (default: /opt/kenv/bin/python, else python3),
@@ -75,6 +76,34 @@ if "kurn-attn.h" not in s:
     assert s.count(anchor) == 1, "flash_attn_ext entry point not found"
     s = s.replace(anchor, anchor + "    // kurn attention first (kurn/integration/llama.cpp); ggml below for what it does not take\n"
                   "    if (ggml_kurn_flash_attn_ext(params, dst)) {\n        return;\n    }\n", 1)
+    open(p, "w").write(s)
+p = f"{L}/ggml/src/ggml-cpu/ggml-cpu.c"
+s = open(p).read()
+if "ggml_kurn_fused_mul_mat" not in s:
+    inc = '#include "ggml-cpu-impl.h"\n'
+    assert inc in s, "ggml-cpu.c include anchor not found"
+    s = s.replace(inc, inc + '#include "kurn/kurn-buft.h"\n', 1)
+    anchor = "    struct ggml_tensor * node = cgraph->nodes[node_n];\n\n    if (node->op == GGML_OP_RMS_NORM) {\n"
+    assert s.count(anchor) == 1, "ggml_cpu_try_fuse_ops anchor not found"
+    s = s.replace(anchor, """    struct ggml_tensor * node = cgraph->nodes[node_n];
+
+    // kurn: ffn gate + up + SwiGLU as one op on KURN weights (kurn/integration/llama.cpp)
+    if (node->op == GGML_OP_MUL_MAT && node_n + 2 < cgraph->n_nodes) {
+        struct ggml_tensor * up  = cgraph->nodes[node_n + 1];
+        struct ggml_tensor * glu = cgraph->nodes[node_n + 2];
+        if (up->op == GGML_OP_MUL_MAT && up->src[1] == node->src[1] && glu->op == GGML_OP_GLU &&
+            ggml_get_glu_op(glu) == GGML_GLU_OP_SWIGLU && glu->src[0] == node && glu->src[1] == up &&
+            (up->flags & GGML_TENSOR_FLAG_COMPUTE) && (glu->flags & GGML_TENSOR_FLAG_COMPUTE) &&
+            ggml_node_has_n_uses(cgraph, node_n, 1) && ggml_node_has_n_uses(cgraph, node_n + 1, 1)) {
+            struct ggml_tensor * ops[2] = { node, up };
+            if (ggml_kurn_fused_mul_mat(params, ops, 2, glu)) {
+                return 2;
+            }
+        }
+    }
+
+    if (node->op == GGML_OP_RMS_NORM) {
+""", 1)
     open(p, "w").write(s)
 EOF
 if [ -n "$PATCH" ]; then

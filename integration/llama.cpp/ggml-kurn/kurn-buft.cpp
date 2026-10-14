@@ -44,6 +44,7 @@
 #include "traits.h"
 #include "kurn_dispatch.h"
 #include "kurn-native-vfy.h"
+#include "vec.h"
 
 #include <immintrin.h>
 #include <x86intrin.h>
@@ -810,6 +811,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
 #endif
     ggml_type ntype = GGML_TYPE_COUNT;  // native-layout weight (k == nullptr): ggml blocks, ggml vec_dot below amx_min
     int64_t ralign = 16, rpass = 64;    // row granularity for row_chunks
+    int64_t nrows = 1;                  // weight rows (ne[1]); Y's column stride can differ in fused ops
 
     bool use_bf16(int64_t M) const {
 #if KURN_HAVE_AMX
@@ -900,7 +902,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         GGML_UNUSED(nc);
         // prefill: row chunks that stay in L2 while every column group passes over them
         static const int64_t chunk_bytes = (int64_t) env_int("GGML_KURN_CHUNK_KB", 1024) * 1024;
-        const int64_t row_bytes = std::max<int64_t>(1, (int64_t) (stride / (size_t) N));
+        const int64_t row_bytes = std::max<int64_t>(1, (int64_t) (stride / (size_t) nrows));
         int64_t chunk = std::max<int64_t>(64, chunk_bytes / row_bytes);
         chunk = (chunk + 63) / 64 * 64;
         for (int64_t a = r0; a < r1; a += chunk) {
@@ -1226,6 +1228,228 @@ struct tensor_traits : ggml::cpu::tensor_traits {
 };
 
 // ------------------------------------------------------------------------------------------
+// Fused MUL_MAT groups: G weights applied to the same activations (ffn gate + up, attention q + k + v) as one
+// op. The activations are quantized / converted once, and one row schedule (row_chunks over the G weights'
+// rows laid end to end) feeds every thread, so the group pays one tail and one set of barriers instead of G.
+// With a SwiGLU node (gate, up -> silu(gate) * up), each chunk computes the same rows of gate and up into
+// thread-local tiles and writes only the SwiGLU result, with ggml's own ggml_vec_swiglu_f32: gate and up never
+// reach memory and the GLU op disappears. Every row is computed by the same kernel and arithmetic as the
+// unfused op (chunks are whole records, SwiGLU spans multiples of 16), so outputs are bit-identical to the
+// unfused graph, in exact mode too. GGML_KURN_FUSE=0 turns fusion off.
+ggml_backend_buffer_type_t kurn_buft();
+
+bool fuse_enabled() {
+    static const bool v = env_int("GGML_KURN_FUSE", 1) != 0;
+    return v;
+}
+
+enum kurn_path { KP_K, KP_BF16, KP_NATIVE };
+
+// traits of a MUL_MAT that the KURN buffer would compute (mirrors supports_op), else nullptr
+tensor_traits * kurn_traits_of(const ggml_tensor * op) {
+    if (!op || op->op != GGML_OP_MUL_MAT) {
+        return nullptr;
+    }
+    const ggml_tensor * w = op->src[0];
+    const ggml_tensor * x = op->src[1];
+    if (!w->buffer || w->buffer->buft != kurn_buft() || !w->extra || !ggml_is_contiguous(w) || w->ne[2] != 1 ||
+        x->type != GGML_TYPE_F32 || op->type != GGML_TYPE_F32 || !ggml_is_contiguous(op) || !ggml_is_contiguous(x)) {
+        return nullptr;
+    }
+    if (x->buffer && !ggml_backend_buft_is_host(x->buffer->buft)) {
+        return nullptr;
+    }
+    return (tensor_traits *) w->extra;
+}
+
+kurn_path path_of(const tensor_traits * t, int64_t M) {
+    if (t->use_bf16(M)) {
+        return KP_BF16;
+    }
+    return t->k ? KP_K : KP_NATIVE;
+}
+
+// same activation prep and the same row granularity for every member
+bool group_compatible(const tensor_traits * a, const tensor_traits * b, int64_t M) {
+    const kurn_path p = path_of(a, M);
+    if (path_of(b, M) != p) {
+        return false;
+    }
+    switch (p) {
+        case KP_K: return a->k == b->k;
+#if KURN_HAVE_AMX
+        case KP_BF16: return a->bpack == b->bpack && a->balign == b->balign && a->bkalign == b->bkalign;
+#else
+        case KP_BF16: return false;
+#endif
+        case KP_NATIVE: return a->ntype == b->ntype;
+    }
+    return false;
+}
+
+bool fused_group(ggml_compute_params * params, ggml_tensor ** ops, int G, ggml_tensor * glu) {
+    constexpr int GMAX = 4;
+    if (!fuse_enabled() || G < 2 || G > GMAX) {
+        return false;
+    }
+    tensor_traits * tt[GMAX];
+    const ggml_tensor * src1 = ops[0]->src[1];
+    const int64_t K = ops[0]->src[0]->ne[0], M = ggml_nrows(src1);
+    for (int g = 0; g < G; g++) {
+        tt[g] = kurn_traits_of(ops[g]);
+        if (!tt[g] || ops[g]->src[1] != src1 || ops[g]->src[0]->ne[0] != K || !group_compatible(tt[0], tt[g], M)) {
+            return false;
+        }
+    }
+    if (glu) {
+        if (G != 2 || ops[0]->src[0]->ne[1] != ops[1]->src[0]->ne[1] || !ggml_is_contiguous(glu) || glu->type != GGML_TYPE_F32 ||
+            ggml_nrows(glu) != M || glu->ne[0] != ops[0]->src[0]->ne[1]) {
+            return false;
+        }
+    }
+    const tensor_traits & t0 = *tt[0];
+    const kurn_path path = path_of(&t0, M);
+    const int ith = params->ith, nth = params->nth;
+    const int64_t ne11 = src1->ne[1], ne12 = src1->ne[2];
+
+    // activation prep, as in mul_mat / mul_mat_bf16 / mul_mat_native
+    char * wq = tensor_traits::align64(params->wdata);
+    size_t xrow = 0;
+    float * dx = nullptr;
+    int32_t * nc = nullptr;
+    void * xw = nullptr;
+    const uint16_t * A = nullptr;
+    int64_t align = t0.ralign, pass = t0.rpass;
+    if (path == KP_BF16) {
+#if KURN_HAVE_AMX
+        const int64_t Mp = (M + 31) / 32 * 32;
+        uint16_t * Aw = (uint16_t *) wq;
+        for (int64_t c = Mp * ith / nth; c < Mp * (ith + 1) / nth; c++) {
+            uint16_t * dst = Aw + c * K;
+            if (c >= M) {
+                memset(dst, 0, (size_t) K * 2);
+                continue;
+            }
+            const int64_t i11 = c % ne11, i12 = (c / ne11) % ne12, i13 = c / (ne11 * ne12);
+            const float * src = (const float *) ((const char *) src1->data + i11 * src1->nb[1] + i12 * src1->nb[2] + i13 * src1->nb[3]);
+            int64_t k = 0;
+            for (; k + 32 <= K; k += 32) {
+                _mm512_storeu_si512((__m512i *) (dst + k),
+                                    (__m512i) _mm512_cvtne2ps_pbh(_mm512_loadu_ps(src + k + 16), _mm512_loadu_ps(src + k)));
+            }
+            for (; k < K; k++) {
+                dst[k] = (uint16_t) ((__m128i) _mm_cvtneps_pbh(_mm_set1_ps(src[k])))[0];
+            }
+        }
+        A = Aw;
+        static const int64_t bpass = env_int("GGML_KURN_BF16_PASS", 64);
+        align = t0.balign;
+        pass = std::max(t0.balign, bpass / t0.balign * t0.balign);
+#endif
+    } else if (path == KP_K) {
+        const ggml_type vdt = (ggml_type) t0.k->vec_dot_type;
+        xrow = ggml_row_size(vdt, K);
+        dx = (float *) tensor_traits::align64(wq + xrow * M);
+        nc = (int32_t *) (dx + M * (K / 32));
+        static const bool use_xprep = env_int("GGML_KURN_XPREP", 1) != 0;
+        xw = t0.k->xprep && use_xprep ? tensor_traits::align64((char *) dx + t0.amx_bytes(M, K)) : nullptr;
+        t0.quantize_rows(params, src1, ggml_get_type_traits_cpu(vdt)->from_float, wq, xrow, xw);
+        align = t0.k->row_align;
+        pass = t0.k->row_pass;
+    } else {
+        const ggml_type vdt = ggml_get_type_traits_cpu(t0.ntype)->vec_dot_type;
+        xrow = ggml_row_size(vdt, K);
+        for (int64_t c = M * ith / nth; c < M * (ith + 1) / nth; c++) {
+            const int64_t i11 = c % ne11, i12 = (c / ne11) % ne12, i13 = c / (ne11 * ne12);
+            const float * src = (const float *) ((const char *) src1->data + i11 * src1->nb[1] + i12 * src1->nb[2] + i13 * src1->nb[3]);
+            ggml_get_type_traits_cpu(vdt)->from_float(src, wq + c * xrow, K);
+        }
+    }
+    if (ith == 0) {
+        ggml_threadpool_chunk_set(params->threadpool, nth);
+    }
+    ggml_barrier(params->threadpool);
+    if (path == KP_K && t0.use_amx(M)) {
+        t0.prep(params, wq, xrow, M, K, dx, nc);
+        ggml_barrier(params->threadpool);
+    }
+    const tensor_traits::xprep_ref xr = { xw, M, 0 };
+
+    // rows [r0, r1) of member g into Y (column stride ld; Y + m * ld + n for n in [r0, r1))
+    auto rows = [&](int g, float * Y, int64_t ld, int64_t r0, int64_t r1) {
+        const tensor_traits & t = *tt[g];
+        switch (path) {
+            case KP_BF16:
+#if KURN_HAVE_AMX
+                amx_bf16_gemm(t.data[0], t.bpack, t.balign, t.bkalign, A, M, Y, K, ld, r0, r1);
+#endif
+                break;
+            case KP_K:
+                t.run(0, wq, xrow, Y, K, ld, M, r0, r1, xr, dx, nc);
+                break;
+            case KP_NATIVE: {
+                const size_t wrow = ggml_row_size(t.ntype, K);
+                const char * W = (const char *) t.data[0];
+                static const bool own = env_int("GGML_KURN_NATIVE_VFY", 1) != 0;
+                if (own && kurn_native_vfy(t.ntype, W, wrow, wq, xrow, Y, K, ld, M, r0, r1)) {
+                    break;
+                }
+                const ggml_type_traits_cpu * tc = ggml_get_type_traits_cpu(t.ntype);
+                for (int64_t n = r0; n < r1; n++) {
+                    for (int64_t m = 0; m < M; m++) {
+                        tc->vec_dot((int) K, Y + m * ld + n, 0, W + n * wrow, 0, wq + m * xrow, 0, 1);
+                    }
+                }
+                break;
+            }
+        }
+    };
+
+    int64_t base[GMAX + 1];
+    base[0] = 0;
+    for (int g = 0; g < G; g++) {
+        base[g + 1] = base[g] + (glu && g > 0 ? 0 : ops[g]->src[0]->ne[1]);
+    }
+    const int64_t V = base[G];
+    const row_chunks rc(V, align, pass, nth);
+    // SwiGLU: gate and up rows of a chunk go through thread-local tiles of at most ~256 KB each
+    const int64_t sub = M <= KURN_VFY_MAX ? V : std::max(pass, (65536 / M) / pass * pass);
+    static thread_local std::vector<float> tbuf;
+    if (glu) {
+        const size_t need = (size_t) 2 * M * (size_t) std::min(sub, V) + 32;
+        if (tbuf.size() < need) {
+            tbuf.resize(need);
+        }
+    }
+    for (int64_t c = ith; c < rc.n; c = rc.n > nth ? ggml_threadpool_chunk_add(params->threadpool, 1) : rc.n) {
+        int64_t v0, v1;
+        rc.range(V, c, v0, v1);
+        if (glu) {
+            float * Yo = (float *) glu->data;
+            const int64_t N = glu->ne[0];
+            for (int64_t s0 = v0; s0 < v1; s0 += sub) {
+                const int64_t s1 = std::min(v1, s0 + sub), ld = s1 - s0;
+                float * tg = tbuf.data();
+                float * tu = tg + M * ld;
+                rows(0, tg - s0, ld, s0, s1);
+                rows(1, tu - s0, ld, s0, s1);
+                for (int64_t m = 0; m < M; m++) {
+                    ggml_vec_swiglu_f32((int) ld, Yo + m * N + s0, tg + m * ld, tu + m * ld);
+                }
+            }
+            continue;
+        }
+        for (int g = 0; g < G; g++) {
+            const int64_t a = std::max(v0, base[g]), b = std::min(v1, base[g + 1]);
+            if (a < b) {
+                rows(g, (float *) ops[g]->data, ops[g]->src[0]->ne[1], a - base[g], b - base[g]);
+            }
+        }
+    }
+    return true;
+}
+
+// ------------------------------------------------------------------------------------------
 struct buffer_ctx {
     ggml_backend_buffer_t inner;
     std::vector<std::unique_ptr<tensor_traits>> traits;
@@ -1255,6 +1479,7 @@ enum ggml_status buf_init_tensor(ggml_backend_buffer_t b, ggml_tensor * t) {
             auto tt = std::make_unique<tensor_traits>();
             tt->ntype = t->type;
             tt->stride = ggml_nbytes(t);
+            tt->nrows = t->ne[1];
             tt->balign = 16;
             if (!exact_matmuls()) {
                 tt->bpack = t->type == GGML_TYPE_Q6_K ? pack_bf16_native<deq_block_q6_K, sizeof(block_q6_K_n)>
@@ -1276,6 +1501,7 @@ enum ggml_status buf_init_tensor(ggml_backend_buffer_t b, ggml_tensor * t) {
     auto tt = std::make_unique<tensor_traits>();
     tt->k = k;
     tt->stride = expert_bytes(k, t);
+    tt->nrows = t->ne[1];
     tt->ralign = k->row_align;
     tt->rpass = k->row_pass;
 #if KURN_HAVE_AMX
@@ -1426,6 +1652,14 @@ ggml_backend_buffer_type_t kurn_buft() {
 
 }  // namespace
 
+bool ggml_kurn_fused_mul_mat(const struct ggml_compute_params * params, struct ggml_tensor ** ops, int n_ops,
+                             struct ggml_tensor * glu) {
+    if (!ggml_backend_cpu_kurn_buffer_type()) {
+        return false;
+    }
+    return fused_group((ggml_compute_params *) params, ops, n_ops, glu);
+}
+
 ggml_backend_buffer_type_t ggml_backend_cpu_kurn_buffer_type(void) {
     static const bool enabled = [] {
         if (env_int("GGML_KURN", 1) == 0) {
@@ -1444,6 +1678,10 @@ ggml_backend_buffer_type_t ggml_backend_cpu_kurn_buffer_type(void) {
 
 ggml_backend_buffer_type_t ggml_backend_cpu_kurn_buffer_type(void) {
     return nullptr;
+}
+
+bool ggml_kurn_fused_mul_mat(const struct ggml_compute_params *, struct ggml_tensor **, int, struct ggml_tensor *) {
+    return false;
 }
 
 #endif

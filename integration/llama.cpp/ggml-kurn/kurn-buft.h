@@ -11,6 +11,14 @@ extern "C" {
 // runs kurn kernels. NULL when the build lacks AVX-512 VNNI or GGML_KURN=0.
 ggml_backend_buffer_type_t ggml_backend_cpu_kurn_buffer_type(void);
 
+// Fused group of MUL_MATs on KURN weights that share src1 (ffn gate + up, attention q + k + v), computed as one
+// op; with glu (a SWIGLU of ops[0] = gate and ops[1] = up) only the SwiGLU result is written. Returns false,
+// having done nothing, when the group is not supported; every thread gets the same answer.
+struct ggml_compute_params;
+struct ggml_tensor;
+bool ggml_kurn_fused_mul_mat(const struct ggml_compute_params * params, struct ggml_tensor ** ops, int n_ops,
+                             struct ggml_tensor * glu);
+
 #ifdef __cplusplus
 }
 #endif
