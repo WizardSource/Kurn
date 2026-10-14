@@ -24,8 +24,9 @@
 // AMX-INT8, GGML_KURN_NATIVE=0 leaves Q6_K/Q5_K to ggml, GGML_KURN_BF16_ROWS / _KC / _KCH set the
 // AMX-BF16 panel rows, K chunk and guarded sub-step (128, 4096, 32 k-steps); GGML_KURN_CHUNK_KB sets
 // the verify-kernel prefill row-chunk size; GGML_KURN_CHUNKS=<n> hands rows out in n equal chunks per
-// thread (0 = one static range per thread; default: guided, see row_chunks); GGML_KURN_VERBOSE=1 logs
-// repacks, prefill paths and AMX redo counts.
+// thread (0 = one static range per thread; default: guided, see row_chunks) for prefill-sized ops, and for
+// decode-sized ones with GGML_KURN_STEAL=0 (default there: work stealing, see steal_sched); GGML_KURN_FUSE=0 turns
+// off fused MUL_MAT groups (fused_group); GGML_KURN_VERBOSE=1 logs repacks, prefill paths and AMX redo counts.
 // AMX on VMs: some KVM guests drop AMX tile data when a thread is descheduled. Every AMX step here is
 // short, timed, and recomputed from intact inputs when it took longer than a preemption-length gap
 // (GGML_KURN_AMX_GUARD, default 8192 cycles plus a per-step allowance), as kurn attention does.
@@ -257,6 +258,85 @@ struct row_chunks {
         }
         r0 = std::min(N, std::min(ng, g0) * align);
         r1 = std::min(N, std::min(ng, g1) * align);
+    }
+};
+
+// Work-stealing row schedule for decode-sized ops (1..8 columns: memory-bound GEMV and verify kernels). Each thread
+// starts on its own contiguous share of whole passes and claims work from the front of it in shrinking batches (a
+// quarter of what is left, in whole passes; single row records once less than a pass is left), so its weight
+// streams stay long. A thread whose share is done steals the back half of the unclaimed rest of the thread with
+// the most left. Ranges only shrink from the front (owner) or the back (thieves), through one 64-bit CAS on
+// (end << 32 | next). The guided row_chunks schedule hands out its last quarter in chunks of two passes, which
+// left the last thread ~60 us behind the first on 250 us Qwen3-8B decode matmuls (each thread streams at its own
+// ~15 GB/s, so the others cannot absorb the tail); finer static chunks cost bandwidth instead. Which thread
+// computes a row does not change its result. GGML_KURN_STEAL=0 restores row_chunks.
+bool steal_enabled() {
+    static const bool v = env_int("GGML_KURN_STEAL", 1) != 0;
+    return v;
+}
+
+constexpr size_t STEAL_RESERVE_SLOTS = 2;  // + n_threads slots of 64 bytes at the end of the work buffer
+
+struct alignas(64) steal_slot {
+    std::atomic<uint64_t> w;  // (end << 32) | next, in row units
+};
+
+struct steal_sched {
+    steal_slot * s;
+    int nth;
+    int64_t P;  // units per pass
+
+    steal_sched(const ggml_compute_params * p, int64_t units_per_pass)
+        : s((steal_slot *) (((uintptr_t) p->wdata + p->wsize - 64 * ((size_t) p->nth + 1)) & ~(uintptr_t) 63)),
+          nth(p->nth), P(std::max<int64_t>(1, units_per_pass)) {}
+
+    // thread ith's initial share of U units (callers barrier before next())
+    void init(int ith, int64_t U) {
+        const int64_t np = (U + P - 1) / P;
+        const int64_t u0 = std::min(U, np * ith / nth * P), u1 = std::min(U, np * (ith + 1) / nth * P);
+        s[ith].w.store(((uint64_t) u1 << 32) | (uint64_t) u0, std::memory_order_relaxed);
+    }
+
+    bool next(int ith, int64_t & u0, int64_t & u1) {
+        for (;;) {
+            uint64_t w = s[ith].w.load(std::memory_order_acquire);
+            for (;;) {
+                const int64_t n = (int64_t) (w & 0xffffffffu), e = (int64_t) (w >> 32);
+                if (n >= e) {
+                    break;
+                }
+                const int64_t rem = e - n;
+                const int64_t b = rem >= 2 * P ? std::max(P, rem / 4 / P * P) : rem >= P ? P : 1;
+                if (s[ith].w.compare_exchange_weak(w, ((uint64_t) e << 32) | (uint64_t) (n + b), std::memory_order_acq_rel)) {
+                    u0 = n;
+                    u1 = n + b;
+                    return true;
+                }
+            }
+            // steal the back half of the unclaimed rest of the thread with the most left
+            int v = -1;
+            int64_t best = 0;
+            for (int t = 0; t < nth; t++) {
+                const uint64_t x = s[t].w.load(std::memory_order_relaxed);
+                const int64_t r = (int64_t) (x >> 32) - (int64_t) (x & 0xffffffffu);
+                if (t != ith && r > best) {
+                    best = r;
+                    v = t;
+                }
+            }
+            if (v < 0) {
+                return false;
+            }
+            uint64_t x = s[v].w.load(std::memory_order_acquire);
+            const int64_t n = (int64_t) (x & 0xffffffffu), e = (int64_t) (x >> 32);
+            if (n >= e) {
+                continue;
+            }
+            const int64_t take = (e - n + 1) / 2;
+            if (s[v].w.compare_exchange_strong(x, ((uint64_t) (e - take) << 32) | (uint64_t) n, std::memory_order_acq_rel)) {
+                s[ith].w.store(((uint64_t) e << 32) | (uint64_t) (e - take), std::memory_order_release);
+            }
+        }
     }
 };
 
@@ -919,7 +999,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         return amx ? (size_t) rows * (K / 32) * 8 + 128 : 0;
     }
 
-    bool work_size(int /*n_threads*/, const ggml_tensor * op, size_t & size) override {
+    bool work_size(int n_threads, const ggml_tensor * op, size_t & size) override {
         const ggml_tensor * src0 = op->src[0];
         const ggml_tensor * src1 = op->src[1];
         const int64_t K = src0->ne[0];
@@ -932,6 +1012,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
             if (use_bf16(ggml_nrows(src1))) {
                 size = std::max(size, (size_t) ((ggml_nrows(src1) + 31) / 32 * 32) * (size_t) K * 2 + 64);
             }
+            size += 64 * ((size_t) n_threads + STEAL_RESERVE_SLOTS);  // steal_sched slots, at the end of the work buffer
             return true;
         }
         const ggml_tensor * ids = op->src[2];
@@ -1057,26 +1138,40 @@ struct tensor_traits : ggml::cpu::tensor_traits {
             const float * src = (const float *) ((const char *) src1->data + i11 * src1->nb[1] + i12 * src1->nb[2] + i13 * src1->nb[3]);
             ggml_get_type_traits_cpu(vdt)->from_float(src, wq + c * xrow, K);
         }
+        const bool steal = steal_enabled() && M <= KURN_VFY_MAX;
+        steal_sched ss(params, rpass / ralign);
+        if (steal) {
+            ss.init(params->ith, (N + ralign - 1) / ralign);
+        }
         if (params->ith == 0) {
             ggml_threadpool_chunk_set(params->threadpool, params->nth);
         }
         ggml_barrier(params->threadpool);
-        const row_chunks rc(N, ralign, rpass, params->nth);
         float * Y = (float *) op->data;
         const char * W = (const char *) data[0];
         static_assert((int) KURN_NATIVE_Q6_K == (int) GGML_TYPE_Q6_K && (int) KURN_NATIVE_Q5_K == (int) GGML_TYPE_Q5_K, "kurn-native-vfy.h type ids");
         static const bool own = env_int("GGML_KURN_NATIVE_VFY", 1) != 0;  // 0: ggml's vec_dot per row and column
-        for (int64_t c = params->ith; c < rc.n; c = rc.n > params->nth ? ggml_threadpool_chunk_add(params->threadpool, 1) : rc.n) {
-            int64_t r0, r1;
-            rc.range(N, c, r0, r1);
+        auto rows = [&](int64_t r0, int64_t r1) {
             if (own && kurn_native_vfy(ntype, W, wrow, wq, xrow, Y, K, N, M, r0, r1)) {
-                continue;
+                return;
             }
             for (int64_t n = r0; n < r1; n++) {
                 for (int64_t m = 0; m < M; m++) {
                     tt->vec_dot((int) K, Y + m * N + n, 0, W + n * wrow, 0, wq + m * xrow, 0, 1);
                 }
             }
+        };
+        if (steal) {
+            for (int64_t u0, u1; ss.next(params->ith, u0, u1);) {
+                rows(u0 * ralign, std::min(N, u1 * ralign));
+            }
+            return;
+        }
+        const row_chunks rc(N, ralign, rpass, params->nth);
+        for (int64_t c = params->ith; c < rc.n; c = rc.n > params->nth ? ggml_threadpool_chunk_add(params->threadpool, 1) : rc.n) {
+            int64_t r0, r1;
+            rc.range(N, c, r0, r1);
+            rows(r0, r1);
         }
     }
 
@@ -1105,6 +1200,11 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         const uint64_t t0 = prof ? __rdtsc() : 0;
         quantize_rows(params, src1, ggml_get_type_traits_cpu(vdt)->from_float, wq, xrow, xw);
         const xprep_ref xr = { xw, M, 0 };
+        const bool steal = steal_enabled() && M <= KURN_VFY_MAX;
+        steal_sched ss(params, k->row_pass / k->row_align);
+        if (steal) {
+            ss.init(params->ith, (N + k->row_align - 1) / k->row_align);
+        }
         if (params->ith == 0) {
             ggml_threadpool_chunk_set(params->threadpool, params->nth);
         }
@@ -1115,11 +1215,17 @@ struct tensor_traits : ggml::cpu::tensor_traits {
             prep(params, wq, xrow, M, K, dx, nc);
             ggml_barrier(params->threadpool);
         }
-        const row_chunks rc(N, k->row_align, k->row_pass, params->nth);
-        for (int64_t c = params->ith; c < rc.n; c = rc.n > params->nth ? ggml_threadpool_chunk_add(params->threadpool, 1) : rc.n) {
-            int64_t r0, r1;
-            rc.range(N, c, r0, r1);
-            run(0, wq, xrow, (float *) op->data, K, N, M, r0, r1, xr, dx, nc);
+        if (steal) {
+            for (int64_t u0, u1; ss.next(params->ith, u0, u1);) {
+                run(0, wq, xrow, (float *) op->data, K, N, M, u0 * k->row_align, std::min(N, u1 * k->row_align), xr, dx, nc);
+            }
+        } else {
+            const row_chunks rc(N, k->row_align, k->row_pass, params->nth);
+            for (int64_t c = params->ith; c < rc.n; c = rc.n > params->nth ? ggml_threadpool_chunk_add(params->threadpool, 1) : rc.n) {
+                int64_t r0, r1;
+                rc.range(N, c, r0, r1);
+                run(0, wq, xrow, (float *) op->data, K, N, M, r0, r1, xr, dx, nc);
+            }
         }
         if (prof) {
             const uint64_t t3 = __rdtsc();
@@ -1365,6 +1471,17 @@ bool fused_group(ggml_compute_params * params, ggml_tensor ** ops, int G, ggml_t
             ggml_get_type_traits_cpu(vdt)->from_float(src, wq + c * xrow, K);
         }
     }
+    int64_t base[GMAX + 1];
+    base[0] = 0;
+    for (int g = 0; g < G; g++) {
+        base[g + 1] = base[g] + (glu && g > 0 ? 0 : ops[g]->src[0]->ne[1]);
+    }
+    const int64_t V = base[G];
+    const bool steal = steal_enabled() && path != KP_BF16 && M <= KURN_VFY_MAX;
+    steal_sched ss(params, pass / align);
+    if (steal) {
+        ss.init(ith, (V + align - 1) / align);
+    }
     if (ith == 0) {
         ggml_threadpool_chunk_set(params->threadpool, nth);
     }
@@ -1405,12 +1522,6 @@ bool fused_group(ggml_compute_params * params, ggml_tensor ** ops, int G, ggml_t
         }
     };
 
-    int64_t base[GMAX + 1];
-    base[0] = 0;
-    for (int g = 0; g < G; g++) {
-        base[g + 1] = base[g] + (glu && g > 0 ? 0 : ops[g]->src[0]->ne[1]);
-    }
-    const int64_t V = base[G];
     const row_chunks rc(V, align, pass, nth);
     // SwiGLU: gate and up rows of a chunk go through thread-local tiles of at most ~256 KB each
     const int64_t sub = M <= KURN_VFY_MAX ? V : std::max(pass, (65536 / M) / pass * pass);
@@ -1421,9 +1532,22 @@ bool fused_group(ggml_compute_params * params, ggml_tensor ** ops, int G, ggml_t
             tbuf.resize(need);
         }
     }
-    for (int64_t c = ith; c < rc.n; c = rc.n > nth ? ggml_threadpool_chunk_add(params->threadpool, 1) : rc.n) {
+    for (int64_t c = ith;;) {
         int64_t v0, v1;
-        rc.range(V, c, v0, v1);
+        if (steal) {
+            int64_t u0, u1;
+            if (!ss.next(ith, u0, u1)) {
+                break;
+            }
+            v0 = u0 * align;
+            v1 = std::min(V, u1 * align);
+        } else {
+            if (c >= rc.n) {
+                break;
+            }
+            rc.range(V, c, v0, v1);
+            c = rc.n > nth ? ggml_threadpool_chunk_add(params->threadpool, 1) : rc.n;
+        }
         if (glu) {
             float * Yo = (float *) glu->data;
             const int64_t N = glu->ne[0];
@@ -1657,7 +1781,7 @@ bool ggml_kurn_fused_mul_mat(const struct ggml_compute_params * params, struct g
     if (!ggml_backend_cpu_kurn_buffer_type()) {
         return false;
     }
-    return fused_group((ggml_compute_params *) params, ops, n_ops, glu);
+    return fused_group(const_cast<ggml_compute_params *>(params), ops, n_ops, glu);
 }
 
 ggml_backend_buffer_type_t ggml_backend_cpu_kurn_buffer_type(void) {

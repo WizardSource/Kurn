@@ -55,6 +55,12 @@ All notable changes to this project are documented here. The format follows
     tile (`--corrupt 1`, `--lambda`).
 - Rendered as "Fused epilogues and wide verify (ablations)" in report.md and the kit v2 report.
 
+### Changed: work stealing for decode-sized matmuls (1-8 columns)
+- Each thread streams its own contiguous share in shrinking batches; finished threads steal the back half of the
+  unclaimed rest of the slowest thread. Same per-row arithmetic, bit-identical outputs.
+- Qwen3-8B Q8_0 `opbench`, paired CI: 1 / 4 / 8 columns -3.4% / -3.2% / -2.9%; `GGML_KURN_STEAL=0` restores the
+  guided chunks.
+
 ### Added: fused FFN gate + up + SwiGLU on KURN weights
 - `ggml_kurn_fused_mul_mat`, hooked into ggml-cpu's graph fusion by `apply.sh`: one activation quantization, one row
   schedule for both weights, SwiGLU applied to thread-local row tiles; gate and up never reach memory.

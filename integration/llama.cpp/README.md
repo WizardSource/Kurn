@@ -18,8 +18,20 @@ then `fma(float(isum), d_w * d_x, acc)` in block order), so a token's logits do 
 computed with it (batch invariance; checked by `test_kurn_buft.c`). The AMX-BF16 prefill path does not have that
 property: it rounds activations to bf16 instead of quantizing them to Q8, which is closer to f32 than ggml's own
 int8-activation dot (`test_kurn_buft bf16`), but not bit-identical to the GEMV. `GGML_KURN_EXACT=1`, or kurn
-attention's exact mode (`GGML_KURN_FA_MODE=exact`), keeps every matmul batch invariant. Rows are handed out in dynamic
-chunks through ggml's shared chunk counter.
+attention's exact mode (`GGML_KURN_FA_MODE=exact`), keeps every matmul batch invariant. Prefill-sized ops hand rows
+out in dynamic chunks through ggml's shared chunk counter.
+
+**Decode-sized ops (1-8 columns): work stealing.** These are memory-bound, and each thread streams at its own
+~15 GB/s, so a thread that finishes late is pure loss: the others cannot absorb its tail. With guided chunks the last
+thread finished ~60 us after the first on 250 us Qwen3-8B decode matmuls, and 11.7% of decode thread time was barrier
+wait after matmuls; finer static chunks cost bandwidth instead (restarted streams). Now each thread starts on its own
+contiguous share of whole GEMV passes and claims from its front in shrinking batches (a quarter of what is left, then
+single passes, then single 16-row records); a thread that runs out steals the back half of the unclaimed rest of the
+thread with the most left (one 64-bit CAS per claim or steal; slots at the end of the op's work buffer). Results do
+not depend on which thread computes a row. `opbench`, Qwen3-8B Q8_0 shapes, paired CI over 12 pairs: 1 / 4 / 8
+columns 0.966x / 0.969x / 0.971x time (CIs 0.920-0.981, 0.953-0.992, 0.957-0.984); finish spread 65 -> 32-40
+kcycles per op. Also used by the native Q6_K / Q5_K kernels and by fused groups. `GGML_KURN_STEAL=0` restores the
+guided chunks.
 
 **Formats without repacked kurn kernels (Q6_K, Q5_K).** On AMX-BF16 CPUs the buffer also takes 2D Q6_K and Q5_K
 weights, unrepacked in ggml's block layout: AMX-BF16 for 16 or more columns, and below that `kurn-native-vfy.cpp`, which
@@ -89,10 +101,11 @@ The model log shows `KURN model buffer size = ...` when weights were repacked. N
 | `GGML_KURN_Q8_BF16=0` | Q8_0 prefill on the AMX-INT8 kernel instead of AMX-BF16 |
 | `GGML_KURN_NATIVE=0` | leave Q6_K / Q5_K weights to ggml |
 | `GGML_KURN_FUSE=0` | no fused MUL_MAT groups (FFN gate + up + SwiGLU run as three nodes) |
+| `GGML_KURN_STEAL=0` | decode-sized ops (1-8 columns) use the guided row chunks below instead of work stealing |
 | `GGML_KURN_BF16_ROWS`, `_KC`, `_KCH`, `_PASS` | AMX-BF16 blocking: panel rows (128), K chunk (4096), guarded sub-step in 32-value steps (32), row-chunk granularity (64) |
 | `GGML_KURN_AMX_GUARD=N` | preemption guard threshold in TSC cycles (8192, plus 128 per k-step of the guarded step) |
 | `GGML_KURN_CHUNK_KB=N` | prefill row-chunk size in KiB (default 1024) |
-| `GGML_KURN_CHUNKS=N` | N equal row chunks per thread, handed out dynamically (0 = one static range per thread). Default: guided (each thread first streams its own contiguous 3/4 share in whole GEMV passes, the last quarter goes out in single passes); ops with fewer than 4 passes per thread use static ranges |
+| `GGML_KURN_CHUNKS=N` | prefill-sized ops (and decode-sized ones with `GGML_KURN_STEAL=0`): N equal row chunks per thread, handed out dynamically (0 = one static range per thread). Default: guided (each thread first streams its own contiguous 3/4 share in whole GEMV passes, the last quarter goes out in single passes); ops with fewer than 4 passes per thread use static ranges |
 | `GGML_KURN_FALLBACK=0` | turn off the per-tensor fallback (below); `GGML_KURN_FALLBACK_N` / `_K` set its thresholds (512 / 512) |
 | `GGML_KURN_PROFILE=1` | per-phase cycle counts of decode-sized MUL_MAT (quantize + activation prep, barrier wait, kernels, finish spread), printed at exit |
 | `GGML_KURN_XPREP=0`, `GGML_KURN_QSPLIT=1` | A/B switches: per-call activation prep instead of the shared one; activation quantization split by blocks instead of whole rows |
