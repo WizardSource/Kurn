@@ -1341,11 +1341,18 @@ struct tensor_traits : ggml::cpu::tensor_traits {
 // thread-local tiles and writes only the SwiGLU result, with ggml's own ggml_vec_swiglu_f32: gate and up never
 // reach memory and the GLU op disappears. Every row is computed by the same kernel and arithmetic as the
 // unfused op (chunks are whole records, SwiGLU spans multiples of 16), so outputs are bit-identical to the
-// unfused graph, in exact mode too. GGML_KURN_FUSE=0 turns fusion off.
+// unfused graph, in exact mode too. GGML_KURN_FUSE=0 turns fusion off, GGML_KURN_FUSE_QKV=0 only the groups without
+// a SwiGLU. llama.cpp's build_qkv emits q, k and v as consecutive nodes when wq is in the KURN buffer (apply.sh).
 ggml_backend_buffer_type_t kurn_buft();
 
 bool fuse_enabled() {
     static const bool v = env_int("GGML_KURN_FUSE", 1) != 0;
+    return v;
+}
+
+// groups without a SwiGLU (attention q + k + v); GGML_KURN_FUSE_QKV=0 keeps only the gate + up + SwiGLU fusion
+bool fuse_groups_enabled() {
+    static const bool v = env_int("GGML_KURN_FUSE_QKV", 1) != 0;
     return v;
 }
 
@@ -1395,7 +1402,7 @@ bool group_compatible(const tensor_traits * a, const tensor_traits * b, int64_t 
 
 bool fused_group(ggml_compute_params * params, ggml_tensor ** ops, int G, ggml_tensor * glu) {
     constexpr int GMAX = 4;
-    if (!fuse_enabled() || G < 2 || G > GMAX) {
+    if (!fuse_enabled() || G < 2 || G > GMAX || (!glu && !fuse_groups_enabled())) {
         return false;
     }
     tensor_traits * tt[GMAX];

@@ -55,6 +55,13 @@ fused`; whole-model logits `cmp`-identical). Qwen3-8B Q8_0 transformer-block gra
 paired CI over 10 alternating pairs): 512 columns 0.954x time (CI 0.912-0.992), 1 column 0.982x (0.941-0.993),
 8 columns 0.995x (unresolved). `GGML_KURN_FUSE=0` turns it off.
 
+**Fused attention q + k + v.** Two to four consecutive `MUL_MAT`s on the same activations also run as one op (one
+quantization, one row schedule over the weights' rows laid end to end, outputs written in place). llama.cpp emits
+q, k and v as consecutive nodes only when `apply.sh` has patched `build_qkv` (`src/llama-graph.cpp`, shared by every
+model with separate q/k/v weights), and only for weights in the KURN buffer: other backends keep llama.cpp's node
+order. Bit-identical to unfused (`test_kurn_buft fused`). Block graph, paired CI: 512 columns 0.977x (CI
+0.940-0.994); 1 and 8 columns 0.985x / 0.996x, unresolved. `GGML_KURN_FUSE_QKV=0` keeps only the gate + up fusion.
+
 The kernels come from the kurn registry: `gen_ggml_sources.py` emits one GEMV and seven verify kernels (2..8
 columns, one per exact width) per format that has an AVX-512 VNNI GEMV + verify kernel, a ggml-compatible activation type (`q8_0` /
 `q8_K`) and a `GGML_TYPE_*` in the target's `ggml.h`, plus the packing glue and the dispatch table
@@ -101,6 +108,7 @@ The model log shows `KURN model buffer size = ...` when weights were repacked. N
 | `GGML_KURN_Q8_BF16=0` | Q8_0 prefill on the AMX-INT8 kernel instead of AMX-BF16 |
 | `GGML_KURN_NATIVE=0` | leave Q6_K / Q5_K weights to ggml |
 | `GGML_KURN_FUSE=0` | no fused MUL_MAT groups (FFN gate + up + SwiGLU run as three nodes) |
+| `GGML_KURN_FUSE_QKV=0` | no q + k + v groups (gate + up + SwiGLU stays fused) |
 | `GGML_KURN_STEAL=0` | decode-sized ops (1-8 columns) use the guided row chunks below instead of work stealing |
 | `GGML_KURN_BF16_ROWS`, `_KC`, `_KCH`, `_PASS` | AMX-BF16 blocking: panel rows (128), K chunk (4096), guarded sub-step in 32-value steps (32), row-chunk granularity (64) |
 | `GGML_KURN_AMX_GUARD=N` | preemption guard threshold in TSC cycles (8192, plus 128 per k-step of the guarded step) |

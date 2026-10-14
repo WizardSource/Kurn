@@ -11,9 +11,9 @@
 //                                                     under benchlock.sh, threads pinned)
 //   test_kurn_buft bf16                             the AMX-BF16 prefill path: its error against an f32
 //                                                     reference must stay within 2x of ggml's own vec_dot
-//   test_kurn_buft fused [type,...]                 ffn gate + up + SwiGLU fused into one op: bit-identical to the
-//                                                     unfused graph (exactness from the env); KL-mode members also
-//                                                     pass the Freivalds oracle
+//   test_kurn_buft fused [type,...]                 ffn gate + up + SwiGLU and q + k + v fused into one op each:
+//                                                     bit-identical to the unfused graph (exactness from the env);
+//                                                     KL-mode gate / up also pass the Freivalds oracle
 //   test_kurn_buft freivalds                        Freivalds oracle (bigVerify-style secret-probe checksums) on
 //                                                     the AMX-BF16 path: no false alarm on real outputs, and planted
 //                                                     faults (one entry, one 16x16 tile) rejected
@@ -537,6 +537,52 @@ static void case_fused(ggml_backend_t be, enum ggml_type t, int64_t K, int64_t N
     free(wg); free(wu); free(x); free(s[0]); free(s[1]); free(gate); free(up);
 }
 
+// attention q, k, v on the same activations: graph A builds the three MUL_MATs as consecutive nodes (ggml-cpu fuses
+// them into one op), graph B puts a node between each (no fusion). All three outputs must be bit-identical.
+static void case_qkv(ggml_backend_t be, enum ggml_type t, int64_t K, int64_t Nq, int64_t Nkv, int64_t M, int threads) {
+    const size_t wrow = ggml_row_size(t, K);
+    const int64_t Ns[3] = {Nq, Nkv, Nkv};
+    void *wq[3];
+    for (int i = 0; i < 3; i++) { wq[i] = malloc(wrow * Ns[i]); quantize(t, K, Ns[i], wq[i], 0.05f - 0.01f * i); }
+    float *x = malloc(sizeof(float) * K * M);
+    for (int64_t i = 0; i < K * M; i++) x[i] = frand() * (1 + (i / 64) % 3);
+    float *out[2][3];
+    for (int v = 0; v < 2; v++) {
+        struct ggml_init_params ip = {32 * ggml_tensor_overhead() + ggml_graph_overhead(), NULL, true};
+        struct ggml_context *cw = ggml_init(ip), *ca = ggml_init(ip);
+        struct ggml_tensor *w[3], *y[3];
+        struct ggml_tensor *tx = ggml_new_tensor_2d(ca, GGML_TYPE_F32, K, M);
+        struct ggml_cgraph *gf = ggml_new_graph(ca);
+        for (int i = 0; i < 3; i++) {
+            w[i] = ggml_new_tensor_2d(cw, t, K, Ns[i]);
+            y[i] = ggml_mul_mat(ca, w[i], tx);
+            ggml_set_output(y[i]);
+            ggml_build_forward_expand(gf, y[i]);
+            if (v == 1) ggml_build_forward_expand(gf, ggml_scale(ca, y[i], 0.5f));
+        }
+        ggml_backend_buffer_t bw = ggml_backend_alloc_ctx_tensors_from_buft(cw, kurn);
+        ggml_backend_buffer_set_usage(bw, GGML_BACKEND_BUFFER_USAGE_WEIGHTS);
+        ggml_backend_buffer_t ba = ggml_backend_alloc_ctx_tensors(ca, be);
+        ggml_backend_cpu_set_n_threads(be, threads);
+        for (int i = 0; i < 3; i++) ggml_backend_tensor_set(w[i], wq[i], 0, ggml_nbytes(w[i]));
+        ggml_backend_tensor_set(tx, x, 0, ggml_nbytes(tx));
+        ggml_backend_graph_compute(be, gf);
+        for (int i = 0; i < 3; i++) {
+            out[v][i] = malloc(sizeof(float) * Ns[i] * M);
+            ggml_backend_tensor_get(y[i], out[v][i], 0, sizeof(float) * Ns[i] * M);
+        }
+        ggml_backend_buffer_free(ba); ggml_backend_buffer_free(bw); ggml_free(ca); ggml_free(cw);
+    }
+    int same = 1;
+    for (int i = 0; i < 3; i++) same &= memcmp(out[0][i], out[1][i], sizeof(float) * Ns[i] * M) == 0;
+    char what[200];
+    snprintf(what, sizeof what, "fused q+k+v %s K=%ld N=%ld+%ld+%ld M=%ld T=%d: fused %s unfused", ggml_type_name(t), (long)K,
+             (long)Nq, (long)Nkv, (long)Nkv, (long)M, threads, same ? "==" : "!=");
+    report(same, what, 0);
+    for (int i = 0; i < 3; i++) { free(wq[i]); free(out[0][i]); free(out[1][i]); }
+    free(x);
+}
+
 static int64_t kmult(enum ggml_type t) {
     const int64_t b = ggml_blck_size(t);
     return b < 32 ? 32 : b;
@@ -592,7 +638,9 @@ int main(int argc, char **argv) {
                 case_fused(be, t, t == GGML_TYPE_Q4_0 ? 2048 : 4096, 1536, ms[mi], 1 + (int)(mi * 3) % 8, kl);
             }
             case_fused(be, t, 2048, 6144, 1, 8, 0);
-            printf("%-7s %4d passed, %d failed (fused gate+up+swiglu%s)\n", ggml_type_name(t), npass - npass0, nfail - nfail0,
+            for (size_t mi = 0; mi < sizeof ms / sizeof *ms; mi += 2)
+                case_qkv(be, t, t == GGML_TYPE_Q4_0 ? 2048 : 4096, 2048, 768, ms[mi], 1 + (int)(mi * 5) % 8);
+            printf("%-7s %4d passed, %d failed (fused gate+up+swiglu, q+k+v%s)\n", ggml_type_name(t), npass - npass0, nfail - nfail0,
                    exact ? ", exact mode" : "");
         }
         printf("fused: %d passed, %d failed\n", npass, nfail);
