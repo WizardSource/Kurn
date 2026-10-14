@@ -3,7 +3,10 @@
 //   DIR/W.bin       weights, ggml blocks (N rows)
 //   DIR/X.bin       activations, f32 [M][K]
 // writes DIR/Xb.bin (ggml activation blocks from kg_xblocks), DIR/Y.bin (f32 [M][N]) and DIR/R.bin
-// (f64 [M][N], the exact reference from kurn_gpu_ref.h on W and Xb).
+// (f64 [M][N], the exact reference from kurn_gpu_ref.h on W and Xb). epi=swiglu: Y and R are [M][N/2].
+// epi=fv: the fingerprint is set up before the first run; two more clean runs and one after corrupting the first
+// prepared 16 x KT weight tile write DIR/FV.txt "blocks slots checks fails worst checks' fails'" (cumulative after the
+// clean runs, with the worst passing |C - X| / tau, then after the corrupted one).
 // Buffers end at a PROT_NONE guard page, so reads past the end crash instead of passing.
 #include <sys/mman.h>
 #include <unistd.h>
@@ -59,20 +62,45 @@ int main(int argc, char **argv) {
   float *X = (float *)guarded(x.size());
   memcpy(X, x.data(), x.size());
   const void *Wr = W;
+  void *P = nullptr;
   size_t pb = kg_prep_bytes(N, K);
   if (pb) {
-    void *P = guarded(pb);
+    P = guarded(pb);
     if (kg_prepare(W, P, N, K, nullptr)) { fprintf(stderr, "kg_prepare failed\n"); return 4; }
     Wr = P;
+  }
+  const int epi = kg_epi(), nout = epi == 1 ? N / 2 : N;
+  const int fvb = kg_fv_block();
+  if (epi == 2) {
+    std::vector<float> F;
+    std::vector<uint16_t> G2;
+    std::vector<uint32_t> sg;
+    kref_fv_fingerprint(fmt, (const uint8_t *)W, N, K, fvb, 0x5EC12E7ULL, F, G2, sg);
+    if (!P || kg_fv_setup(P, N, K, F.data(), G2.data(), sg.data(), 0x9E3779B9u, 8.f, nullptr)) {
+      fprintf(stderr, "kg_fv_setup failed\n");
+      return 4;
+    }
   }
   const int act = kg_act();
   size_t xb = kg_xbytes(K, M);
   void *Xq = act == 1 ? (void *)X : guarded(xb ? xb : 16);
   if (act != 1 && kg_quant(X, Xq, K, M, nullptr)) { fprintf(stderr, "kg_quant failed\n"); return 4; }
-  float *Y = (float *)guarded((size_t)M * N * 4);
-  memset(Y, 0xFF, (size_t)M * N * 4);  // NaN: every output must be written
+  float *Y = (float *)guarded((size_t)M * nout * 4);
+  memset(Y, 0xFF, (size_t)M * nout * 4);  // NaN: every output must be written
   if (kg_run(Wr, Xq, Y, N, K, M, nullptr)) { fprintf(stderr, "kg_run failed\n"); return 4; }
-  dump(dir + "/Y.bin", Y, (size_t)M * N * 4);
+  dump(dir + "/Y.bin", Y, (size_t)M * nout * 4);
+  if (epi == 2) {
+    unsigned st[3], st2[3];
+    std::vector<float> y2((size_t)M * N);
+    if (kg_run(Wr, Xq, y2.data(), N, K, M, nullptr) || kg_fv_status(P, N, K, st, nullptr)) return 4;
+    for (int i = 0; i < 512; i++) ((uint8_t *)P)[i] ^= 0x88;
+    if (kg_run(Wr, Xq, y2.data(), N, K, M, nullptr) || kg_fv_status(P, N, K, st2, nullptr)) return 4;
+    FILE *fv = fopen((dir + "/FV.txt").c_str(), "w");
+    float worst;
+    memcpy(&worst, &st[2], 4);
+    fprintf(fv, "%d %d %u %u %.6g %u %u\n", (N + fvb - 1) / fvb, M < 16 ? M : 16, st[0], st[1], worst, st2[0], st2[1]);
+    fclose(fv);
+  }
   std::vector<int> rows(N), cols(M);
   for (int i = 0; i < N; i++) rows[i] = i;
   for (int i = 0; i < M; i++) cols[i] = i;
@@ -88,6 +116,11 @@ int main(int argc, char **argv) {
     for (size_t i = 0; i < xh.size(); i++) xh[i] = kref_round_f16(X[i]);
     dump(dir + "/Xb.bin", xh.data(), 0);
     kref_gemm(fmt, (const uint8_t *)W, nullptr, xh.data(), N, K, M, rows, cols, ref);
+  }
+  if (epi == 1) {
+    std::vector<double> sw;
+    kref_swiglu(ref, N, M, sw);
+    ref.swap(sw);
   }
   dump(dir + "/R.bin", ref.data(), ref.size() * sizeof(double));
   return 0;

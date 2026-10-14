@@ -34,13 +34,20 @@ def default_shape(c):
         km = kmul(c)
         k = max(3 * c["bk"] + km, 2 * km)
         k = (k + km - 1) // km * km
-        return max(48, c["bm"] + 32), k, max(5, min(c["bn"] + 3, 40))
+        n = max(48, c["bm"] + 32)
+        if c.get("epi") == "swiglu":  # 2F rows, F a multiple of 16: tile pairs past F in the last CTA
+            n = max(64, c["bm"] + 32)
+        if c.get("epi") == "fv":  # two Freivalds blocks, the second partial (one CTA)
+            n = max(n, min(c["fvb"], 256) + 32)
+        return n, k, max(5, min(c["bn"] + 3, 40))
     # every lane of a row gets work, and unrolled iterations run past the end of K
     need = c["tpr"] * f["unit"] * c["unroll"] // c["sub"] * 3 // 2
     k = max(k, min(16384, need))
     blk = max(f["block"], 256 if f["act"] == "q8_K" else 32)
     k = (k + blk - 1) // blk * blk
     rows = max(2 * c["rpb"] + 3, 11) if k <= 4096 else c["rpb"] + 3
+    if c.get("epi") == "swiglu":
+        rows = 2 * rows
     return rows, k, max(1, c["cols"] + (1 if c["cols"] > 1 else 0))
 
 
@@ -63,20 +70,42 @@ def run(c, n=None, k=None, m=None, seed=0, extreme=False, keep=False, sched=0, p
         r = subprocess.run([exe, d], capture_output=True, text=True, timeout=600, env=env)
         if r.returncode:
             raise EmuError(f"emulator run failed (exit {r.returncode}): {r.stderr.strip()[-2000:]}")
+        nout = n // 2 if c.get("epi") == "swiglu" else n
         with open(os.path.join(d, "Y.bin"), "rb") as fh:
-            y = list(struct.unpack(f"<{m * n}f", fh.read()))
+            y = list(struct.unpack(f"<{m * nout}f", fh.read()))
+        fv = None
+        if c.get("epi") == "fv":
+            with open(os.path.join(d, "FV.txt")) as fh:
+                v = fh.read().split()
+            nb, slots, chk, fail, chk2, fail2 = (int(v[i]) for i in (0, 1, 2, 3, 5, 6))
+            fv = {
+                "checks": chk,
+                "fails": fail,
+                "worst": float(v[4]),
+                "expected": 2 * nb * slots,
+                "detected": fail2 - fail,
+                "checks_after": chk2,
+            }
         with open(os.path.join(d, "Xb.bin"), "rb") as fh:
             xb = fh.read()
         with open(os.path.join(d, "R.bin"), "rb") as fh:
-            rf = list(struct.unpack(f"<{m * n}d", fh.read()))
+            rf = list(struct.unpack(f"<{m * nout}d", fh.read()))
     finally:
         if not keep:
             shutil.rmtree(d, ignore_errors=True)
     quant_ok = xb == ref.act_blocks(c["weights"], x) if c["op"] == "gemv" else True  # gemm: f16 activations, no q8 blocks
     if python_ref:
         rf = ref.reference(c["weights"], W, xb, n, k, m)
+        if c.get("epi") == "swiglu":
+            rf = ref.swiglu(rf, n, m)
     err = ref.relerr(y, rf)
-    return {"relerr": err, "quant_ok": quant_ok, "ok": quant_ok and err <= TOL, "n": n, "k": k, "m": m}
+    ok = quant_ok and err <= TOL
+    out = {"relerr": err, "quant_ok": quant_ok, "n": n, "k": k, "m": m}
+    if fv is not None:  # no false alarm on the clean runs, every block checked, and the corrupted tile caught
+        fv["ok"] = fv["fails"] == 0 and fv["checks"] == fv["expected"] and fv["detected"] > 0
+        ok = ok and fv["ok"]
+        out["fv"] = fv
+    return {**out, "ok": ok}
 
 
 def verify(configs, log=print, jobs=None, extreme=True):
@@ -104,5 +133,8 @@ def verify(configs, log=print, jobs=None, extreme=True):
         fails += not ok
         worst = max(r["relerr"] for r in res)
         q = "" if all(r["quant_ok"] for r in res) else "  QUANT MISMATCH"
+        if "fv" in res[0]:
+            q += "  fv fails/checks+caught " + " ".join(f"{r['fv']['fails']}/{r['fv']['checks']}+{r['fv']['detected']}" for r in res)
+            q += f" worst={max(r['fv']['worst'] for r in res):.2g}"
         log(f"{'ok    ' if ok else 'FAIL  '} {tag}  relerr={worst:.1e}{q}  [emu]")
     return fails

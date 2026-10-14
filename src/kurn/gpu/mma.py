@@ -613,10 +613,13 @@ KURN_FN uint32_t kfsr(uint32_t lo, uint32_t hi, int sh) {{  // (hi:lo) >> sh, lo
         scale_vars = "dw0, dw1"
     del scale_vars
     xin32 = c["xin"] == "f32"
+    fvp = ", uint8_t *__restrict__ FV" if c.get("epi") == "fv" else ""
+    if fvp:
+        lines.append(f"#define FVB {c['fvb']}\n" + FV_DEFS)
     lines.append(f"""
 // A frag plane: [N/16][K/KT][32 lanes][16 B]; then {"meta records [N/16][K/256][16 rows][16 B]" if q4k else f"scale plane [N/16][K/{blk}][8][u32: row g | row g+8]"}
 static __global__ void __launch_bounds__({lb})
-kg_gemm(const uint8_t *__restrict__ W, const void *__restrict__ Xin, float *__restrict__ Y, int N, int K, int M, int ksplit) {{
+kg_gemm(const uint8_t *__restrict__ W, const void *__restrict__ Xin, float *__restrict__ Y, int N, int K, int M, int ksplit{fvp}) {{
 #ifdef KURN_EMU
   static uint8_t kg_smem_emu[SMEM_BYTES + 16] __attribute__((aligned(16)));
   uint8_t *smem = kg_smem_emu;
@@ -898,6 +901,26 @@ kg_gemm(const uint8_t *__restrict__ W, const void *__restrict__ Xin, float *__re
         )
         loop = loop.replace("    compute(ks % STAGES, ks);\n", "    compute(ks % STAGES, ks);" + shift + "\n", 1)
         lines[-1] = loop + "\n#undef KG_LOADA" + ("\n#undef KG_LOADS" if w == "tbm" else "")
+    if c.get("epi") == "swiglu":
+        lines.append(f"""  // epilogue (swiglu): packed row tiles 2j / 2j+1 are gate / up tile j (KG_SRT), so mm and mm+1 hold the gate and up
+  // dot products of the same 16 rows: Y[m * (N/2) + f] = silu(gate) * up, no split-K
+  #pragma unroll
+  for (int mm = 0; mm < {mi}; mm += 2)
+    #pragma unroll
+    for (int nn = 0; nn < {ni}; nn++)
+      #pragma unroll
+      for (int e = 0; e < 4; e++) {{
+        const int pt = n0 / 16 + wr * {mi} + mm;
+        const int row = (pt / 2) * 16 + g + 8 * (e >> 1), col = m0 + wc * {tn} + nn * 8 + 2 * t + (e & 1);
+        if (pt < N / 16 && col < M) {{
+          const float gt = acc[mm][nn][e];
+          Y[(size_t)col * (N / 2) + row] = gt / (1.f + expf(-gt)) * acc[mm + 1][nn][e];
+        }}
+      }}
+  (void)z; (void)ksplit;
+}}
+""")
+        return "".join(lines)
     lines.append(f"""  // epilogue: Y[m * N + n]; split z adds its tile after split z-1 (deterministic serial fixup)
   int *flag = &kg_flags[(blockIdx.y * gridDim.x + blockIdx.x) % {FLAG_SLOTS}];
   if (z > 0) {{
@@ -921,9 +944,244 @@ kg_gemm(const uint8_t *__restrict__ W, const void *__restrict__ Xin, float *__re
     __syncthreads();
     if (tid == 0) atomicExch(flag, z + 1 == ksplit ? 0 : z + 1);
   }}
-}}
+{fv_epilogue(c) if c.get("epi") == "fv" else ""}}}
 """)
     return "".join(lines)
+
+
+EPI_CODES = {"none": 0, "swiglu": 1, "fv": 2}
+
+
+def epi_stubs(c):
+    """kg_epi and the kg_fv_* entry points for kernels without the fused check (every kernel exports the full ABI)."""
+    return f"""int kg_epi(void) {{ return {EPI_CODES[c.get("epi", "none")]}; }}
+int kg_fv_block(void) {{ return 0; }}
+int kg_fv_setup(void *Wp, int N, int K, const float *F, const uint16_t *G2, const uint32_t *signs, uint32_t key, float lambda,
+                cudaStream_t s) {{
+  (void)Wp; (void)N; (void)K; (void)F; (void)G2; (void)signs; (void)key; (void)lambda; (void)s;
+  return -1;
+}}
+int kg_fv_status(const void *Wp, int N, int K, unsigned st[3], cudaStream_t s) {{
+  (void)Wp; (void)N; (void)K; (void)st; (void)s;
+  return -1;
+}}
+"""
+
+
+FV_INIT = r"""
+// kg_fv_setup: fingerprint, probes and parameters into the region; accumulators and counters zeroed
+static __global__ void kg_fv_init(uint8_t *__restrict__ FV, const float *__restrict__ F, const uint16_t *__restrict__ G2,
+                                  const uint32_t *__restrict__ sg, int N, int K, uint32_t key, uint32_t lam) {
+  const long i = (long)blockIdx.x * blockDim.x + threadIdx.x, nb = FV_NB(N);
+  if (i < nb * K * 2) ((float *)(FV + FV_F(N)))[i] = F[i];
+  if (i < nb * K) ((uint16_t *)(FV + FV_G2(N, K)))[i] = G2[i];
+  if (i < 2L * ((N + 31) / 32)) ((uint32_t *)(FV + FV_SG(N, K)))[i] = sg[i];
+  if (i < (long)((FV_F(N) - FV_ACC(N)) / 8)) ((double *)(FV + FV_ACC(N)))[i] = 0.0;
+  if (i < nb) ((int *)(FV + 64))[i] = 0;
+  if (i < 16) {
+    const uint32_t h[9] = {0x3156464Bu, (uint32_t)FVB, key, lam, 0u, 0u, 0u, (uint32_t)N, (uint32_t)K};
+    ((uint32_t *)FV)[i] = i < 9 ? h[i] : 0u;
+  }
+}
+"""
+
+
+def fv_abi(c, err):
+    return f"""int kg_epi(void) {{ return 2; }}
+int kg_fv_block(void) {{ return FVB; }}
+int kg_fv_setup(void *Wp, int N, int K, const float *F, const uint16_t *G2, const uint32_t *signs, uint32_t key, float lambda,
+                cudaStream_t s) {{
+  if (kg_check_shape(N, K, 1)) return -1;
+  const long nb = FV_NB(N), nacc = (long)((FV_F(N) - FV_ACC(N)) / 8), nsg = 2L * ((N + 31) / 32);
+  long n = nb * K * 2;
+  if (nacc > n) n = nacc;
+  if (nsg > n) n = nsg;
+  uint32_t lam;
+  memcpy(&lam, &lambda, 4);
+  KURN_LAUNCH(kg_fv_init, dim3((unsigned)((n + 255) / 256)), dim3(256), s, (uint8_t *)Wp + KG_FV_OFF(N, K), F, G2, signs, N, K,
+              key, lam);
+{err}
+}}
+int kg_fv_status(const void *Wp, int N, int K, unsigned st[3], cudaStream_t s) {{
+  const uint8_t *h = (const uint8_t *)Wp + KG_FV_OFF(N, K) + 16;
+#ifdef KURN_EMU
+  (void)s;
+  memcpy(st, h, 12);
+  return 0;
+#else
+  if (cudaMemcpyAsync(st, h, 12, cudaMemcpyDeviceToHost, s) != cudaSuccess) return -1;
+  return (int)cudaStreamSynchronize(s);
+#endif
+}}
+"""
+
+
+FV_DEFS = r"""
+// epi=fv region (kg_fv_setup), after the prepared weights at KG_FV_OFF(N, K), 256-byte aligned:
+//   u32 hdr[16]                 magic 'KFV1', FVB, column key, lambda (f32 bits), checks, fails, worst passing
+//                               |C - X| / tau (f32 bits), N, K
+//   i32 cnt[NB]                 CTAs done per block (the last one compares and resets)
+//   f64 acc[NB][FV_MC][2][2]    per block, column slot, probe: (sum_n r[n] Y[m][n], sum_k F[k] x[m][k])
+//   f64 s2[NB][FV_MC]           sum_k x[m][k]^2 G2[k]: the tolerance's magnitude (from trusted inputs only)
+//   f32 F[NB][K][2]             fingerprint W_b^T r_p of each block of FVB rows, both probes interleaved
+//   u16 G2[NB][K]               sum_n W[n][k]^2 over the block, bf16 rounded up
+//   u32 signs[2][(N + 31) / 32] the secret row probes r_p (bit = 1: -1)
+#define FV_MC 16
+#define FV_NB(N) (((N) + FVB - 1) / FVB)
+#define FV_ACC(N) ((64 + 4 * (size_t)FV_NB(N) + 15) / 16 * 16)
+#define FV_S2(N) (FV_ACC(N) + (size_t)FV_NB(N) * FV_MC * 32)
+#define FV_F(N) (FV_S2(N) + (size_t)FV_NB(N) * FV_MC * 8)
+#define FV_G2(N, K) (FV_F(N) + (size_t)FV_NB(N) * (K) * 8)
+#define FV_SG(N, K) ((FV_G2(N, K) + (size_t)FV_NB(N) * (K) * 2 + 15) / 16 * 16)
+#define FV_BYTES(N, K) (FV_SG(N, K) + 8 * (size_t)(((N) + 31) / 32))
+// secret column signs (bit p: probe p) that fold columns m and m + FV_MC, ... into one slot
+KURN_FN uint32_t kfv_csign(uint32_t key, int m) {
+  uint32_t x = key ^ ((uint32_t)m * 0x9E3779B9u);
+  x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15; x *= 0x846ca68bu; x ^= x >> 16;
+  return x;
+}
+"""
+
+
+def fv_epilogue(c):
+    """Fused Freivalds check (bigVerify's statistical float mode, kurn/gpu/data/kurn_gpu.h): every CTA adds its share of
+    both sides for its block of FVB output rows; the block's last CTA compares and resets."""
+    bm, bn = c["bm"], c["bn"]
+    mi, ni = bm // c["wm"] // 16, bn // c["wn"] // 8
+    tn = bn // c["wn"]
+    nt = c["wm"] * c["wn"] * 32
+    cpt = min(bn, nt)
+    red = "".join(f"\n          x0 += __shfl_xor_sync(KURN_FULL, x0, {o}); x1 += __shfl_xor_sync(KURN_FULL, x1, {o});"
+                  f" s2 += __shfl_xor_sync(KURN_FULL, s2, {o});" for o in (16, 8, 4, 2, 1) if o >= cpt)  # fmt: skip
+    if c["xin"] == "f32":
+        xside = """          const float *xr = (const float *)Xin + (size_t)m * K + k0;
+          #pragma unroll
+          for (int i = 0; i < 32; i += 4) {
+            const uint4 xv4 = kld_v4(xr + i), fa = kld_v4(Ff + 2 * (k0 + i)), fb4 = kld_v4(Ff + 2 * (k0 + i) + 4);
+            const uint2 gw = kld_v2(Fg + k0 + i);
+            const float xs[4] = {__uint_as_float(xv4.x), __uint_as_float(xv4.y), __uint_as_float(xv4.z), __uint_as_float(xv4.w)};
+            const float fs[8] = {__uint_as_float(fa.x), __uint_as_float(fa.y), __uint_as_float(fa.z), __uint_as_float(fa.w),
+                                 __uint_as_float(fb4.x), __uint_as_float(fb4.y), __uint_as_float(fb4.z), __uint_as_float(fb4.w)};
+            const uint32_t gs[2] = {gw.x, gw.y};
+            #pragma unroll
+            for (int q = 0; q < 4; q++) {
+              const float xh = KURN_H2F(KURN_F2H(xs[q]));  // the f16 rounding the MMAs see
+              const float g2 = __uint_as_float(((gs[q >> 1] >> (16 * (q & 1))) & 0xFFFFu) << 16);
+              x0 += fs[2 * q] * xh; x1 += fs[2 * q + 1] * xh; s2 += g2 * xh * xh;
+            }
+          }"""
+    else:
+        xside = """          const uint8_t *xr = (const uint8_t *)Xin + ((size_t)m * K + k0) * 2;  // slot order (kg_x16)
+          #pragma unroll
+          for (int i = 0; i < 4; i++) {
+            const uint4 hv = kld_v4(xr + 16 * i);
+            const uint32_t hw[4] = {hv.x, hv.y, hv.z, hv.w};
+            #pragma unroll
+            for (int q = 0; q < 8; q++) {
+              const int s = 8 * i + q, j = s / 16, sl = s % 16, kn = k0 + 8 * ((sl % 8) / 2) + 4 * j + (sl % 2) + 2 * (sl / 8);
+              const float xh = KURN_H2F((hw[q >> 1] >> (16 * (q & 1))) & 0xFFFFu);
+              const uint2 fw = kld_v2(Ff + 2 * kn);
+              const float g2 = __uint_as_float(kld_u16((const uint8_t *)(Fg + kn)) << 16);
+              x0 += __uint_as_float(fw.x) * xh; x1 += __uint_as_float(fw.y) * xh; s2 += g2 * xh * xh;
+            }
+          }"""
+    return f"""  {{  // fused Freivalds check: per block b of FVB output rows, column slot m % FV_MC and probe p, compare
+     // sum_n r_p[n] Y[m][n] (this CTA's accumulators) with sum_k F_b[k][p] x[m][k] (fingerprint from kg_fv_setup)
+    const uint32_t *fvh = (const uint32_t *)FV;
+    const int fb = n0 / FVB, nsw = (N + 31) / 32;
+    double *fva = (double *)(FV + FV_ACC(N)) + (size_t)fb * FV_MC * 4;
+    double *fvs = (double *)(FV + FV_S2(N)) + (size_t)fb * FV_MC;
+    const uint32_t *fsg = (const uint32_t *)(FV + FV_SG(N, K));
+    const uint32_t key = fvh[2];
+    uint32_t rs = 0u, rv = 0u;  // this lane's rows: probe signs (bit 2 * (2 mm + h) + p) and in-range bits (2 mm + h)
+    #pragma unroll
+    for (int mm = 0; mm < {mi}; mm++)
+      #pragma unroll
+      for (int h = 0; h < 2; h++) {{
+        const int row = n0 + (wr * {mi} + mm) * 16 + g + 8 * h, rb = 2 * mm + h;
+        if (row < N) {{
+          rv |= 1u << rb;
+          rs |= ((fsg[row / 32] >> (row % 32)) & 1u) << (2 * rb);
+          rs |= ((fsg[nsw + row / 32] >> (row % 32)) & 1u) << (2 * rb + 1);
+        }}
+      }}
+    #pragma unroll
+    for (int nn = 0; nn < {ni}; nn++)
+      #pragma unroll
+      for (int ec = 0; ec < 2; ec++) {{  // C side: column col, summed over this lane's rows, then over the 8 lanes sharing t
+        const int col = m0 + wc * {tn} + nn * 8 + 2 * t + ec;
+        float c0 = 0.f, c1 = 0.f;
+        #pragma unroll
+        for (int mm = 0; mm < {mi}; mm++)
+          #pragma unroll
+          for (int h = 0; h < 2; h++) {{
+            const int rb = 2 * mm + h;
+            const float v = ((rv >> rb) & 1u) ? acc[mm][nn][2 * h + ec] : 0.f;  // select: rows past N may hold NaN
+            c0 += ((rs >> (2 * rb)) & 1u) ? -v : v;
+            c1 += ((rs >> (2 * rb + 1)) & 1u) ? -v : v;
+          }}
+        if (col >= M) c0 = c1 = 0.f;  // columns past M were never staged
+        #pragma unroll
+        for (int o = 4; o < 32; o <<= 1) {{
+          c0 += __shfl_xor_sync(KURN_FULL, c0, o);
+          c1 += __shfl_xor_sync(KURN_FULL, c1, o);
+        }}
+        if (g == 0 && col < M) {{
+          const uint32_t cs = kfv_csign(key, col);
+          double *a = fva + (col % FV_MC) * 4;
+          atomicAdd(a, (double)((cs & 1u) ? -c0 : c0));
+          atomicAdd(a + 2, (double)((cs & 2u) ? -c1 : c1));
+        }}
+      }}
+    {{  // X side: CTA j of the block's nct takes every nct-th 32-value window of this split, for its BN columns
+      const int cps = FVB / BM, j = (n0 % FVB) / BM, nct = min(cps, (N + BM - 1) / BM - fb * cps);
+      const int w0 = ks0 * (BK / 32), w1 = min(ks1 * BK, K) / 32;
+      const float *Ff = (const float *)(FV + FV_F(N)) + (size_t)fb * K * 2;
+      const uint16_t *Fg = (const uint16_t *)(FV + FV_G2(N, K)) + (size_t)fb * K;
+      for (int cc = tid % {cpt}; cc < BN; cc += {cpt}) {{
+        const int m = m0 + cc;
+        float x0 = 0.f, x1 = 0.f, s2 = 0.f;
+        if (m < M) {{
+          for (int wi = j + nct * (tid / {cpt}); w0 + wi < w1; wi += nct * {nt // cpt}) {{
+            const int k0 = (w0 + wi) * 32;
+{xside}
+          }}
+        }}{red}
+        if (lane < {cpt} && m < M) {{
+          const uint32_t cs = kfv_csign(key, m);
+          double *a = fva + (m % FV_MC) * 4;
+          atomicAdd(a + 1, (double)((cs & 1u) ? -x0 : x0));
+          atomicAdd(a + 3, (double)((cs & 2u) ? -x1 : x1));
+          atomicAdd(fvs + m % FV_MC, (double)s2);
+        }}
+      }}
+      __shared__ int fvlast;
+      __threadfence();
+      __syncthreads();
+      if (tid == 0) fvlast = atomicAdd((int *)(FV + 64) + fb, 1) == nct * (int)gridDim.y * (int)gridDim.z - 1;
+      __syncthreads();
+      if (fvlast) {{  // every contribution to this block is in: compare (statistical threshold) and reset for the next call
+        __threadfence();
+        const double tau = (double)__uint_as_float(fvh[3]) * (double)K * 5.9604644775390625e-8;  // lambda K u
+        const int ns = min(M, FV_MC);
+        for (int sl = tid; sl < FV_MC; sl += NT) {{
+          volatile double *a = fva + sl * 4, *s = fvs + sl;
+          if (sl < ns) {{
+            const double tb = tau * sqrt(*s) + 1e-30;
+            const double q = fmax(fabs(a[0] - a[1]), fabs(a[2] - a[3])) / tb;
+            if (!(q <= 1.0)) atomicAdd((int *)FV + 5, 1);  // NaN fails
+            else atomicMax((int *)FV + 6, (int)__float_as_uint((float)q));  // worst passing ratio: the false-alarm margin
+          }}
+          a[0] = 0.0; a[1] = 0.0; a[2] = 0.0; a[3] = 0.0; *s = 0.0;
+        }}
+        if (tid == 0) {{
+          atomicAdd((int *)FV + 4, ns);
+          atomicExch((int *)(FV + 64) + fb, 0);
+        }}
+      }}
+    }}
+  }}
+"""
 
 
 TBM_REPACK = r"""
@@ -955,12 +1213,14 @@ static __global__ void kg_tbm_walk(const uint8_t *__restrict__ W, uint8_t *__res
   const int gi = blockIdx.x * blockDim.x + threadIdx.x, nrec = K / 256;
   if (gi >= N / 16) return;
   size_t off = (size_t)ktbm_u64(W + 64 + 8 * (size_t)gi);
+  int prt = gi;  // packed row tile of source group gi (the inverse of KG_SRT)
+  if (KG_SRT(1) != 1) prt = gi < N / 32 ? 2 * gi : 2 * (gi - N / 32) + 1;
   for (int p = 0; p < nrec; p++) {
     const uint8_t *r = W + data + off;
     int nnz = 0;
     for (int i = 0; i < 64; i++) nnz += ktbm_pc64(ktbm_u64(r + 32 + 8 * i));
-    roff[(long)gi * nrec + p] = (uint32_t)off;
-    toff[(long)gi * nrec + p] = (uint32_t)((nnz + 31) / 32);
+    roff[(long)prt * nrec + p] = (uint32_t)off;
+    toff[(long)prt * nrec + p] = (uint32_t)((nnz + 31) / 32);
     off += 545 + (size_t)(nnz + 7) / 8;
   }
 }
@@ -1041,10 +1301,18 @@ static __global__ void kg_tbm_repack(const uint8_t *__restrict__ W, uint8_t *__r
 """
 
 
+def srt_define(c):
+    """Packed row tile -> source row tile. epi=swiglu interleaves gate tile j (source rows 16j..) and up tile j (source
+    rows N/2 + 16j..) as packed tiles 2j and 2j+1, so each warp holds a matching pair."""
+    if c.get("epi") == "swiglu":
+        return "#define KG_SRT(rt) (((rt) & 1) ? N / 32 + (rt) / 2 : (rt) / 2)\n"
+    return "#define KG_SRT(rt) (rt)\n"
+
+
 def repack_kernel(c):
     w = c["weights"]
     if w == "tbm":
-        return TBM_REPACK
+        return srt_define(c) + TBM_REPACK
     e = ENGINE[w]
     f = FORMATS[w]
     fields = _fields(w)
@@ -1059,17 +1327,19 @@ def repack_kernel(c):
         """  } else if (i < na + nmeta) {  // Q4_K meta records: 16 bytes per (row tile, block, row)
     const long r = i - na;
     const int rr = (int)(r % 16), bl = (int)((r / 16) % nblk), rt = (int)(r / 16 / nblk);
-    const uint8_t *src = W + (size_t)(rt * 16 + rr) * rowb + (size_t)bl * 144;
+    const uint8_t *src = W + (size_t)(KG_SRT(rt) * 16 + rr) * rowb + (size_t)bl * 144;
     uint8_t *dst = P + (size_t)na * 4 + (size_t)r * 16;
     for (int b = 0; b < 16; b++) dst[b] = src[b];"""
         if w == "q4_K"
         else """  } else if (i < na + nmeta) {  // scale plane: u32 = d(row g) | d(row g+8) << 16
     const long r = i - na;
     const int gg = (int)(r % 8), bl = (int)((r / 8) % nblk), rt = (int)(r / 8 / nblk);
-    kst_u32(P + (size_t)na * 4 + (size_t)r * 4, kscale16(W, rowb, rt * 16 + gg, bl) | (kscale16(W, rowb, rt * 16 + gg + 8, bl) << 16));"""
+    kst_u32(P + (size_t)na * 4 + (size_t)r * 4, kscale16(W, rowb, KG_SRT(rt) * 16 + gg, bl) | (kscale16(W, rowb, KG_SRT(rt) * 16 + gg + 8, bl) << 16));"""
     )
     nmeta = "(long)(N / 16) * nblk * 16" if w == "q4_K" else "(long)(N / 16) * nblk * 8"
-    return f"""
+    return (
+        srt_define(c)
+        + f"""
 {_raw_decoder(w)}
 // (shift, width, row select, k base) of every field of word w of a lane's 16 bytes; k = k-tile start + kbase + 8t
 __constant__ signed short kfield[4][{nf}][4] = {{
@@ -1088,7 +1358,7 @@ static __global__ void kg_repack(const uint8_t *__restrict__ W, uint8_t *__restr
     for (int fi = 0; fi < {nf}; fi++) {{
       const int sh = kfield[wd][fi][0], wdt = kfield[wd][fi][1];
       if (!wdt) continue;
-      const int row = rt * 16 + g + 8 * kfield[wd][fi][2], k = kt * {e["kt"]} + kfield[wd][fi][3] + 8 * t;
+      const int row = KG_SRT(rt) * 16 + g + 8 * kfield[wd][fi][2], k = kt * {e["kt"]} + kfield[wd][fi][3] + 8 * t;
       word |= (kraw(W, rowb, row, k) & ((1u << wdt) - 1u)) << sh;
     }}
     kst_u32(P + (size_t)i * 4, word);
@@ -1096,6 +1366,7 @@ static __global__ void kg_repack(const uint8_t *__restrict__ W, uint8_t *__restr
   }}
 }}
 """
+    )
 
 
 def prep_bytes_expr(c):
@@ -1164,7 +1435,18 @@ def abi(c, cfg):
             "  KURN_LAUNCH(kg_repack, dim3((unsigned)((n + 127) / 128)), dim3(128), s, (const uint8_t *)W, (uint8_t *)Wp, N, K);"
         )
     split = str(c["splitk"]) if c["splitk"] else "kg_auto_split(N, K, M)"
-    return f"""
+    epi = c.get("epi", "none")
+    if epi == "swiglu":
+        split = "1"
+    nmul = 32 if epi == "swiglu" else 16
+    prep = prep_bytes_expr(c)
+    fv_arg = ""
+    if epi == "fv":
+        fv_arg = ", (uint8_t *)W + KG_FV_OFF(N, K)"
+        prep = "(KG_FV_OFF(N, K) + FV_BYTES(N, K))"
+    return (
+        (f"#define KG_FV_OFF(N, K) (({prep_bytes_expr(c)} + 255) / 256 * 256)\n" + FV_INIT if epi == "fv" else "")
+        + f"""
 // split-K so the grid covers the GPU about twice (each split gets >= 2 k-steps), at most 16
 static int kg_auto_split(int N, int K, int M) {{
   const long tiles = (long)((N + BM - 1) / BM) * ((M + BN - 1) / BN);
@@ -1178,8 +1460,8 @@ static int kg_auto_split(int N, int K, int M) {{
 extern "C" {{
 const char *kg_config(void) {{ return "{cfg}"; }}
 int kg_act(void) {{ return {2 if f16in else 1}; }}  // 1: kg_run reads f32 X directly; 2: kg_quant converts X to f16 first
-int kg_check_shape(int N, int K, int M) {{ return (N > 0 && M > 0 && N % 16 == 0 && K > 0 && K % {kmul(c)} == 0) ? 0 : -1; }}
-size_t kg_prep_bytes(int N, int K) {{ return {prep_bytes_expr(c)}; }}
+int kg_check_shape(int N, int K, int M) {{ return (N > 0 && M > 0 && N % {nmul} == 0 && K > 0 && K % {kmul(c)} == 0) ? 0 : -1; }}
+size_t kg_prep_bytes(int N, int K) {{ return {prep}; }}
 size_t kg_xbytes(int K, int M) {{ (void)K; (void)M; return {xbytes}; }}
 int kg_prepare(const void *W, void *Wp, int N, int K, cudaStream_t s) {{
 {prepare}
@@ -1198,8 +1480,9 @@ int kg_run(const void *W, const void *Xq, float *Y, int N, int K, int M, cudaStr
   if (!attr) {{ cudaFuncSetAttribute(kg_gemm, cudaFuncAttributeMaxDynamicSharedMemorySize, SMEM_BYTES); attr = 1; }}
 #endif
   KURN_LAUNCH_SMEM(kg_gemm, dim3((unsigned)((N + BM - 1) / BM), (unsigned)((M + BN - 1) / BN), (unsigned)sk), dim3({nt}), SMEM_BYTES, s,
-                   (const uint8_t *)W, Xq, Y, N, K, M, sk);
+                   (const uint8_t *)W, Xq, Y, N, K, M, sk{fv_arg});
 {err}
 }}
-}}
+{fv_abi(c, err) if epi == "fv" else epi_stubs(c)}}}
 """
+    )

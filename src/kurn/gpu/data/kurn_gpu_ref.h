@@ -4,6 +4,7 @@
 // - kref_gen_weights / kref_gen_acts: deterministic random weights (valid blocks) and f32 activations
 // - kref_dequant_w / kref_dequant_x: exact dequantization to double (weights, and q8_0 / q8_K activation blocks)
 // - kref_gemm: Y[m * N + n] = sum_k w(n, k) * x(m, k) in double, for chosen rows/columns
+// - kref_swiglu / kref_fv_fingerprint: the fused epilogues' reference and the Freivalds fingerprint (kurn_gpu.h kg_epi)
 // Dequantize-then-dot in double equals KURN's Python references (kurn.formats) up to double rounding;
 // tests/test_gpu_ref.py checks that.
 #pragma once
@@ -324,6 +325,48 @@ static inline size_t kref_gen_weights(const char *fmt, int N, int K, uint64_t se
     }
   }
   return nb * f->nbytes;
+}
+
+// epi=swiglu reference: Y over N = 2F weight rows [M][N] -> silu(gate) * up [M][F]
+static inline void kref_swiglu(const std::vector<double> &y, int N, int M, std::vector<double> &out) {
+  const int F = N / 2;
+  out.assign((size_t)M * F, 0.0);
+  for (int m = 0; m < M; m++)
+    for (int f = 0; f < F; f++) {
+      const double g = y[(size_t)m * N + f], u = y[(size_t)m * N + F + f];
+      out[(size_t)m * F + f] = g / (1.0 + exp(-g)) * u;
+    }
+}
+
+// epi=fv fingerprint (kurn_gpu.h kg_fv_setup) of N x K weights, blocks of FB rows: secret row probes from seed,
+// F [NB][K][2] = W_b^T r_p, G2 [NB][K] = sum of W^2 over the block (bf16, rounded up), signs [2][(N + 31) / 32]
+static inline void kref_fv_fingerprint(const char *fmt, const uint8_t *W, int N, int K, int FB, uint64_t seed,
+                                       std::vector<float> &F, std::vector<uint16_t> &G2, std::vector<uint32_t> &signs) {
+  const int nb = (N + FB - 1) / FB, nsw = (N + 31) / 32;
+  kref_rng r(seed);
+  signs.assign((size_t)2 * nsw, 0u);
+  for (auto &s : signs) s = (uint32_t)r.next();
+  std::vector<double> f((size_t)nb * K * 2, 0.0), g((size_t)nb * K, 0.0), w(K);
+  for (int n = 0; n < N; n++) {
+    kref_dequant_row(fmt, W, K, n, w.data());
+    const int b = n / FB;
+    const double r0 = (signs[n / 32] >> (n % 32)) & 1 ? -1.0 : 1.0, r1 = (signs[nsw + n / 32] >> (n % 32)) & 1 ? -1.0 : 1.0;
+    for (int k = 0; k < K; k++) {
+      f[((size_t)b * K + k) * 2] += r0 * w[k];
+      f[((size_t)b * K + k) * 2 + 1] += r1 * w[k];
+      g[(size_t)b * K + k] += w[k] * w[k];
+    }
+  }
+  F.resize(f.size());
+  for (size_t i = 0; i < f.size(); i++) F[i] = (float)f[i];
+  G2.resize(g.size());
+  for (size_t i = 0; i < g.size(); i++) {
+    float v = (float)g[i];
+    uint32_t u;
+    memcpy(&u, &v, 4);
+    if ((double)v < g[i]) u++;  // f32 rounded up, then bf16 rounded up: the tolerance must not shrink
+    G2[i] = (uint16_t)((u >> 16) + ((u & 0xFFFFu) ? 1u : 0u));
+  }
 }
 
 static inline void kref_gen_acts(int K, int M, uint64_t seed, float *out) {

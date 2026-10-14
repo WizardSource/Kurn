@@ -52,6 +52,11 @@ GOLDEN = {
     "nvfp4_gemm_reg_bn16_f16": {"op": "gemm", "weights": "nvfp4", "wload": "reg", "bn": 16, "xin": "f16", "stages": 3, "pf": 2},
     "tq2_0_gemm_reg_pf3": {"op": "gemm", "weights": "tq2_0", "wload": "reg", "pf": 3},
     "tbm_gemm_bn8": {"op": "gemm", "weights": "tbm"},  # ternary bitmap + signs: device repack + packed-direct decode
+    # fused epilogues: gate+up+SwiGLU (GEMV, GEMM), Freivalds check (GEMM)
+    "q4_0_gemv_swiglu": {"op": "gemv", "weights": "q4_0", "epi": "swiglu"},
+    "q4_K_gemm_swiglu_wm2": {"op": "gemm", "weights": "q4_K", "epi": "swiglu", "wm": 2},
+    "q4_0_gemm_fv256": {"op": "gemm", "weights": "q4_0", "epi": "fv"},
+    "tbm_gemm_fv64_f16": {"op": "gemm", "weights": "tbm", "epi": "fv", "fvb": 64, "xin": "f16", "bn": 16},
 }  # fmt: skip
 
 needs_nvcc = pytest.mark.skipif(not nvcc(), reason="nvcc not installed")

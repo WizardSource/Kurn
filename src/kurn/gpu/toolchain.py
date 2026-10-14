@@ -202,7 +202,7 @@ def emu_build(c, src=None):
              "-Wno-unused-function", "-Wno-unused-variable", "-Werror", "-DKURN_EMU"]  # fmt: skip
     if cxx_is_clang():  # clang honours `#pragma unroll` and reports loops it can't unroll at -O1; nvcc does not care
         flags.append("-Wno-pass-failed")
-    h = _sha(src, _data_hash("kurn_cuemu.h", "kurn_gpu.h", "emu_main.cpp"), shlex.join(cxx()), shlex.join(flags))
+    h = _sha(src, _data_hash("kurn_cuemu.h", "kurn_gpu.h", "kurn_gpu_ref.h", "emu_main.cpp"), shlex.join(cxx()), shlex.join(flags))
     d = _out_dir("emu")
     exe = os.path.join(d, f"{c['weights']}_{c['op']}_{h}")
     if os.path.exists(exe):
