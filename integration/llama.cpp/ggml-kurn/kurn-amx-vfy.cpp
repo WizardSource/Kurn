@@ -25,7 +25,7 @@
 #include <cstring>
 
 #ifndef KURN_AMX_GUARD
-#define KURN_AMX_GUARD 8192
+#define KURN_AMX_GUARD 4096
 #endif
 
 namespace {

@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Changed: AMX preemption guard threshold 8192 -> 4096 cycles
+- Matmuls and the ternary kernel (`GGML_KURN_AMX_GUARD`, plus 128 per k-step), attention (`KA_AMX_GUARD`), the AMX
+  verify kernel (`KURN_AMX_GUARD`) and the hypercomplex layers. `tools/amx_selftest.c` saw preemptions return in ~12K cycles, under
+  the old 12,288-cycle threshold of a 32-step step: 5 wrong results in 2.47B computations at 8192, 0 in 2.13B at 4096.
+- No measurable cost (paired CI, Qwen3-8B Q8_0): pp512 0.986 (0.931-1.013), pp2048 0.999 (0.973-1.027), exact pp512
+  1.002 (0.991-1.027); opbench at M = 512 0.994 / 1.003 / 1.003. `benchmarks/v0.3/amx-guard/`.
+- About 2% of AMX-BF16 steps are now redone (0.25% before). After a failed self-test, `GGML_KURN_AMX_GUARD` up to
+  8192 is still honoured, as margin for machines with slower memory.
+
 ### Added: AMX startup self-test
 - `kurn-amx-selftest.cpp`: at load, about 10-20 ms of int8 and bf16 tile matmuls against a scalar reference, plain
   and across forced context switches. On a machine that loses AMX tile data across context switches it warns, keeps

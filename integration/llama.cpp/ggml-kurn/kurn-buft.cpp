@@ -29,7 +29,7 @@
 // off fused MUL_MAT groups (fused_group); GGML_KURN_VERBOSE=1 logs repacks, prefill paths and AMX redo counts.
 // AMX on VMs: some KVM guests drop AMX tile data when a thread is descheduled. Every AMX step here is
 // short, timed, and recomputed from intact inputs when it took longer than a preemption-length gap
-// (GGML_KURN_AMX_GUARD, default 8192 cycles plus a per-step allowance), as kurn attention does. A startup
+// (GGML_KURN_AMX_GUARD, default 4096 cycles plus a per-step allowance), as kurn attention does. A startup
 // self-test (kurn-amx-selftest.cpp, GGML_KURN_AMX_SELFTEST) checks for the condition and warns; then the guard
 // stays forced on, or AMX is turned off (GGML_KURN_AMX_SELFTEST_ACTION=off).
 //
@@ -565,13 +565,15 @@ int64_t amx_kc() {
     return v;
 }
 
-// GGML_KURN_AMX_GUARD above the default (a weaker guard) is not honoured once the self-test saw tile data lost.
+// Once the self-test saw tile data lost, GGML_KURN_AMX_GUARD above 8192 (weaker than the previous default) is not
+// honoured. Up to 8192 is allowed: the 4096 default puts an AMX-BF16 step at about twice its normal duration (~2% of
+// steps redone on Emerald Rapids), and a machine with slower memory may need the margin.
 uint64_t amx_guard_cycles(int64_t kn) {
     static const uint64_t base = [] {
-        const int g = env_int("GGML_KURN_AMX_GUARD", 8192);
+        const int g = env_int("GGML_KURN_AMX_GUARD", 4096);
         if (amx_lossy && (g <= 0 || g > 8192)) {
-            GGML_LOG_WARN("kurn: GGML_KURN_AMX_GUARD=%d ignored after the failed AMX self-test, using 8192\n", g);
-            return (uint64_t) 8192;
+            GGML_LOG_WARN("kurn: GGML_KURN_AMX_GUARD=%d ignored after the failed AMX self-test, using 4096\n", g);
+            return (uint64_t) 4096;
         }
         return (uint64_t) g;
     }();
@@ -2060,6 +2062,7 @@ ggml_backend_buffer_type_t ggml_backend_cpu_kurn_buffer_type(void) {
         const kurn_amx_state st = kurn_amx_check();
         amx_ok = st != KURN_AMX_UNAVAILABLE;
         amx_lossy = st == KURN_AMX_GUARDED;
+        kurn_tbm_amx_set_lossy(amx_lossy);
 #endif
         return true;
     }();

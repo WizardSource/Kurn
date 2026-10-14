@@ -34,6 +34,8 @@
 
 namespace {
 
+std::atomic<bool> g_amx_lossy{false};  // kurn_tbm_amx_set_lossy
+
 constexpr int HDR = 64, REC_FIXED = 32 + 512 + 1, SLACK = 64;
 constexpr int QK = 256, XBLK = 292;  // Q8_K: float d, int8 qs[256], int16 bsums[16]
 
@@ -352,7 +354,11 @@ void amx_rows(const void * buf, const uint8_t * X, size_t xrow, float * Y, int64
     const uint8_t * data = data_of(buf);
     const int64_t nrk = h->nrec_k;
     static const int64_t KC = std::max(1, std::min(KC_MAX, env_i("GGML_KURN_TBM_AMX_KC", 4)));
-    static const uint64_t guard_base = (uint64_t) env_i("GGML_KURN_AMX_GUARD", 8192);
+    // same threshold rule as kurn-buft.cpp's amx_guard_cycles (which logs an ignored GGML_KURN_AMX_GUARD)
+    static const uint64_t guard_base = [] {
+        const int g = env_i("GGML_KURN_AMX_GUARD", 4096);
+        return (uint64_t) (g_amx_lossy.load() && (g <= 0 || g > 8192) ? 4096 : g);
+    }();
     const __m512i m1 = _mm512_set1_epi8(-1), p1 = _mm512_set1_epi8(1);
     amx_config();
     const int64_t g0 = r0 / 16, g1 = (r1 + 15) / 16;
@@ -532,6 +538,8 @@ void kurn_tbm_tq1_to_tq2(const void * src, void * dst, int64_t nblocks) {
 
 int kurn_tbm_amx_available(void) { return TBM_AMX; }
 
+void kurn_tbm_amx_set_lossy(int lossy) { g_amx_lossy.store(lossy != 0); }
+
 void kurn_tbm_amx(const void * buf, const void * X, size_t xrow, float * Y, int64_t K, int64_t N, int64_t M, int64_t r0,
                   int64_t r1) {
     (void) K;
@@ -555,6 +563,7 @@ size_t kurn_tbm_pack(int, const void *, int64_t, int64_t, void *, int64_t *) { r
 void kurn_tbm_cols(const void *, const void *, size_t, float *, int64_t, int64_t, int64_t, int64_t, int64_t) {}
 void kurn_tbm_tq1_to_tq2(const void *, void *, int64_t) {}
 int kurn_tbm_amx_available(void) { return 0; }
+void kurn_tbm_amx_set_lossy(int) {}
 void kurn_tbm_amx(const void *, const void *, size_t, float *, int64_t, int64_t, int64_t, int64_t, int64_t) {}
 }
 

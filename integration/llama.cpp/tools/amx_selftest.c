@@ -19,15 +19,15 @@
 //   -p CPU   pin thread i to CPU (CPU + i) % ncpu (default: no pinning); with -S every thread on CPU
 //   -S       with -p: all threads share the one CPU
 //   -g CYC   timing guard as in kurn: redo a computation whose rdtsc span exceeds CYC + 128 * K cycles
-//            (default 0 = off; kurn's default is 8192)
+//            (default 0 = off; kurn's default is 4096)
 //   -y       sched_yield() halfway through each computation (provokes a context switch; diagnostic)
 //   -w USEC  sleep USEC microseconds halfway through each computation (the CPU may go idle; diagnostic)
 //   -q       print only the summary line
 //   -v       log the rdtsc span of every wrong computation to stderr
 //
 // Output: one summary line of key=value pairs (bad_span_min/max: rdtsc cycles of the shortest/longest wrong
-// computation; slow_ok: correct computations slower than kurn's default guard, i.e. what the guard would redo). Exit code: 0 all results correct, 1 wrong results seen,
-// 2 AMX unavailable or setup failed.
+// computation; slow_ok: correct computations slower than kurn's default guard, i.e. what the guard would redo).
+// Exit code: 0 all results correct, 1 wrong results seen, 2 AMX unavailable or setup failed.
 #define _GNU_SOURCE
 #include <errno.h>
 #include <immintrin.h>
@@ -95,7 +95,7 @@ typedef struct {
     long id;
     long n8, bad8, n16, bad16, zero, redo, cfg_lost;
     uint64_t bad_span_min, bad_span_max;  // rdtsc span of wrong computations (zero..store)
-    long slow_ok;                         // correct computations that took longer than 8192 + 128 K cycles
+    long slow_ok;                         // correct computations that took longer than 4096 + 128 K cycles
     double busy_sink;
 } result;
 
@@ -279,7 +279,7 @@ static void *run(void *arg) {
                                    (unsigned long long)span);
             if (!r->bad_span_min || span < r->bad_span_min) r->bad_span_min = span;
             if (span > r->bad_span_max) r->bad_span_max = span;
-        } else if (span > 8192u + 128u * (uint64_t)g_k) {
+        } else if (span > 4096u + 128u * (uint64_t)g_k) {
             r->slow_ok++;
         }
     }

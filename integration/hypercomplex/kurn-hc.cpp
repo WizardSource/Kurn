@@ -432,7 +432,7 @@ void amx_gemm(const kurn_hc * w, const uint16_t * A, int64_t M, float * Y, int64
     uint16_t * bs = (uint16_t *) (((uintptr_t) bsv.data() + 63) & ~(uintptr_t) 63);
     float * cst = (float *) (((uintptr_t) csv.data() + 63) & ~(uintptr_t) 63);
     alignas(64) float sub[2][1024];
-    const uint64_t guard = 8192 + (uint64_t) kch * 128;
+    const uint64_t guard = 4096 + (uint64_t) kch * 128;
     for (int64_t n0 = r0; n0 < r1; n0 += P) {
         const int64_t rows = std::min(P, r1 - n0), ng = rows / 16, npair = (ng + 1) / 2;
         int64_t c = 0;

@@ -25,6 +25,9 @@ void kurn_tbm_cols(const void * buf, const void * X, size_t xrow, float * Y, int
 void kurn_tbm_tq1_to_tq2(const void * src, void * dst, int64_t nblocks);
 // AMX-INT8 prefill (M >= 16 columns), same per-column arithmetic as kurn_tbm_cols; 0 when AMX is not built
 int kurn_tbm_amx_available(void);
+// set by the KURN buffer type after a failed AMX self-test (kurn-amx-selftest.cpp): GGML_KURN_AMX_GUARD above 8192
+// is then ignored, as in kurn-buft.cpp. Call before the first kurn_tbm_amx.
+void kurn_tbm_amx_set_lossy(int lossy);
 void kurn_tbm_amx(const void * buf, const void * X, size_t xrow, float * Y, int64_t K, int64_t N, int64_t M, int64_t r0,
                   int64_t r1);
 

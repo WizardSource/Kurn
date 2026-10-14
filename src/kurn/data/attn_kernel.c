@@ -1013,12 +1013,12 @@ static void ka_amx_end(const ka_tilecfg *saved) {
 /*
  * Some KVM guests (seen on kernel 6.12 / Firecracker) drop AMX tile data when the thread is
  * descheduled: a 32x32 block that spans a preemption comes back as a partial or zero sum.
- * Every observed corruption coincided with a >= 16K-cycle gap and none with shorter gaps, so
- * each block is timed and recomputed when it took longer than KA_AMX_GUARD cycles. Blocks
+ * Preemptions by another process were measured as short as ~12K cycles, so each block (well
+ * under 4K cycles) is timed and recomputed when it took longer than KA_AMX_GUARD cycles. Blocks
  * never accumulate into live output: PV sums into zeroed tiles and is added to O afterwards.
  */
 #ifndef KA_AMX_GUARD
-#define KA_AMX_GUARD 8192
+#define KA_AMX_GUARD 4096
 #endif
 
 static inline int ka_amx_slow(uint64_t t0) {
