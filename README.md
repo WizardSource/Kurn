@@ -327,7 +327,7 @@ kurn gpu dispatch q4_0 1 --table out/dispatch.json       # what kernel_for() pic
 - **Win rule:** a KURN win needs a > 2σ margin over the best competitor. `kernel_for()` returns the competitor's kernel
   everywhere else.
 
-`run_kit.sh` (kit v2) runs all of it in one command and writes one `report.md`:
+`run_kit.sh` (kit v2) runs all of it in one command and writes one report (report.md in the results folder):
 - the toolchain preflight;
 - a llama.cpp ggml-cuda build from bundled sources (`kurn gpu ggml-build`, no network);
 - attention correctness and the decode matrix against llama.cpp's CUDA flash attention
