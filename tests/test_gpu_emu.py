@@ -34,6 +34,10 @@ def _cases():
         out.append({"op": "gemm", "weights": f, "bm": 64, "bn": 32, "wm": 2, "wn": 2, "bk": bk, "stages": 3, "splitk": 2, "xin": "f16"})
         out.append({"op": "gemm", "weights": f, "bm": 32, "bn": 16, "wm": 1, "wn": 2, "bk": 256, "stages": 2, "splitk": 4, "xin": "f16"})
         out.append({"op": "gemm", "weights": f, "bm": 32, "bn": 8, "wm": 2, "wn": 1, "bk": 256, "stages": 2, "splitk": 8, "xin": "f32"})
+        # packed-direct (wload=reg): weights global -> registers -> mma.sync fragments, register ring pf k-steps ahead
+        out.append({"op": "gemm", "weights": f, "wload": "reg", "bk": bk if f != "q4_K" else 64, "pf": 1 if f == "q4_K" else 2})
+        out.append({"op": "gemm", "weights": f, "wload": "reg", "bm": 32, "bn": 16, "wm": 2, "wn": 2, "bk": bk, "stages": 2,
+                    "splitk": 4 if f != "q1_0" else 2, "xin": "f16", "pf": 3 if f not in ("q4_K", "q8_0") else 1})  # fmt: skip
     return out
 
 
@@ -52,6 +56,9 @@ def test_c_reference_matches_kurn_formats(fmt):
     a = emu.run(c, n=5, m=3, python_ref=True, seed=4)
     b = emu.run(c, n=5, m=3, seed=4)
     assert a["relerr"] <= emu.TOL and abs(a["relerr"] - b["relerr"]) < 1e-9
+
+
+REG = {"op": "gemm", "weights": "q4_0", "wload": "reg", "pf": 2}
 
 
 def _mutant(c, old, new, scheds=(0, 3, 11)):
@@ -77,6 +84,12 @@ def _mutant(c, old, new, scheds=(0, 3, 11)):
     ({"op": "gemm", "weights": "q4_K"}, "acc[mm][nn][0] += dsc[mm][0] * d[0] - dmn[mm][0] * xs0;",
      "acc[mm][nn][0] += dsc[mm][0] * d[0];", "Q4_K min term dropped"),
     ({"op": "gemm", "weights": "q4_0"}, "    __syncthreads();\n    const int nx", "    const int nx", "missing stage barrier"),
+    (REG, "qa[mm][i] = qr[0][kk][mm][i];", "qa[mm][i] = qr[1][kk][mm][i];", "packed: MMAs read the prefetch slot, not the current"),
+    (REG, "qr[p][kk][mm][i] = qr[p + 1][kk][mm][i];", "", "packed: register ring never advances"),
+    ({**REG, "splitk": 1}, "KG_LOADA(ks + 2, 2);", "KG_LOADA(ks + 1, 2);", "packed: next k-step issued one step short"),  # 3+ k-steps
+    (REG, "sr[0][mm][(BK >= SBLK ? (wlin * 32) / SBLK : 0)]", "sr[0][mm][0]", "packed: every window takes block 0's scale"),
+    ({**REG, "weights": "q4_K", "bk": 64, "pf": 1}, "r[i] = mr[0][mm][(BK >= SBLK ? (wlin * 32) / SBLK : 0)][h][i];",
+     "r[i] = mr[0][mm][(BK >= SBLK ? (wlin * 32) / SBLK : 0)][0][i];", "packed Q4_K: row g + 8 uses row g's meta record"),
     ({"op": "gemv", "weights": "q8_0", "layout": "split", "sub": 1}, "kld_v4(wq + (size_t)u * 32 + p * 32 + 16)",
      "kld_v4(wq + (size_t)u * 32 + p * 32 + 18)", "misaligned 16-byte load"),
     ({"op": "gemv", "weights": "q4_K", "tpr": 64, "rpb": 2}, "__syncthreads();\n  if (lid == 0", "  if (lid == 0", "cross-warp reduce"),

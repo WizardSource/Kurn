@@ -5,10 +5,12 @@
 """
 
 import os
+import re
 import subprocess
 
 import pytest
 
+from kurn.gpu import mma
 from kurn.gpu import spec as gs
 from kurn.gpu.codegen import generate
 from kurn.gpu.toolchain import nvcc, ptxas_report, resource_rows
@@ -44,6 +46,11 @@ GOLDEN = {
     "mxfp4_gemm_bn8": {"op": "gemm", "weights": "mxfp4"},
     "nvfp4_gemm_64x32_f16": {"op": "gemm", "weights": "nvfp4", "bm": 64, "bn": 32, "wm": 2, "wn": 2, "bk": 128, "xin": "f16",
                              "stages": 3},
+    # packed-direct (wload=reg): no shared-memory staging of weights
+    "q4_0_gemm_bn8_reg": {"op": "gemm", "weights": "q4_0", "wload": "reg", "pf": 2},
+    "q4_K_gemm_reg_bk64": {"op": "gemm", "weights": "q4_K", "wload": "reg", "bk": 64, "pf": 1},
+    "nvfp4_gemm_reg_bn16_f16": {"op": "gemm", "weights": "nvfp4", "wload": "reg", "bn": 16, "xin": "f16", "stages": 3, "pf": 2},
+    "tq2_0_gemm_reg_pf3": {"op": "gemm", "weights": "tq2_0", "wload": "reg", "pf": 3},
 }  # fmt: skip
 
 needs_nvcc = pytest.mark.skipif(not nvcc(), reason="nvcc not installed")
@@ -77,7 +84,11 @@ def test_default_kernels_sass():
             main = inspect(c)["kg_gemm" if c["op"] == "gemm" else "kg_gemv"]
             k = main["counts"]
             assert k.get("local", 0) == 0, (f, name, k)
-            if c["op"] == "gemm":
+            if c["op"] == "gemm" and c["wload"] == "reg":  # packed-direct: weights by 128-bit global loads, never cp.async
+                lds_ok = f in ("q4_K", "e8p") or not k.get("lds", 0)  # shared reads left: Q4_K activation sums, E8P codebook
+                assert k.get("mma", 0) and k.get("ldsm", 0) and not k.get("cp_async", 0) and lds_ok, (f, name, k)
+                assert main["loop"]["counts"].get("mma", 0) > 0 and main["loop"]["counts"].get("ldg", 0) > 0, (f, name)
+            elif c["op"] == "gemm":
                 assert k.get("mma", 0) and k.get("ldsm", 0) and k.get("cp_async", 0), (f, name, k)
                 assert main["loop"]["counts"].get("mma", 0) > 0, (f, name)
 
@@ -141,6 +152,37 @@ def test_gemm_sass_uses_tensor_cores_and_cp_async(tmp_path):
         pytest.skip("cuobjdump unavailable")
     assert "HMMA.16816.F32" in dump.stdout and "LDSM.16.M88.4" in dump.stdout and "LDGSTS" in dump.stdout
     assert "LDL" not in dump.stdout and "STL" not in dump.stdout
+
+
+@needs_nvcc
+def test_packed_direct_weights_skip_shared_memory(tmp_path):
+    """wload=reg: weights reach the MMAs through 128-bit read-only global loads only (no LDGSTS, no LDS; with xin=f32 the
+    activations go through registers, so the only shared-memory reads left are the B ldmatrix)."""
+    from kurn.gpu.toolchain import nvcc_build
+
+    c = gs.resolve({"op": "gemm", "weights": "q4_0", "wload": "reg", "pf": 2})
+    so, _ = nvcc_build(c, ("sm_80",), out_dir=str(tmp_path))
+    dump = subprocess.run([os.path.join(os.path.dirname(nvcc()), "cuobjdump"), "-sass", so], capture_output=True, text=True)
+    if dump.returncode:
+        pytest.skip("cuobjdump / nvdisasm unavailable")
+    sass = dump.stdout
+    assert "HMMA.16816.F32" in sass and "LDG.E.128.CONSTANT" in sass and "LDSM.16.M88.4" in sass
+    assert "LDGSTS" not in sass and not re.search(r"\bLDS(\.\w+)*\s", sass) and "LDL" not in sass and "STL" not in sass
+    assert mma.smem_bytes(c) == c["stages"] * c["bn"] * c["bk"] * 2  # activations only
+
+
+@needs_nvcc
+def test_packed_defaults_do_not_spill_on_three_archs():
+    from kurn.gpu.matrix import default_kernels
+    from kurn.gpu.toolchain import build_many
+
+    cs = [d[n][0] for f in gs.FORMATS if gs.FORMATS[f]["gemm"] for d in [default_kernels(f, "sm_80")] for n in d if n.endswith("-reg")]
+    assert len(cs) == 2 * sum(v["gemm"] for v in gs.FORMATS.values())
+    bad = []
+    for c, rep in build_many(cs, lambda c: ptxas_report(c, ("sm_80", "sm_100", "sm_120"))):
+        assert not isinstance(rep, Exception), rep
+        bad += [(gs.label(c), r) for r in resource_rows(c, rep) if r["spill"]]
+    assert not bad, bad[:5]
 
 
 @needs_nvcc

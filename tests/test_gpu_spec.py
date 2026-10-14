@@ -48,6 +48,11 @@ def test_defaults_resolve_for_every_format():
     ({"op": "gemm", "weights": "q4_0", "bm": 64, "bn": 32, "wm": 1, "wn": 1, "bk": 128, "xin": "f16"}, "registers"),
     ({"op": "gemm", "weights": "q2_0", "bm": 256, "bn": 32, "wm": 4, "wn": 1, "bk": 256, "stages": 4, "xin": "f16"},
      "registers"),
+    ({"op": "gemm", "weights": "q4_0", "pf": 2}, "pf=2"),  # the register ring exists only with wload=reg
+    ({"op": "gemm", "weights": "q4_0", "wload": "tma"}, "wload"),
+    # packed ring: 4 x 64-row tiles' A words for 4 k-steps spilled under ptxas (sm_80) when sampled without the rule
+    ({"op": "gemm", "weights": "q8_0", "wload": "reg", "bm": 128, "bn": 16, "wm": 4, "bk": 256, "pf": 3, "xin": "f16"},
+     "registers"),
 ])  # fmt: skip
 def test_invalid_specs(bad, msg):
     with pytest.raises(SpecError, match=msg):

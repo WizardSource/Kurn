@@ -94,11 +94,16 @@ GEMM_KEYS = {
     "splitk": lambda c: (0, 1, 2, 4, 8, 16),
     "xin": lambda c: ("f32", "f16"),
     "minb": lambda c: (1, 2),
+    # weights: smem = cp.async tiles in shared memory; reg = packed bytes straight from global memory into registers and
+    # decoded into the mma.sync A fragments there (no shared-memory staging), pf k-steps ahead
+    "wload": lambda c: ("smem", "reg"),
+    "pf": lambda c: (1, 2, 3) if c.get("wload", "reg") == "reg" else (1,),  # unset (enumeration probes): every value
 }
 DEFAULTS = {
     "gemv": {"layout": "native", "tpr": 32, "rpb": 4, "sub": 2, "unroll": 2, "cols": 1, "minb": 0, "mins": "bsums",
              "unpack": "bits", "xlayout": "blocks"},
-    "gemm": {"bm": 64, "bn": 8, "wm": 4, "wn": 1, "bk": 256, "stages": 4, "splitk": 0, "xin": "f32", "minb": 1},
+    "gemm": {"bm": 64, "bn": 8, "wm": 4, "wn": 1, "bk": 256, "stages": 4, "splitk": 0, "xin": "f32", "minb": 1, "wload": "smem",
+             "pf": 1},
 }  # fmt: skip
 # GEMV defaults per format: the split layout (16-byte aligned quant plane) with `sub` chosen so every lane issues 16-byte
 # weight loads, and `unroll` units in flight per lane (2 where registers are tight). From the A100 run: tuning Q4_0 this
@@ -298,6 +303,9 @@ def legal_configs(op, weights, arch="sm_80"):
             continue
 
 
+MODE_PROBES = {"pf": {"wload": "reg"}}
+
+
 def covering_configs(op, weights, arch="sm_80", extra=24, seed=0):
     """A covering set for verification: the defaults, every legal value of every key varied
     one at a time from the defaults (or from the nearest legal neighbour), plus `extra` random
@@ -314,8 +322,14 @@ def covering_configs(op, weights, arch="sm_80", extra=24, seed=0):
     d = resolve(base)
     add(d)
     rng = random.Random(seed)
-    for k, fn in keys.items():
-        for v in fn(d):
+
+    def values(k):  # keys whose legal values depend on a mode key (pf on wload=reg) are probed in that mode too
+        fn = keys[k]
+        alt = fn({**d, **MODE_PROBES[k]}) if k in MODE_PROBES else ()
+        return tuple(dict.fromkeys((*fn(d), *alt)))
+
+    for k in keys:
+        for v in values(k):
             try:
                 add(resolve(base, {k: v}))
                 continue
@@ -334,7 +348,7 @@ def covering_configs(op, weights, arch="sm_80", extra=24, seed=0):
     while len(out) < target and tries < 50 * extra:
         tries += 1
         try:
-            add(resolve(base, {k: rng.choice(keys[k](d)) for k in names}))
+            add(resolve(base, {k: rng.choice(values(k)) for k in names}))
         except SpecError:
             pass
     return out

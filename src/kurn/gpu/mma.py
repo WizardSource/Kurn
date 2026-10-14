@@ -72,10 +72,15 @@ def sb_bytes(c):
     return (c["bm"] // 16) * nbs(c) * (256 if c["weights"] == "q4_K" else 32)
 
 
+def wreg(c):
+    """wload=reg: weights (and scales) go global -> registers -> MMA fragments; no shared-memory staging for A."""
+    return c.get("wload", "smem") == "reg"
+
+
 def smem_bytes(c):
     e = ENGINE[c["weights"]]
     nw = c["bk"] // 32
-    a = c["stages"] * ((c["bm"] // 16) * (c["bk"] // e["kt"]) * 512 + sb_bytes(c))
+    a = 0 if wreg(c) else c["stages"] * ((c["bm"] // 16) * (c["bk"] // e["kt"]) * 512 + sb_bytes(c))
     b = c["stages"] * c["bn"] * c["bk"] * 2
     xs = c["stages"] * c["bn"] * nw * 4 if c["weights"] == "q4_K" else 0
     tab = 4096 if c["weights"] == "e8p" else 0
@@ -88,6 +93,10 @@ def est_regs(c):
     mi, ni = c["bm"] // c["wm"] // 16, c["bn"] // c["wn"] // 8
     extra = {"q4_K": 48, "q8_0": 8, "iq4_nl": 16, "mxfp4": 16, "nvfp4": 24}.get(c["weights"], 0) + (40 if c["xin"] == "f32" else 0)
     kts = c["bk"] // ENGINE[c["weights"]]["kt"]  # k-tiles per stage: nvcc hoists their A words
+    if wreg(c):  # the register ring: pf + 1 k-steps of A words and scale records per row tile; ptxas keeps about 3/4 of
+        # it live at once (fit over 87 sm_80 builds: at most 11 registers under, 32 over on average)
+        srec = 8 if c["weights"] == "q4_K" else 1
+        return 4 * mi * ni + 14 * mi + 8 * ni + 56 + extra + 3 * (c["pf"] + 1) * mi * (4 * kts + srec * nbs(c)) // 4
     return 4 * mi * ni + 14 * mi + 8 * ni + 56 + extra + 4 * mi * max(0, kts - 2)
 
 
@@ -101,7 +110,7 @@ def deep_staged_tile(c):
     """64-row warp tiles with 2+ n8 tiles and 2+ k-tiles per stage sit at the 255-register ceiling, and ptxas spills
     them once each thread also stages 12+ chunks per stage (every spill in 30 seeds of covering sets, sm_80/90/100)."""
     mi, ni = c["bm"] // c["wm"] // 16, c["bn"] // c["wn"] // 8
-    return mi >= 4 and ni >= 2 and c["bk"] // ENGINE[c["weights"]]["kt"] >= 2 and stage_chunks(c) >= 12
+    return not wreg(c) and mi >= 4 and ni >= 2 and c["bk"] // ENGINE[c["weights"]]["kt"] >= 2 and stage_chunks(c) >= 12
 
 
 def reg_cap(c):
@@ -370,6 +379,26 @@ KURN_FN void ksts128(void *p, uint32_t a, uint32_t b, uint32_t c, uint32_t d) {
   *(uint4 *)p = make_uint4(a, b, c, d);
 #endif
 }
+// wload=reg: a lane's packed weights / scales straight from global memory into registers (read-only path, cached in L1),
+// zero when !ok (rows past N, k past K). asm volatile keeps each load where it is issued: k-steps ahead of its MMAs.
+KURN_FN void kldg128z(uint32_t r[4], const void *p, bool ok) {
+#ifdef KURN_EMU
+  if (ok) { const uint4 v = kld_v4(p); r[0] = v.x; r[1] = v.y; r[2] = v.z; r[3] = v.w; } else { r[0] = r[1] = r[2] = r[3] = 0u; }
+#else
+  asm volatile("{\n .reg .pred p;\n setp.ne.b32 p, %5, 0;\n mov.b32 %0, 0;\n mov.b32 %1, 0;\n mov.b32 %2, 0;\n mov.b32 %3, 0;\n"
+               " @p ld.global.nc.v4.u32 {%0, %1, %2, %3}, [%4];\n}\n"
+               : "=r"(r[0]), "=r"(r[1]), "=r"(r[2]), "=r"(r[3]) : "l"(p), "r"((int)ok));
+#endif
+}
+KURN_FN uint32_t kldg32z(const void *p, bool ok) {
+#ifdef KURN_EMU
+  return ok ? kld_u32(p) : 0u;
+#else
+  uint32_t r;
+  asm volatile("{\n .reg .pred p;\n setp.ne.b32 p, %2, 0;\n mov.b32 %0, 0;\n @p ld.global.nc.u32 %0, [%1];\n}\n" : "=r"(r) : "l"(p), "r"((int)ok));
+  return r;
+#endif
+}
 KURN_FN float kldcg(const float *p) {
 #ifdef KURN_EMU
   return *p;
@@ -417,6 +446,7 @@ def kernel(c):
     kt = e["kt"]
     q4k = w == "q4_K"
     blk = sblock(w)
+    reg, pf = wreg(c), c.get("pf", 1)
     lines = []
     lines.append(f"""
 #define BM {bm}
@@ -428,7 +458,7 @@ def kernel(c):
 #define RT (BM / 16)
 #define KTS (BK / KT)
 #define NW (BK / 32)
-#define A_STAGE (RT * KTS * 512 + SB_STAGE)
+#define A_STAGE {"0" if reg else "(RT * KTS * 512 + SB_STAGE)"}
 #define AW_STAGE (RT * KTS * 512)
 #define SB_STAGE ({sb_bytes(c)})
 #define NBS ({nbs(c)})
@@ -453,14 +483,20 @@ __device__ int kg_flags[{FLAG_SLOTS}];
         lines.append(f"// E8P codebook: 256 rows x 4 f16x2 pairs of 2|a_i| (2, 6, 10)\n__constant__ uint32_t kE8H[1024] = {{\n{tab}}};\n")
     deq = DEQ[w]()
     xstore = _xstage_store(c)
+    rbi = "(BK >= SBLK ? (wlin * 32) / SBLK : 0)"  # scale block of window wlin within the k-step (compile-time once unrolled)
     lb = f"NT, {max(1, c['minb'])}"  # an explicit minimum of 1 block stops ptxas from targeting 128 registers and spilling
     # scale / meta access per window
     if q4k:
-        scale_load = f"""        const uint8_t *m0 = Sb + ((size_t)((wr * {mi} + mm) * NBS + (kwin / 256 - sblk0)) * 16 + g) * 16, *m1 = m0 + 8 * 16;
-        const int sb = (kwin % 256) / 32;
+        mptr = (
+            ""
+            if reg
+            else f"""        const uint8_t *m0 = Sb + ((size_t)((wr * {mi} + mm) * NBS + (kwin / 256 - sblk0)) * 16 + g) * 16, *m1 = m0 + 8 * 16;
+"""
+        )
+        scale_load = f"""{mptr}        const int sb = (kwin % 256) / 32;
         #pragma unroll
         for (int h = 0; h < 2; h++) {{
-          uint32_t r[4]; klds128g(r, h ? m1 : m0);
+          uint32_t r[4]; {"klds128g(r, h ? m1 : m0);" if not reg else f"for (int i = 0; i < 4; i++) r[i] = mr[0][mm][{rbi}][h][i];"}
           const float d = kh2f_lo(r[0]), dmin = kh2f_hi(r[0]);
           #define SB(x) (((((x) >> 2) == 0 ? r[1] : ((x) >> 2) == 1 ? r[2] : r[3]) >> (8 * ((x) & 3))) & 0xFFu)
           const int sc = sb < 4 ? (int)(SB(sb) & 63) : (int)((SB(sb + 4) & 0xF) | ((SB(sb - 4) >> 6) << 4));
@@ -477,6 +513,8 @@ __device__ int kg_flags[{FLAG_SLOTS}];
         scale_vars = "dsc, dmn"
     else:
         sw = f"const uint32_t sw = kld_u32(Sb + ((size_t)((wr * {mi} + mm) * NBS + (kwin / {blk} - sblk0)) * 8 + g) * 4);"
+        if reg:
+            sw = f"const uint32_t sw = sr[0][mm][{rbi}];"
         scale_load = f"""        {sw}
         dw0[mm] = kh2f_lo(sw); dw1[mm] = kh2f_hi(sw);"""
         if w == "mxfp4":  # bf16 scale records
@@ -557,6 +595,43 @@ kg_gemm(const uint8_t *__restrict__ W, const void *__restrict__ Xin, float *__re
             ok ? (const void *)(Ws + ((size_t)rtg * nblkk + bl) * SREC + ch * 16) : (const void *)Ws, ok ? 16 : 0);
     }}
   }};""")
+    if reg:
+        head = lines[-1][: lines[-1].index("  auto issueA")]
+        if q4k:
+            srec_decl = f"uint32_t mr[{pf + 1}][{mi}][NBS][2][4];  // Q4_K meta records of rows g and g + 8"
+            srec_load = ("kldg128z(mr[SL_][mm][bi][0], Wm + (((size_t)rt * nblkk + bl) * 16 + g) * 16, okb); "
+                         "kldg128z(mr[SL_][mm][bi][1], Wm + (((size_t)rt * nblkk + bl) * 16 + g + 8) * 16, okb);")  # fmt: skip
+        else:
+            srec_decl = f"uint32_t sr[{pf + 1}][{mi}][NBS];  // scale words: row g | row g + 8"
+            srec_load = "sr[SL_][mm][bi] = kldg32z(Ws + (((size_t)rt * nblkk + bl) * 8 + g) * 4, okb);"
+        lines[-1] = (
+            head
+            + f"""  // wload=reg: no shared-memory staging for weights. Each lane loads its own 16 fragment-order bytes per (row tile,
+  // k-tile) and its scale words straight from global memory into a register ring that runs PF={pf} k-steps ahead of the
+  // MMAs, and the format decoder turns them into mma.sync A fragments in place.
+  auto issueA = [&](int, int) {{}};
+  (void)abase;
+  const int rtw = n0 / 16 + wr * {mi};
+  uint32_t qr[{pf + 1}][KTS][{mi}][4];
+  {srec_decl}
+#define KG_LOADA(S_, SL_)                                                                                             \\
+  do {{                                                                                                                \\
+    const int s_ = (S_);                                                                                              \\
+    _Pragma("unroll") for (int kk = 0; kk < KTS; kk++)                                                                \\
+      _Pragma("unroll") for (int mm = 0; mm < {mi}; mm++) {{                                                          \\
+        const int rt = rtw + mm, ktg = (ks0 + s_) * KTS + kk;                                                         \\
+        kldg128z(qr[SL_][kk][mm], Wa + (((size_t)rt * nkt + ktg) * 32 + lane) * 16, s_ < nks && rt < N / 16 && ktg < nkt); \\
+      }}                                                                                                               \\
+    const int blk0 = ((ks0 + s_) * BK) / SBLK;                                                                        \\
+    _Pragma("unroll") for (int mm = 0; mm < {mi}; mm++)                                                               \\
+      _Pragma("unroll") for (int bi = 0; bi < NBS; bi++) {{                                                           \\
+        const int rt = rtw + mm, bl = blk0 + bi;                                                                      \\
+        const bool okb = s_ < nks && rt < N / 16 && bl < nblkk;                                                       \\
+        {srec_load} \\
+      }}                                                                                                               \\
+  }} while (0)
+"""
+        )
     if xin32:
         lines.append(f"""  // activations: one (column, window) task per thread; f32 -> registers now, f16 slot-ordered shared store later
   const float *X = (const float *)Xin;
@@ -603,12 +678,17 @@ kg_gemm(const uint8_t *__restrict__ W, const void *__restrict__ Xin, float *__re
             ok ? (const void *)(X16 + ((size_t)(m0 + col) * K + kb + ch * 8) * 2) : (const void *)X16, ok ? 16 : 0);
     }}{q4k_xs}
   }};""")
-    if q4k:
+    if q4k and not reg:
         lines.append("  auto klds128g = [](uint32_t r[4], const uint8_t *p) { klds128(r, p); };\n")
+    if reg:
+        qa_src = "for (int i = 0; i < 4; i++) qa[mm][i] = qr[0][kk][mm][i];  // loaded PF k-steps ago"
+    else:
+        qa_src = f"klds128(qa[mm], Ab + ((size_t)((wr * {mi} + mm) * KTS + kk) * 32 + lane) * 16);"
     lines.append(
         f"""  auto compute = [&](int buf, int s) {{
     const uint8_t *Ab = As + (size_t)buf * A_STAGE;
     const uint8_t *Sb = Ab + AW_STAGE;
+    (void)Sb;
     const int sblk0 = ((ks0 + s) * BK) / SBLK;
     const bool kfull = (ks0 + s + 1) * BK <= K;
     const uint8_t *Bb = Bs0 + (size_t)buf * B_STAGE;
@@ -618,7 +698,7 @@ kg_gemm(const uint8_t *__restrict__ W, const void *__restrict__ Xin, float *__re
     for (int kk = 0; kk < KTS; kk++) {{
       uint32_t qa[{mi}][4];
       #pragma unroll
-      for (int mm = 0; mm < {mi}; mm++) klds128(qa[mm], Ab + ((size_t)((wr * {mi} + mm) * KTS + kk) * 32 + lane) * 16);
+      for (int mm = 0; mm < {mi}; mm++) {qa_src}
       #pragma unroll
       for (int wl = 0; wl < KT / 32; wl++) {{
         const int wlin = kk * (KT / 32) + wl;
@@ -687,6 +767,27 @@ kg_gemm(const uint8_t *__restrict__ W, const void *__restrict__ Xin, float *__re
     compute(ks % STAGES, ks);
   }
   KCP_WAIT(0);""")
+    if reg:  # the A ring: PF k-steps loaded up front, then step ks + PF issued before step ks computes; slots shift down
+        loop = lines[-1]
+        shift = ("\n    #pragma unroll\n    for (int p = 0; p < PF_; p++) {\n"
+                 "      #pragma unroll\n      for (int kk = 0; kk < KTS; kk++)\n        #pragma unroll\n"
+                 f"        for (int mm = 0; mm < {mi}; mm++)\n          #pragma unroll\n"
+                 "          for (int i = 0; i < 4; i++) qr[p][kk][mm][i] = qr[p + 1][kk][mm][i];\n"
+                 f"      #pragma unroll\n      for (int mm = 0; mm < {mi}; mm++)\n        #pragma unroll\n        for (int bi = 0; bi < NBS; bi++)"
+                 + (" {\n          for (int h = 0; h < 2; h++)\n            for (int i = 0; i < 4; i++) mr[p][mm][bi][h][i] = mr[p + 1][mm][bi][h][i];\n        }\n"
+                    if q4k else " sr[p][mm][bi] = sr[p + 1][mm][bi];\n")
+                 + "    }").replace("PF_", str(pf))  # fmt: skip
+        pro = "\n".join(f"  KG_LOADA({p}, {p});" for p in range(pf))
+        loop = loop.replace(
+            "\n  #pragma unroll\n  for (int s = 0; s < STAGES - 1; s++) {",
+            f"\n{pro}\n  #pragma unroll\n  for (int s = 0; s < STAGES - 1; s++) {{",
+            1,
+        )
+        loop = loop.replace(
+            "  for (int ks = 0; ks < nks; ks++) {\n", f"  for (int ks = 0; ks < nks; ks++) {{\n    KG_LOADA(ks + {pf}, {pf});\n", 1
+        )
+        loop = loop.replace("    compute(ks % STAGES, ks);\n", "    compute(ks % STAGES, ks);" + shift + "\n", 1)
+        lines[-1] = loop + "\n#undef KG_LOADA"
     lines.append(f"""  // epilogue: Y[m * N + n]; split z adds its tile after split z-1 (deterministic serial fixup)
   int *flag = &kg_flags[(blockIdx.y * gridDim.x + blockIdx.x) % {FLAG_SLOTS}];
   if (z > 0) {{
