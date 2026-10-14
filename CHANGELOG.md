@@ -67,6 +67,28 @@ All notable changes to this project are documented here. The format follows
   prefill parity; complex decode 2.1x, MLP decode 1.9x.
 - `hc_bench` (checks, benchmarks, synthetic quaternion MLP), `kurn.hypercomplex` references, `tests/test_hypercomplex.py`.
 
+### Added: ternary weights as presence bitmap + signs (TQ1_0 / TQ2_0 in the KURN buffer type)
+- `kurn.ternary` defines the layout ("tbm", the BITCOS idea: one presence bit per weight and one sign bit per
+  nonzero, 2.0625 - z bpw at zero fraction z). It has the reference encoder / decoder and the size model.
+  `kurn ternary stats FILE...` measures zero fractions of GGUF TQ1_0 / TQ2_0 tensors and of packed 2-bit safetensors.
+  Real models: BitNet b1.58 2B-4T 0.422, TriLM 3.9B 0.387, Ternary-Bonsai 8B 0.383, Llama3-8B-1.58 0.357,
+  Falcon3-7B-1.58bit 0.313. That is 15-20% smaller than TQ2_0 on all five; against TQ1_0 it ranges from -2.8% to
+  +3.7%, not the ~9% the preprint reports at z = 0.515.
+- `integration/llama.cpp/ggml-kurn/kurn-tbm.cpp`: the KURN buffer type repacks TQ1_0 and TQ2_0 tensors into this
+  layout at load time when their sampled zero fraction is >= 0.30 (`GGML_KURN_TBM`, `GGML_KURN_TBM_Z`). TQ1_0
+  tensors were stock ggml before; below the threshold they now go to the TQ2_0 kernels.
+  - Kernels: GEMV, verify kernels for 2..8 columns, and AMX-INT8 prefill from 32 columns.
+  - The decoded code is TQ2_0's, so results are bit-identical to the TQ2_0 kernels at every width, and batch
+    invariance and exact mode hold (the AMX-INT8 prefill is exact and is used in exact mode too).
+- Decode matmuls of whole layers (opbench, 8 threads) against TQ2_0 with a tuned `rows=4 prefetch=4 line` schedule:
+  1.02-1.13x on five models' shapes, 1.5x against the shipped TQ2_0 schedule, and 2x against ggml's TQ2_0 / TQ1_0.
+  Prefill (512 columns) is 1.20x TQ2_0's verify-kernel prefill. The decode costs 1.8 cycles per 64 weights against
+  1.15 for TQ2_0: it wins when weights stream from DRAM and ties in L3.
+- `test_kurn_buft tbm [smoke]` checks bit-identity with the TQ2_0 records (TQ1_0 and TQ2_0; z = 0, 0.42 and 0.9;
+  1..129 columns), batch invariance, buffer reuse and MUL_MAT_ID. `tests/test_ternary.py` covers the reference
+  encoder / decoder, decoding against gguf-py, the scans, and the C packer byte for byte against the Python
+  reference. `tools/opbench` takes `OPBENCH_ZERO=z` (exact ternary weights at zero fraction z).
+
 ### Added: one-pass AMX verify kernel for Q8_0 at 9-16 columns
 - `kurn-amx-vfy.cpp`: M-row AMX-INT8 tiles on kurn's i16 records, block-order scaling as in the GEMV, so every column
   is bit-identical to one-token decoding; three row groups per pass; preemption guard as in the other AMX paths.

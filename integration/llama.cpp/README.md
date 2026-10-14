@@ -131,6 +131,9 @@ The model log shows `KURN model buffer size = ...` when weights were repacked. N
 | `GGML_KURN_FALLBACK=0` | turn off the per-tensor fallback (below); `GGML_KURN_FALLBACK_N` / `_K` set its thresholds (512 / 512) |
 | `GGML_KURN_PROFILE=1` | per-phase cycle counts of decode-sized MUL_MAT (quantize + activation prep, barrier wait, kernels, finish spread), printed at exit |
 | `GGML_KURN_XPREP=0`, `GGML_KURN_QSPLIT=1` | A/B switches: per-call activation prep instead of the shared one; activation quantization split by blocks instead of whole rows |
+| `GGML_KURN_TBM=0\|1` | TQ1_0 / TQ2_0 as bitmap + signs never / always (default: when the tensor's sampled zero fraction is >= `GGML_KURN_TBM_Z` / 1000, default 300) |
+| `GGML_KURN_TBM_AMX_MIN=N` | bitmap + signs prefill on AMX-INT8 from N columns (default 32, minimum 16; batch invariant, also in exact mode) |
+| `GGML_KURN_TBM_PF=0`, `GGML_KURN_TBM_ROWS=N` | bitmap + signs GEMV without software prefetch; N row groups per pass (2, 4 (default), 6, 8) |
 | `GGML_KURN_VERBOSE=1` | log every repacked tensor, every fallback decision and each weight's prefill path; at exit, the number of AMX steps recomputed by the preemption guard |
 
 **Per-tensor fallback.** kurn declines a weight (llama.cpp then gives it to the next extra buffer) when ggml's AMX
@@ -144,6 +147,52 @@ per pass give each core four or more concurrent weight streams, which the DRAM p
 42 GB/s, four: 80 GB/s on the dev VM). Each format also gets a one-row-group GEMV on the same packing for range
 remainders, and `_xprep` / `_packed_x` entry points so activations are quantized and prepared once per op.
 
+## Ternary weights: presence bitmap + signs (`kurn-tbm.cpp`)
+
+TQ1_0 and TQ2_0 tensors can be repacked as one presence bit per weight plus one sign bit per nonzero ("tbm", the
+BITCOS layout): 2.0625 - z bits per weight for zero fraction z, instead of TQ2_0's 2.0625. Measured zero fractions
+(`kurn ternary stats`): BitNet b1.58 2B-4T 0.422, TriLM 3.9B 0.387, Ternary-Bonsai 8B 0.383, Llama3-8B-1.58 0.357,
+Falcon3-7B-1.58bit 0.313. That is 15-20% fewer bytes than TQ2_0 on all five, and from -2.8% to +3.7% against
+TQ1_0's 1.6875 (break-even z = 0.375). TQ1_0 tensors, which kurn had no kernel for, use the same path. Below the
+threshold they go to the TQ2_0 kernels, converted without changing any value.
+
+- **Layout** (spec and reference encoder: `kurn.ternary`). Records of 16 rows x 256 values (one Q8_K block): 16 fp16 row
+  scales, 64 bitmap words, a flag byte, and ceil(nnz / 8) sign bytes. A table gives each 16-row group's start. Word
+  `kg * 8 + kk`, bit `b` is row `b / 4`, value `32 kg + 4 kk + b % 4`: the bytes of the vpdpbusd operand that the
+  TQ2_0 kernels build from 2-bit codes.
+- **Decode** per 64 weights: `S = pdep(next popcount(P) sign bits, P)`, `u = P ? (S ? 2 : 0) : 1`, which is TQ2_0's code.
+  The integer dot per 32 values (seeded with -sum(x)) and the epilogue `fma(float(isum), d_w * d_x, acc)` are TQ2_0's,
+  so results are **bit-identical to the TQ2_0 kernels at every width** (`test_kurn_buft tbm`), and batch invariance
+  and exact mode hold.
+- **Kernels:** a GEMV with 4 row-group streams and 1 KB software prefetch per stream; verify kernels for 2..8 columns;
+  and from 32 columns an AMX-INT8 prefill. The AMX prefill decodes s8 tiles once per panel and runs tdpbssd per 32
+  values with the same epilogue, so it is batch invariant and also used in exact mode. Without AMX, prefill uses the
+  verify kernels over row chunks.
+- **Cost:** the decode is front-end bound at about 1.8 cycles per 64 weights, against 1.15 for TQ2_0 (L2-resident,
+  one core). It therefore only wins when the weights stream from DRAM. There it matches TQ2_0's effective bandwidth
+  and wins by the byte ratio; in L3 it ties.
+- **Allocation:** `get_alloc_size` runs before the data is known, so a tensor gets the layout's worst case (about
+  TQ2_0's size). Only the used bytes are written, and the tail pages are never touched.
+
+Decode matmuls of whole decoder layers (`tools/opbench`, real shapes, 8 threads, medians over alternating rounds,
+`OPBENCH_ZERO` = the model's zero fraction), against the TQ2_0 kernel with the `rows=4 prefetch=4 pfgran=line` schedule
+(`--config '{"tq2_0": {"rows": 4, "prefetch": 4, "pfgran": "line"}}'`; the shipped `rows=2` schedule is 1.3-1.5x
+slower than that):
+
+| shapes (z) | tbm vs TQ2_0 tuned | vs TQ2_0 shipped | vs ggml TQ2_0 / TQ1_0 |
+|---|---|---|---|
+| BitNet 2B-4T (0.422) | 1.13x | 1.51x | 1.96x / 2.11x |
+| TriLM 3.9B (0.387) | 1.10x | 1.55x | 2.03x / 2.34x |
+| Ternary-Bonsai 8B (0.383) | 1.06x | 1.57x | 2.04x / 2.25x |
+| Llama3-8B-1.58 (0.357) | 1.02x | 1.48x | 2.02x / 2.23x |
+| Falcon3-7B-1.58bit (0.313) | 1.07x | 1.59x | 2.12x / 2.32x |
+
+The same against tuned TQ2_0 at other widths: 2 / 3 / 4 / 8 columns 1.16 / 1.20 / 1.13 / 0.86x (BitNet shapes; Bonsai
+8B 1.08x at 2 and 4, 0.94x at 8), and
+prefill at 128 / 512 columns (AMX-INT8, against TQ2_0's verify-kernel prefill) 1.17 / 1.20x. Zero-fraction sweep:
+0.94x at z = 0.25, 1.03x at 0.31, 1.0-1.2x above, which is why the default threshold is 0.30. End-to-end numbers:
+`docs/kurn-ternary-results.md` in the project store.
+
 ## Tests
 
 `test_kurn_buft.c` is a test-backend-ops-style checker for `MUL_MAT` and `MUL_MAT_ID` on KURN-buffer weights against
@@ -155,6 +204,7 @@ L=~/src/llama-kurn
 gcc -O2 -I$L/ggml/include test_kurn_buft.c -L$L/build/bin -lggml -lggml-base -lggml-cpu -lm -Wl,-rpath,$L/build/bin -o t
 ./t smoke | ./t quick [q8_0,q4_0] | ./t full        # exit code = number of failing cases
 ./t native                                          # native-layout Q6_K / Q5_K (also with GGML_KURN_EXACT=1)
+./t tbm [smoke]                                     # TQ1_0 / TQ2_0 as bitmap + signs: bit-identical to TQ2_0 records
 ./t case q8_0 4096 4096 16 8                       # one case: TYPE K N M THREADS [REPS]
 ./t bf16                                           # AMX-BF16 prefill path: error vs an f32 reference <= 2x ggml's vec_dot
 ./t fused                                          # fused gate + up + SwiGLU == unfused, bit for bit (also with GGML_KURN_EXACT=1)
