@@ -343,8 +343,9 @@ back the exact bytes of the plain state, so a restored session continues bit for
 - **Sizes** (real Qwen3 caches, 4K-32K tokens): F16 1.19x, Q8_0 K 1.18x / V 1.06x, k4c_q4 state 1.17x (its keys are
   f16 rows in the state), Q4_0 V 1.09x. zstd -3 gets 1.02-1.11x. These are close to the entropy of the formats under
   per-channel models; quantized caches leave little to code.
-- **Speed** (8-vCPU Emerald Rapids, 8 threads, 32K-token blocks): F16 ~1.7 GB/s encode, ~2.2 GB/s decode; Q8_0 V
-  ~0.7 / 0.8 GB/s. Saving a parked 32K-token Qwen3-1.7B F16 session (3.5 GiB) takes ~2 s, against ~51 s to re-prefill.
+- **Speed** (8-vCPU Emerald Rapids, 8 threads, 32K-token blocks), encode / decode: F16 1.5-1.6 / 1.8-1.9 GB/s, Q8_0
+  1.2-1.4 / 1.6-2.1 GB/s, Q4_0 V 0.8 / 0.9 GB/s. Parking a 32K-token Qwen3-1.7B F16 session (3.5 GiB) takes ~2.5 s
+  and waking it ~2 s, against ~51 s to re-prefill. Short sessions pay per-block thread start-up on top.
 - **Scratch:** the codec keeps grow-only per-thread buffers (a few times the largest layer block) to avoid page faults
   on every block.
 

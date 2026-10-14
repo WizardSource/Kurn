@@ -1,5 +1,5 @@
 diff --git a/common/arg.cpp b/common/arg.cpp
-index 75fb131f8..5d3f2774d 100644
+index 75fb131f8..1fea471ec 100644
 --- a/common/arg.cpp
 +++ b/common/arg.cpp
 @@ -1721,6 +1721,15 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
@@ -10,7 +10,7 @@ index 75fb131f8..5d3f2774d 100644
 +        {"--cache-kvz"},
 +        {"--no-cache-kvz"},
 +        "entropy-code the KV cache of prompt cache entries (--cache-ram, idle slots) and slot save files: lossless, "
-+        "~1.1-1.2x smaller, costs ~0.5 s per GiB to save and restore (default: disabled; LLAMA_KVZ_THREADS sets the threads)",
++        "1.1-1.2x smaller, ~0.5-0.7 s per GiB to save or restore on 8 threads (default: disabled; LLAMA_KVZ_THREADS sets the threads)",
 +        [](common_params & params, bool value) {
 +            params.cache_kvz = value;
 +        }
