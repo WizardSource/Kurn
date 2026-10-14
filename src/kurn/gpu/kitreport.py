@@ -240,9 +240,10 @@ def kit_report(out):
             d = _section(mm, f"### {fmt}", "\n### ")
             if d:
                 L += ["", d.replace("### ", "#### ", 1)]
-        pk = _section(mm, "## Packed-direct")
-        if pk:
-            L += ["", pk.replace("## ", "### ", 1)]
+        for head in ("## Packed-direct", "## Ternary bitmap"):
+            pk = _section(mm, head)
+            if pk:
+                L += ["", pk.replace("## ", "### ", 1)]
         L.append("\nFull matmul report: matmul/report.md.\n")
     else:
         L.append("Not run or no report (see steps).\n")
