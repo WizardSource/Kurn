@@ -28,9 +28,9 @@ def config_string(c):
 # Engine tune spaces per batch range (the matrix name, the batch it is tuned at, the space)
 ENGINE_SPACES = {
     "mma8": (1, {"bn": [8], "bm": [32, 64, 128], "wm": [1, 2, 4], "wn": [1], "bk": [128, 256], "stages": [3, 4, 5],
-                 "splitk": [0], "xin": ["f32"]}),
+                 "splitk": [0], "xin": ["f32"], "wload": ["smem", "reg"], "pf": [1, 2, 3]}),
     "mma16": (16, {"bn": [16], "bm": [32, 64, 128], "wm": [1, 2, 4], "wn": [1, 2], "bk": [128, 256], "stages": [3, 4],
-                   "xin": ["f32", "f16"]}),
+                   "xin": ["f32", "f16"], "wload": ["smem", "reg"], "pf": [1, 2]}),
     "mma64": (64, {"bn": [64], "bm": [64, 128], "wm": [2, 4], "wn": [1, 2], "bk": [64, 128, 256], "stages": [2, 3, 4],
                    "xin": ["f16"]}),
     "mma256": (256, {"bn": [64, 128], "bm": [128, 256], "wm": [2, 4], "wn": [2, 4], "bk": [64, 128, 256], "stages": [2, 3],

@@ -96,7 +96,13 @@ def test_kit_report_has_every_section_and_the_untestable_list(tmp_path):
     (out / "attn" / "attn_baselines.jsonl").write_text("".join(json.dumps(r) + "\n" for r in base))
     abl = {**cell, "model": "llama3-8b", "kv": "q8_0", "nkv": 16384, "variant": "deq 0 (smem pass, run 1)", "us": 66.0}
     (out / "attn" / "attn_ablation.jsonl").write_text(json.dumps(abl) + "\n")
+    (out / "matmul").mkdir()
+    (out / "matmul" / "report.md").write_text(
+        "# m\n\n## Wins, ties and losses\n\n| w |\n\n## Packed-direct weights vs shared-memory "
+        "staging (ablation)\n\n| tq2_0 | 1 | mma8 | 10 | 15 | 1.50x | win |\n\n## Other\n"
+    )
     md = kitreport.write(str(out))
+    assert "### Packed-direct weights vs shared-memory staging (ablation)" in md and "| tq2_0 | 1 | mma8 | 10 | 15 | 1.50x | win |" in md
     assert (out / "report.md").read_text() == md
     for want in ("# kurn GPU kit v2 report (QUICK run)", "## Not testable on this box", "FP8 (e4m3) KV attention",
                  "sm_100 (B200 / GB200)", "GPU pytest subset: skipped: NO_PYTEST=1", "| llama3-8b | f16 | 16384 | 50.0", "1.20x", "78%",

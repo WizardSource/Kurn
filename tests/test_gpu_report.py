@@ -119,6 +119,19 @@ def test_default_vs_tuned_table(tmp_path):
     assert cells[("q4_0", 1)]["kurn"]["impl"] == "kurn:tuned-mma8" and cells[("q4_0", 1)]["v_same"] == "win"
 
 
+def test_packed_vs_staged_ablation_table(tmp_path):
+    rows = rows_for("tq2_0", 1, "kurn:default-mma8", 12.0, 0.01, config=CFG["q4_0"])
+    rows += rows_for("tq2_0", 1, "kurn:default-mma8-reg", 8.0, 0.01, config=CFG["q4_0"], seed=3)
+    rows += rows_for("tq2_0", 16, "kurn:default-mma16", 10.0, 0.01, config=CFG["q4_0"], seed=5)
+    rows += rows_for("tq2_0", 16, "kurn:default-mma16-reg", 10.1, 0.01, config=CFG["q4_0"], seed=6)
+    (tmp_path / "matrix.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    md, _ = report.write(str(tmp_path), ["tq2_0"])
+    assert "## Packed-direct weights vs shared-memory staging (ablation)" in md
+    assert any(ln.startswith("| tq2_0 | 1 | mma8 |") and "1.50x | win |" in ln for ln in md.splitlines())
+    assert any(ln.startswith("| tq2_0 | 16 | mma16 |") and "| tie |" in ln for ln in md.splitlines())
+    assert "| — | — | — | unmeasured" in report.packed_vs_staged(report.unmeasured_cells(["q4_0"]))
+
+
 def test_dry_report_is_all_unmeasured(tmp_path):
     md, cells = report.write(str(tmp_path), ["q4_0", "tq2_0"], dry=True)
     assert all(c["v_overall"] == "unmeasured" and c["dispatch"] == "stock" for c in cells.values())

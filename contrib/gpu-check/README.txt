@@ -18,7 +18,9 @@ Kit v2: everything in one command, one report (recommended):
        on every cell (same data, same cold-KV timing); ablations of each phase-2 change at 1K and 16K; FlashInfer /
        FlashAttention-2 decode if TORCH_PYTHON (default python3) already has torch plus flashinfer / flash_attn
     4. the GEMM/GEMV matmul kit (run_gpu_check.sh): GPU correctness, tune, matrix vs ggml-cuda and cuBLAS for all ten
-       formats incl. MXFP4 / NVFP4 (dequant-in-register, runs on sm_80)
+       formats incl. MXFP4 / NVFP4 (dequant-in-register, runs on sm_80), plus the packed-direct ablation: the batch 1-16
+       engine tiles with weights staged through shared memory (default-mma8/16) vs decoded from global memory straight
+       into the tensor-core fragments (default-mma8/16-reg, wload=reg)
     5. the GPU pytest subset (kurn/tests/test_gpu_*.py)
   Output: kurn-kit-results-<host>-<date>/report.md - the single report: toolchain, steps, what this box cannot test
   (on an A100: FP8 KV and sm_100 / sm_120 runtime - compile + emulator only), attention kurn vs baselines against the

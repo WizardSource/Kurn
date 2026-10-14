@@ -5,6 +5,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased] - 0.3.0.dev3
 
+### Added: packed-direct weights for the tensor-core GEMM/GEMV engine (`wload=reg`)
+- This applies the "decode packed weights directly into tensor-core operands" transformation (AI lowering, 3.34x on
+  BitDelta) to every engine format, including MXFP4, NVFP4, Q4_K, Q8_0 and ternary TQ2_0.
+  - With `wload=reg`, each lane loads its own 16 fragment-order bytes per (row tile, k-tile), plus its scale words
+    (Q4_K: the meta records of rows g and g+8). The loads are predicated 128-bit / 32-bit read-only `ld.global.nc`,
+    straight into a register ring that runs `pf` (1-3) k-steps ahead of the MMAs.
+  - The existing per-format decoders turn the ring into the mma.sync A fragments in place.
+  - Weights get no cp.async, no shared-memory tile, no shared loads and no stage barrier; shared memory holds only
+    the activations. `wload=smem` (the cp.async pipeline) stays the default, and its code is unchanged.
+- SASS (sm_80, the batch-1-8 default tile): weight cp.async and LDS go to 0, with the same HMMA count. Hot-loop
+  instructions: Q4_K -7% per MMA, NVFP4 -5%, Q8_0 -13%, MXFP4 -16%, Q4_0 -24%, TQ2_0 -31%. Whole-kernel instructions
+  roughly halve.
+- Correctness, on the emulator and ptxas:
+  - every GEMM covering configuration passes on the emulator against the exact reference (539, about 230 of them
+    packed), with random data, extreme data and randomized schedules;
+  - 5 new mutants on the ring (wrong slot, ring not advancing, short issue distance, wrong scale block, Q4_K meta row)
+    are caught;
+  - 300 random legal packed configs show 0 spills on sm_80, sm_100 and sm_120;
+  - the register estimate charges 3/4 of the ring, fitted to ptxas.
+- Kit v2's matmul section races `default-mma8-reg` / `default-mma16-reg` (the mma8 / mma16 tiles with `wload=reg`),
+  and the batch-1-16 tune spaces include `wload` and `pf`. The matmul report and the single kit report get a
+  "Packed-direct weights vs shared-memory staging" ablation table (2-sigma verdicts).
+- Covering sets now also probe keys whose legal values depend on a mode key (`pf` under `wload=reg`).
+
 ### Added: GPU kit v2 - one command, one report, like-for-like attention baselines
 - `contrib/gpu-check/run_kit.sh` (QUICK=1 / full / DRYRUN=1) runs every GPU check from a copy of the kit:
   - the toolchain preflight (split installs included);
