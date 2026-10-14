@@ -13,3 +13,7 @@
 - `aa_tune.py N` is the A/A test of the tuner's confirmation on the real harness (`results/aa_tune.*`).
 - `results/rsi_check.json` is `integration/llama.cpp/rsi/rsi_check.py` on Qwen3-1.7B + 0.6B.
 - `results/q17.cost` and `results/q8b.cost` are the `kurn-spec-calib` tables used.
+- `overhead.py` measures the cost of `kurn_replay` / `kurn_rng_position` on the `think` prompt (`results/overhead.json`).
+- `results/rsi_check_before.json` is the `probs` check on a llama-server built without `rsi/apply.sh`: accepted
+  speculative tokens without probabilities. `results/rsi_check_fresh.json` is the full check on a fresh
+  `4ebdf2c` checkout with all four apply scripts.

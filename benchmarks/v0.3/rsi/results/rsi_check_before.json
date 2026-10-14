@@ -1,0 +1,43 @@
+{
+ "probs_pre_draft_equal_plain": [
+  false,
+  false,
+  false
+ ],
+ "probs_pre_arms_equal_plain": [
+  false,
+  false,
+  false
+ ],
+ "probs_pre_accepted_draft_tokens": [
+  37,
+  47,
+  40,
+  34,
+  40,
+  39
+ ],
+ "probs_pre_empty_entries": 376,
+ "probs_post_draft_equal_plain": [
+  false,
+  false,
+  false
+ ],
+ "probs_post_arms_equal_plain": [
+  false,
+  false,
+  false
+ ],
+ "probs_post_accepted_draft_tokens": [
+  37,
+  47,
+  41,
+  32,
+  44,
+  39
+ ],
+ "probs_post_empty_entries": 376,
+ "status": {
+  "probs": false
+ }
+}
