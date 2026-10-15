@@ -91,8 +91,8 @@ against ~110 for the 8-stream GEMV; with it, 2..8 columns of Qwen3-8B Q8_0 cost 
 ## Build
 
 ```sh
-git -C ~/src/llama.cpp worktree add ~/src/llama-kurn 4ebdf2c     # any recent llama.cpp should do
-kurn/integration/llama.cpp/apply.sh ~/src/llama-kurn            # copies sources, generates kernels, hooks CMake
+git -C ~/src/llama.cpp worktree add ~/src/llama-kurn 4ebdf2c     # tested on 4ebdf2c; newer commits may need apply.sh fixes
+integration/llama.cpp/apply.sh ~/src/llama-kurn                 # from this repo; copies sources, generates kernels, hooks CMake
 cd ~/src/llama-kurn && CC=gcc CXX=g++ cmake -B build -DGGML_NATIVE=ON -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_FLAGS=-mno-avx512fp16 -DCMAKE_CXX_FLAGS=-mno-avx512fp16 && cmake --build build -j
 ```
@@ -100,8 +100,10 @@ cd ~/src/llama-kurn && CC=gcc CXX=g++ cmake -B build -DGGML_NATIVE=ON -DCMAKE_BU
 `apply.sh LLAMA_DIR [--config JSON] [--only q8_0,q4_0] [--patch OUT.diff]` is idempotent. It copies `ggml-kurn/` and
 the generated kernels to `ggml/src/ggml-cpu/kurn/`, adds them to the ggml-cpu CMake target and registers the KURN
 buffer type first in `ggml_backend_cpu_get_extra_buffer_types()`, so it wins over AMX / CPU_REPACK for the formats it
-covers; other formats keep going to those buffers. `--config` overrides kernel keys per format (for example
-`{"q4_0": {"rows": 4, "prefetch": 1}}`). The buffer type needs AVX-512 F/BW/VNNI at build time; without it,
+covers; other formats keep going to those buffers. The shipped Q4_0 decode GEMV is
+`{"unpack": "mask16", "rows": 4, "prefetch": 16, "pfgran": "line"}` (`TUNED_KEYS` in `gen_ggml_sources.py`).
+`--config` overrides kernel keys per format (for example `{"q4_0": {"prefetch": 8}}`). The buffer type needs
+AVX-512 F/BW/VNNI at build time; without it,
 `ggml_backend_cpu_kurn_buffer_type()` returns NULL and nothing changes.
 
 The model log shows `KURN model buffer size = ...` when weights were repacked. No llama.cpp flag is needed;
@@ -429,7 +431,7 @@ much as 8). `spec-width/` sizes the draft to the measured costs:
   draft. Each finished request logs `kurn spec width: verify widths (M:steps) = ...`.
 
 ```sh
-kurn/integration/llama.cpp/spec-width/apply.sh ~/src/llama-kurn   # after apply.sh; idempotent
+integration/llama.cpp/spec-width/apply.sh ~/src/llama-kurn   # from this repo, after apply.sh; idempotent
 cmake --build build -j --target llama-server llama-speculative-simple kurn-spec-calib
 llama-server -m TARGET.gguf -md DRAFT.gguf --spec-type draft-simple --spec-draft-n-max 15 --spec-width target.cost
 ```

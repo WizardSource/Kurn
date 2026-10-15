@@ -61,7 +61,10 @@ Merged onto `main` after 0125:
 
 Each step below was run in order on 2026-10-07, on a fresh directory with a new venv, a fresh llama.cpp clone and models downloaded from Hugging Face. Steps 2, 3, 6 and 7 were re-run on 2026-10-14 on the consolidated tree; the speeds in steps 4 and 5 are from 2026-10-07. The machine was an 8-vCPU Emerald Rapids KVM guest (AMX, no GPU) with Ubuntu 24.04, gcc 13.3 and cmake 3.28. Step 7 ran as a dry run: CUDA 12.8 compilers, no GPU.
 
-Against llama.cpp `4ebdf2c`, the six `apply.sh` scripts in step 3 are the supported integration path.
+Against llama.cpp `4ebdf2c`, the supported integration path is the six `apply.sh` scripts in step 3, plus the optional
+`expert-streaming/apply.sh`. The Q4_0 `mask16` schedule, split-bf16 Q·K and outlier-aware / R8 weights are in the
+sources those scripts copy and generate. They are not extra scripts. This repo does not ship a combined
+`llama.cpp-kurn.patch`. `apply.sh --patch OUT` writes the checkout's diff after the script that receives the flag.
 
 ## 1. Prerequisites
 
@@ -143,7 +146,8 @@ cd ..
 ```
 
 - **Run the scripts with the venv active**, so the kernel generators can import kurn.
-- **Alternative:** `git -C llama-kurn apply /path/to/llama.cpp-kurn.patch` on the fresh `4ebdf2c` checkout gives the same tree as all seven scripts in this order.
+- **Alternative:** pass `--patch /tmp/llama.cpp-kurn.patch` to the last script you run. That file is the checkout's
+  diff so far. On a fresh `4ebdf2c` it matches those scripts only for the same kurn tree.
 - **Expert streaming** (MoE models): `llama-kurn-xs-convert model.gguf model.kxs` once, then `--expert-stream model.kxs --expert-cache-mb N` on llama-cli / llama-server. Without the flag nothing changes. Knobs and design: `integration/llama.cpp/expert-streaming/README.md`.
 - **Optional per-node profiler** (`GGML_OPPROF=1`): `git -C llama-kurn apply integration/llama.cpp/tools/opprof.patch`. It is not part of the scripts or the combined patch.
 
@@ -241,7 +245,7 @@ GGML_KURN_FA_MODE=exact $B/llama-server -m models/Qwen3-1.7B-Q8_0.gguf -md model
   - no draft 14.4;
   - stock llama.cpp's best fixed k 18.8.
 
-  See [verify-kernel results](kurn-verify-kernel-results.md).
+  The verify-kernel measurements are in [benchmarks/v0.2/verifykern/README.md](../benchmarks/v0.2/verifykern/README.md).
 
 ## 5. kurn's own engine (whole-model decode program)
 
@@ -323,10 +327,13 @@ KURN_KV=k4c_q4 python chat_engine.py "Name three primary colors."     # k4c KV: 
 
 ## 7. GPU check kit (A100 / B200 / RTX 50)
 
-**Kit v2, one command:** [kurn-gpu-check-attn.zip](../artifacts/kurn-gpu-check-attn.zip) plus its `-ggml-00/01/02` and `-wheels` zips. Unzip all of them into one folder, then:
+**Kit v2, one command.** The scripts live in [contrib/gpu-check/](../contrib/gpu-check/README.txt). `make_kit.sh`
+builds `kurn-gpu-check.zip` plus the `-ggml-00/01/02` and `-wheels` parts; those zips are not stored in this repo.
+Unzip every part into one folder, then:
 
 ```sh
-mkdir -p ~/kurn-kit && cd ~/kurn-kit && for z in /path/to/artifacts/kurn-gpu-check-attn*.zip; do unzip -q -o "$z"; done
+contrib/gpu-check/make_kit.sh $PWD          # KIT_GGML=llama.cpp KIT_WHEELS=dir for the extra zips
+mkdir -p ~/kurn-kit && cd ~/kurn-kit && for z in /path/to/kurn-gpu-check*.zip; do unzip -q -o "$z"; done
 cd kurn-gpu-check && QUICK=1 ./run_kit.sh        # ~1 h on an A100; ./run_kit.sh = full (~3 h); DRYRUN=1 = no GPU
 ```
 
@@ -351,7 +358,7 @@ QUICK=1 ./run_kit.sh
     - the fused Freivalds check (overhead per block size, false alarms, worst margin, detection of a corrupted tile);
   - NVML energy for the whole run (J per step, decode J/token; `unavailable` without NVML);
   - the GPU pytest subset.
-- **Output:** `kurn-kit-results-<host>-<date>/report.md` is the single report: toolchain, steps, and what the box cannot test (on an A100: FP8 KV and sm_100 / sm_120 runtime). It has kurn vs baselines against the stated target, Q8_0 vs F16, ablations, matmul wins / losses, pytest results and the llama.cpp build. A `.tar.gz` of the folder sits next to it. Copy that into `artifacts/`.
+- **Output:** `kurn-kit-results-<host>-<date>/report.md` is the single report: toolchain, steps, and what the box cannot test (on an A100: FP8 KV and sm_100 / sm_120 runtime). It has kurn vs baselines against the stated target, Q8_0 vs F16, ablations, matmul wins / losses, pytest results and the llama.cpp build. A `.tar.gz` of the folder sits next to it. `report.md` is that output, not a path in this repo.
 - **Contained:** it writes only inside the kit folder (TMPDIR and every cache are redirected there) and checks this at the end (`containment.txt`). No network, no root, no pip.
 - **Skip steps:** `NO_LLAMA=1`, `NO_MATMUL=1`, `NO_PYTEST=1`, `NO_TORCH=1`.
 - **Dry run here** (2026-10-14, kit zips rebuilt from the consolidated tree): `QUICK=1 DRYRUN=1 ./run_kit.sh` ran from an unzipped copy with CUDA 12.8 and no GPU. It took 29 min and exited 0 ("all checks passed"):
@@ -373,7 +380,7 @@ unzip kurn-gpu-check.zip && cd kurn-gpu-check && ./run_attn_check.sh   # QUICK=1
 - **First step: the CUDA preflight.** It logs the resolved toolchain (nvcc, header and library dirs, versions, how each was found) to `run.log` and `toolchain.json`; `archs.json` has it too.
   - It warns when the headers' version differs from nvcc's, and when the driver is older than the runtime.
   - If the runtime isn't found, it stops before any build with the fix. On a split install, use `KURN_CUDA_INCLUDE` / `KURN_CUDA_LIB` as in step 1.
-- **Output:** `kurn-attn-results-<host>-<date>.tar.gz` with `attn_report.md`. Exit status 0 means every check passed, and the report says which arch ran and whether it used native SASS or PTX JIT. Copy the tarball into your local `artifacts/` folder.
+- **Output:** `kurn-attn-results-<host>-<date>.tar.gz` with `attn_report.md`. Exit status 0 means every check passed, and the report says which arch ran and whether it used native SASS or PTX JIT.
 - **`DRYRUN=1`** runs without a GPU: compile plus CPU emulator.
   - Here, with CUDA 12.8 from the packages in step 1, `QUICK=1 DRYRUN=1 ./run_attn_check.sh` built 537 fatbin configurations for sm_80, sm_100 and sm_120 with 0 failures.
   - It compiled the harness for all three archs, and the CPU emulator passed 150 + 44 configurations.
@@ -388,7 +395,7 @@ unzip kurn-gpu-check.zip && cd kurn-gpu-check && ./run_attn_check.sh   # QUICK=1
   - kurn's AMX paths time every step and recompute the ones that spanned a gap. The base threshold is 4096 cycles (+128 per k-step on matmuls); the old 8192 base let 5 wrong results in 2.47 billion computations through on this VM, 4096 let none in 2.13 billion.
   - At load, a self-test (about 7–20 ms) checks tile results against a scalar reference, first plainly and then across forced context switches. On this VM it fails every time; kurn warns, keeps the guard forced on, stops sending small weights to ggml's unguarded AMX buffer, and caps compute threads to the process's vCPUs (shared fairly with other kurn AMX processes).
   - Remaining risk: a direct switch between two AMX threads on one vCPU is too fast for any timing guard. Formats only ggml's AMX buffer runs (Q4_1, IQ4_XS; Q5_K/Q6_K with `GGML_KURN_NATIVE=0`) have no guard at all.
-  - Run `tools/amx_check.sh` or `tools/amx_selftest.c` on a new host, and use `GGML_KURN_AMX=0` (or `GGML_KURN_AMX_SELFTEST_ACTION=off`) when in doubt.
+  - Run `integration/llama.cpp/tools/amx_check.sh` or `integration/llama.cpp/tools/amx_selftest.c` on a new host, and use `GGML_KURN_AMX=0` (or `GGML_KURN_AMX_SELFTEST_ACTION=off`) when in doubt.
 - **Batch invariance by default:** default prefill (AMX-BF16) is not batch invariant with decode. Exact mode is, at lower prefill speed (about 0.65× on Q8_0) and long-context decode (0.49× fast mode at 32K).
 - **Fast-mode attention:** about 3–4 of 8 speculative runs differ from plain greedy text at near-tie tokens. Exact mode removes this.
 - **k4c KV:** CPU only, V must be q4_0 or q8_0, no MLA.
@@ -400,9 +407,9 @@ unzip kurn-gpu-check.zip && cd kurn-gpu-check && ./run_attn_check.sh   # QUICK=1
   - No batched prefill.
 - **GPU:**
   - Every GPU path is verified on the CPU warp emulator and compiled for sm_80/sm_100/sm_120: attention, FP8 KV, MXFP4/NVFP4, packed-direct, `tbm`, fused epilogues and `cols=16`.
-  - None has run on silicon yet; the A100 kit run is pending.
-  - There is no llama.cpp CUDA integration.
+  - An A100 run drove the attention phase-2 kernels (0059–0061). A published speed matrix for that run, and for the packed-direct / `tbm` / fused-epilogue kernels, is still outstanding.
+  - kurn's CUDA kernels are not wired into llama.cpp. The kit builds ggml-cuda only as a baseline.
 - **Packaging:**
   - no wheels or releases;
-  - llama.cpp support is pinned to `4ebdf2c` (scripts or `llama.cpp-kurn.patch`), and newer commits may need `apply.sh` fixes;
+  - llama.cpp support is pinned to `4ebdf2c` via the `apply.sh` scripts, and newer commits may need script fixes;
   - the cost table is per machine, model pair, thread count and `GGML_KURN_FA_MODE`.
