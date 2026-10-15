@@ -3,6 +3,25 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased: outlier-aware weights, R8 rotated-INT8 weights
+
+### Added: R8 rotated-INT8 weights (AMX-INT8 prefill that is exact)
+- `kurn-r8.{cpp,h}`: I8 codes of W H (block Walsh-Hadamard folded into the weights offline) with per-row scales;
+  activations rotated online and quantized per token; one int32 dot product over all of K per output, through a VNNI
+  GEMV / verify kernel or AMX-INT8 tiles. Integer sums are exact: every width is bit-identical, so exact mode keeps AMX.
+- Qwen3-8B vs Q8_0, paired CI: prefill 1.58x, exact-mode prefill 2.44x, decode +4.3%, 8-token verify +12%; 8.0 bpw.
+  KL vs F16 0.0018 (Q8_0 0.0006, Q6_K 0.0053), PPL equal to Q8_0's. `tools/oa/r8quant.py`, `test_kurn_r8.c`.
+
+### Added: outlier-aware (OA) weights for every KURN format
+- Sidecar `MODEL.oa.gguf` (picked up by llama.cpp's loader): k salient input channels per weight kept exactly as an
+  F16 side matrix, the rest quantized with outlier-free scales; the kernel zeroes those channels before quantizing the
+  activations and adds the side product in each row chunk's epilogue (GEMV, verify, AMX-INT8 / AMX-BF16 prefill,
+  native formats, fused groups). Q2_K / Q3_K / IQ2 / IQ3 / IQ4_XS main weights run in the KURN buffer when they carry
+  an OA entry. Plain models are cmp-identical to before.
+- 16 side channels (+0.06 bpw on Qwen3-8B), KL vs the imatrix baseline: Q4_0 -30% to -38%, IQ2_XS -4% to -24%,
+  Q4_K_M -5% to -13% (Qwen3-1.7B / 8B, Llama-3.2-3B). The optional mean-fold bias (`oaquant.py --bias`) is neutral at
+  4 bits and harmful at 2 bits. `tools/oa/oaquant.py`, `test_kurn_oa.c`, `benchmarks/v0.3/outlier-compression/`.
+
 ## Unreleased: AMX self-test follow-ups
 
 ### Fixed
