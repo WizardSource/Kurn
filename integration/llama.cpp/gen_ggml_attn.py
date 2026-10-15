@@ -16,10 +16,13 @@ for KV formats f16, bf16 and q8_0 (K and V of the same type) and head dims 64, 1
 576/512 (MLA, V a view of K), and k4c_q4 / k4c_q8 (K GGML_TYPE_K4C, V Q4_0 / Q8_0; dims 64, 128, 256). Each file is compiled only when the ggml-cpu build has the ISA
 the target needs (guard macros below), so a non-native build drops what it cannot run.
 
+The amx and bf16 variants compute split-bf16 scores (q, k as bf16 hi + lo) for the query rows that see at least
+4096 keys (kurn.attention's qk_hi; set per variant with --config, 0 = never).
+
     python gen_ggml_attn.py DIR [--config JSON] [--only-dims 128,256]
 
 writes DIR/kattn_<variant>_<kv>_d<dk>[_<dv>].c, DIR/kurn_attn.h and DIR/kattn_dispatch.h.
---config is JSON {variant: {codegen keys}} (tile_q, tile_kv, split, dec_rows, kcenter).
+--config is JSON {variant: {codegen keys}} (tile_q, tile_kv, split, dec_rows, kcenter, qk_hi).
 """
 
 import argparse
