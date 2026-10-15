@@ -12,6 +12,8 @@ A spec names the kernel configuration and, optionally, the problem it is tuned o
     dec_rows  8              # AVX-512 row engine when n_q * G <= dec_rows (decode), 0 = never
     kcenter   1              # bf16 engines: center K per item before bf16 rounding (0 = off)
     qk        bf16           # amx_bf16: int8 = Q K^T on AMX-INT8 (P V stays bf16; lossier, no kattn_pack)
+    qk_hi     4096           # bf16 engines, qk bf16: split-bf16 (hi + lo) Q K^T for the query rows that see >= qk_hi
+                             # keys (0 = never, 1 = every row); 3x the Q K^T tile work on those rows, P V unchanged
     threads   8
     heads 16  kv_heads 8  nq 4096  nkv 4096          # problem (not codegen)
     vrot 64  vout 8   # harness: V stored Hadamard-rotated in 64-blocks (output rotated back), 4 V channels x8; vqerr
@@ -61,18 +63,20 @@ SCHEDULE = {
     "dec_rows": lambda c: (0, 4, 8),
     "kcenter": lambda c: (0, 1),
     "qk": lambda c: ("bf16", "int8") if c["target"] == "amx_bf16" else ("bf16",),
+    "qk_hi": lambda c: (0, 1, 1024, 2048, 4096, 8192, 16384, 32768) if c["target"] != "avx512" and c["qk"] == "bf16" else (0,),
     "threads": lambda c: tuple(range(1, 257)),
 }
 DEFAULTS = {"kv": "f16", "dk": 128, "tile_q": 64, "tile_kv": 128, "split": 0, "dec_rows": 8, "kcenter": 1, "qk": "bf16",
-            "threads": min(8, os.cpu_count() or 8)}  # fmt: skip
-CODEGEN_KEYS = ("kv", "target", "dk", "dv", "tile_q", "tile_kv", "split", "dec_rows", "kcenter", "qk")
+            "qk_hi": 4096, "threads": min(8, os.cpu_count() or 8)}  # fmt: skip
+CODEGEN_KEYS = ("kv", "target", "dk", "dv", "tile_q", "tile_kv", "split", "dec_rows", "kcenter", "qk", "qk_hi")
 # Problem keys: the shape a spec is verified / tuned on (do not change the generated C).
 PROBLEM = {"heads": 16, "kv_heads": 8, "nq": 1, "nkv": 4096, "pos0": -1, "causal": 1, "mask": 0, "mla": 0,
            "rope_base": 1000000, "rope_dim": -1, "rope_mode": 0, "vrot": 0, "vout": 0}  # fmt: skip
 KNOWN_KEYS = ("kernel", "op", "target") + tuple(SCHEDULE) + tuple(PROBLEM)
 # Accepted max |out - ref| / max |ref| against the float64 reference on the same (dequantized)
 # K/V: the f32 engines differ only by summation order and the exp2 polynomial; the bf16 engines
-# round q, k (from f16) and the probabilities to bf16 (8-bit mantissa).
+# round q, k (from f16) and the probabilities to bf16 (8-bit mantissa). Plain bf16 scores reach
+# 0.8-1.5e-2 in the worst of 10 seeds at 1K-32K keys; split scores (qk_hi) stay <= 4e-3, the P V rounding.
 TOL = {"avx512": 1e-4, "avx512_bf16": 1e-2, "amx_bf16": 1e-2}
 
 
@@ -136,7 +140,7 @@ def generate(c):
     head = [f"/* kurn attention kernel: {' '.join(f'{k}={c[k]}' for k in CODEGEN_KEYS)} (kurn_attn.h {hsha}) */"]
     defs = {"KA_DK": c["dk"], "KA_DV": c["dv"], "KA_KV": KV_FORMATS[c["kv"]], "KA_ENGINE": TARGETS[c["target"]][2],
             "KA_TQ": c["tile_q"], "KA_TK": c["tile_kv"], "KA_SPLIT": c["split"], "KA_DEC_ROWS": c["dec_rows"],
-            "KA_KCENTER": c["kcenter"], "KA_QK8": int(c["qk"] == "int8")}  # fmt: skip
+            "KA_KCENTER": c["kcenter"], "KA_QK8": int(c["qk"] == "int8"), "KA_QKHI": c["qk_hi"]}  # fmt: skip
     head += [f"#define {k} {v}" for k, v in defs.items()]
     return "\n".join(head) + "\n" + body
 
