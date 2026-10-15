@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased: AMX self-test follow-ups
+
+### Fixed
+- AMX self-test, plain phase: computations are timed like the guarded steps and redone after a preemption-length gap,
+  and a wrong result is recomputed from the same inputs. Only a repeated wrong result turns AMX off; a one-off counts
+  like a switch-phase failure (guard forced on). Under heavy load (8 AMX, 8 yielding AMX and 8 busy processes) the
+  old phase turned AMX off in 2 of 1,150 runs, the new one in 0. `GGML_KURN_AMX_SELFTEST_FAULT` (test-only) and
+  `tests/test_amx_selftest.py`.
+
 ## Unreleased: expert streaming (KXS)
 
 ### Added
