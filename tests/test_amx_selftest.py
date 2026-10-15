@@ -86,3 +86,22 @@ def test_no_fault_never_turns_amx_off(checker):
         rc, out = _prefill(checker)
         assert rc == 0, out
         assert "AMX kernels off" not in out, out
+
+
+@pytest.mark.skipif(shutil.which("g++") is None, reason="needs g++")
+@pytest.mark.parametrize("env", [{"GGML_KURN_AMX_SELFTEST_FAULT": "plain-persistent"}, {"GGML_KURN_AMX": "0"}])
+def test_hypercomplex_follows_kurns_amx_decision(tmp_path, env):
+    # kurn-hc must not run AMX-BF16 when the KURN buffer type does not: compact != expanded at 32 / 64 columns otherwise
+    d = _llama_dir()
+    hc = ROOT / "integration" / "hypercomplex"
+    flags = ["-O2", "-march=native", "-mno-avx512fp16", "-fopenmp"]
+    subprocess.run(["g++", *flags, "-c", str(hc / "kurn-hc.cpp"), "-o", str(tmp_path / "kurn-hc.o")], check=True)
+    exe = tmp_path / "hc_bench"
+    subprocess.run(
+        ["gcc", *flags, f"-I{hc}", f"-I{d}/ggml/include", str(hc / "hc_bench.c"), str(tmp_path / "kurn-hc.o"), f"-L{d}/build/bin",
+         "-lggml", "-lggml-base", "-lggml-cpu", "-lm", "-lstdc++", f"-Wl,-rpath,{d}/build/bin", "-o", str(exe)],
+        check=True,
+    )
+    e = dict(os.environ, OMP_WAIT_POLICY="passive", GGML_KURN_EXACT="0", **env)
+    r = subprocess.run([str(exe), "check", "4", "q8", "512", "512", "16 32 64", "8"], capture_output=True, text=True, timeout=600, env=e)
+    assert r.returncode == 0 and "0 failed" in r.stdout, r.stdout[-3000:]

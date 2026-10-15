@@ -11,6 +11,9 @@ All notable changes to this project are documented here. The format follows
   like a switch-phase failure (guard forced on). Under heavy load (8 AMX, 8 yielding AMX and 8 busy processes) the
   old phase turned AMX off in 2 of 1,150 runs, the new one in 0. `GGML_KURN_AMX_SELFTEST_FAULT` (test-only) and
   `tests/test_amx_selftest.py`.
+- Hypercomplex layers (`kurn-hc.cpp`) use AMX-BF16 only where the KURN buffer type does: they follow
+  `GGML_KURN_AMX=0` and the self-test's `kurn_amx_check()` (weak, so `kurn-hc.o` still links alone). Before, with AMX
+  off for kurn, compact != expanded at 32 and 64 columns.
 
 ## Unreleased: expert streaming (KXS)
 

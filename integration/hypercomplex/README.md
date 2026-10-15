@@ -55,6 +55,9 @@ export OMP_PROC_BIND=close OMP_PLACES=cores OMP_WAIT_POLICY=active
 Freivalds oracle (bigVerify-style, as `test_kurn_buft freivalds`) on the AMX-BF16 outputs. `tests/test_hypercomplex.py`
 covers the algebra and layout references (`kurn.hypercomplex`) and, with `KURN_LLAMA_CPP`, the compiled checks.
 
+AMX-BF16 prefill runs only where kurn's KURN buffer type would use AMX: it follows `GGML_KURN_AMX=0` and kurn's AMX
+self-test (`kurn_amx_check()` in libggml-cpu), so compact and expanded layers never run different kernels.
+
 Switches: `KURN_HC_AMX=0` (no AMX-BF16 prefill), `KURN_HC_AMX_MIN` (32), `KURN_HC_G` (row groups per pass),
 `KURN_HC_PO=1` (weight-component-outer kernel, for comparison).
 

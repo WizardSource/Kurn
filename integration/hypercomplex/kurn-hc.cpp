@@ -17,6 +17,7 @@
 // arithmetic and order of kurn's real Q8_0 GEMV / verify kernels on the block-planar expansion, so results are
 // bit-identical to them.
 #include "kurn-hc.h"
+#include "../llama.cpp/ggml-kurn/kurn-amx-selftest.h"
 
 #include <immintrin.h>
 #include <x86intrin.h>
@@ -42,6 +43,8 @@ struct kurn_hc {
     uint8_t * buf;
     size_t bytes;
 };
+
+kurn_amx_state kurn_amx_check() __attribute__((weak));
 
 namespace {
 
@@ -331,8 +334,19 @@ void f32_rows(const kurn_hc * w, const float * X, int64_t ldx, int64_t M, float 
 // amx_bf16_gemm, with the panel packer reading compact records). Tiles 0-3 C, 4-5 A, 6-7 B.
 #if defined(__AMX_BF16__) && defined(__AVX512BF16__) && defined(__linux__)
 #define KHC_AMX 1
+// AMX only where kurn's KURN buffer type would use it: not with GGML_KURN_AMX=0 or KURN_HC_AMX=0, and not when kurn's
+// AMX self-test turned AMX off (kurn_amx_check() in libggml-cpu, weak so that kurn-hc.o still links without it; then
+// just the XTILEDATA permission). Otherwise compact and expanded layers would run different kernels.
 bool amx_ok() {
-    static const bool v = syscall(SYS_arch_prctl, 0x1023, 18) == 0 && env_int("KURN_HC_AMX", 1) != 0;
+    static const bool v = [] {
+        if (env_int("KURN_HC_AMX", 1) == 0 || env_int("GGML_KURN_AMX", 1) == 0) {
+            return false;
+        }
+        if (kurn_amx_check) {
+            return kurn_amx_check() != KURN_AMX_UNAVAILABLE;
+        }
+        return syscall(SYS_arch_prctl, 0x1023, 18) == 0;
+    }();
     return v;
 }
 
