@@ -1,6 +1,6 @@
 # kurn quickstart (0.3.0.dev3 + the consolidated series)
 
-This checkout is 0.3.0.dev3 plus, in this order (0001–0062 are on upstream `main`):
+This checkout is `main`: 0.3.0.dev3 plus patches 0001–0125 and three follow-ups (Q4_0 decode GEMV `mask16`, split-bf16 Q·K `qk_hi`, outlier-aware and R8 weights). In order, 0001–0062 are:
 
 - **merged:** attention, KV formats, verify width, GPU phase 1;
 - **llama-integration:** kurn attention, k4c KV and the selector in llama.cpp;
@@ -11,7 +11,7 @@ This checkout is 0.3.0.dev3 plus, in this order (0001–0062 are on upstream `ma
 - **0059–0061:** GPU attention A100 phase 2. Q8_0 KV dequantizes in registers, splits are short, MLA runs on 4 warps, and BF16 q is split hi + lo. This is driven by the first A100 run; speed still needs the A100.
 - **0062:** GPU kit v2. `run_kit.sh` runs everything in one command and writes one report, with llama.cpp / FlashInfer / FlashAttention-2 attention baselines.
 
-The consolidated series (`integration/next`, patches 0063–0125) adds, in this order:
+The consolidated series (patches 0063–0125, now on `main`) adds, in this order:
 
 - **0063:** README fix (the kit's report.md is an output, not a path in the tree).
 - **gpu-packed, 0064–0070** (gpu-packed 0063–0069, emulator- and SASS-verified, A100 speed pending):
@@ -52,6 +52,12 @@ The consolidated series (`integration/next`, patches 0063–0125) adds, in this 
   - the hypercomplex layers follow kurn's AMX decision;
   - `GGML_KURN_AMX=0` keeps weights off ggml's AMX buffer too.
 - **0125:** this quickstart's series ranges.
+
+Merged onto `main` after 0125:
+
+- **Q4_0 decode GEMV:** `mask16` schedule, rows 4, prefetch 16 (RSI harness, bit-identical).
+- **split-bf16 Q·K** (`qk_hi`, default 4096 on the bf16 engines) for long contexts.
+- **Outlier-aware weights and R8 rotated-INT8** in the KURN buffer, with `integration/llama.cpp/tools/oa/`.
 
 Each step below was run in order on 2026-10-07, on a fresh directory with a new venv, a fresh llama.cpp clone and models downloaded from Hugging Face. Steps 2, 3, 6 and 7 were re-run on 2026-10-14 on the consolidated tree; the speeds in steps 4 and 5 are from 2026-10-07. The machine was an 8-vCPU Emerald Rapids KVM guest (AMX, no GPU) with Ubuntu 24.04, gcc 13.3 and cmake 3.28. Step 7 ran as a dry run: CUDA 12.8 compilers, no GPU.
 

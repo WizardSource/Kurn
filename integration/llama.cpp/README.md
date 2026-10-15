@@ -113,7 +113,7 @@ The model log shows `KURN model buffer size = ...` when weights were repacked. N
 |---|---|
 | `GGML_KURN=0` | buffer type disabled (stock behaviour) |
 | `GGML_KURN_TYPES=q8_0,q4_0` | only these formats |
-| `GGML_KURN_AMX=0` | no AMX at all: prefill on the verify kernels, f32 attention engine, no AMX in the hypercomplex layers, and ggml's own AMX buffer left out of the extra buffer list (weights the per-tensor fallback would leave there stay on kurn). `GGML_KURN_AMX=1` additionally selects kurn attention's AMX engine |
+| `GGML_KURN_AMX=0` | no AMX at all: prefill on the verify kernels, f32 attention engine, no AMX in the hypercomplex layers, and ggml's own AMX buffer left out of the extra buffer list (weights the per-tensor fallback would leave there stay on kurn). Unset is the same as `GGML_KURN_AMX=1`: AMX prefill and kurn attention's AMX engine, where the CPU has AMX |
 | `GGML_KURN_AMX_MM=0` | AMX prefill matmuls off (attention engine unchanged) |
 | `GGML_KURN_AMX_MIN=N` | AMX prefill for N or more columns (default 32, minimum 16) |
 | `GGML_KURN_EXACT=1` | batch-invariant matmuls only: Q8_0 prefill on the AMX-INT8 kernel, other formats on the verify kernels, Q6_K / Q5_K on the native kernels at every width (also implied by `GGML_KURN_FA_MODE=exact`) |
@@ -563,8 +563,11 @@ On the KVM guest used for development, AMX tile registers are not reliably prese
 other processes competing for the cores, both this AMX kernel and ggml's own AMX kernels intermittently return wrong
 results (`tools/amx_ctx.c` reproduces it without ggml). `tools/amx_check.sh` (20 repeated runs per shape, threads
 pinned, under the bench lock) still saw 1-6 of 19 repeats differ for kurn's AMX kernel and up to 19 of 19 for ggml's AMX
-buffer. The AMX kernel is therefore opt-in (`GGML_KURN_AMX=1`); it should be safe on bare metal or on hypervisors that
-switch AMX state correctly.
+buffer. Prefill and the attention engine use AMX by default where the CPU has it (`GGML_KURN_AMX` defaults to 1). A
+startup self-test (`kurn-amx-selftest.cpp`, `tools/amx_selftest.c`) checks the host, and the preemption guard
+(4096-cycle base) recomputes a step that ran long enough to have been preempted. `GGML_KURN_AMX=0` turns AMX off
+everywhere, including ggml's own AMX buffer. Bare metal and hypervisors that switch AMX state correctly are where
+ggml's unguarded AMX buffer is safe; on this VM, leave the self-test and the guard on.
 
 ## Legacy prototype
 
