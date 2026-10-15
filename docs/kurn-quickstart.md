@@ -11,7 +11,7 @@ This checkout is 0.3.0.dev3 plus, in this order (0001–0062 are on upstream `ma
 - **0059–0061:** GPU attention A100 phase 2. Q8_0 KV dequantizes in registers, splits are short, MLA runs on 4 warps, and BF16 q is split hi + lo. This is driven by the first A100 run; speed still needs the A100.
 - **0062:** GPU kit v2. `run_kit.sh` runs everything in one command and writes one report, with llama.cpp / FlashInfer / FlashAttention-2 attention baselines.
 
-The consolidated series (`integration/next`, patches 0063–0114) adds, in this order:
+The consolidated series (`integration/next`, patches 0063–0121) adds, in this order:
 
 - **0063:** README fix (the kit's report.md is an output, not a path in the tree).
 - **gpu-packed, 0064–0070** (gpu-packed 0063–0069, emulator- and SASS-verified, A100 speed pending):
@@ -41,6 +41,12 @@ The consolidated series (`integration/next`, patches 0063–0114) adds, in this 
   - exact-mode cost tables recalibrated after kv-backlog;
   - TQ2_0 in the fused-path self-test;
   - this quickstart (two commits).
+- **AMX self-test, 0115–0117** (amx-selftest 0079–0081):
+  - an AMX startup self-test (`kurn-amx-selftest.cpp`, `tools/amx_selftest.c`);
+  - the preemption guard's base is now 4096 cycles instead of 8192;
+  - after a failed self-test, compute threads are capped to the process's vCPUs.
+- **Expert streaming, 0118–0120** (expert-streaming 0001–0003): MoE routed experts stay on SSD in kurn's repacked layout (`.kxs`) and are read on demand into a slab cache; output is bit-identical to the all-in-RAM run (`expert-streaming/apply.sh`, `--expert-stream`, `--expert-cache-mb`, `llama-kurn-xs-convert`, `llama-kurn-xs-bench`).
+- **0121:** this quickstart, updated for the AMX and expert-streaming series.
 
 Each step below was run in order on 2026-10-07, on a fresh directory with a new venv, a fresh llama.cpp clone and models downloaded from Hugging Face. Steps 2, 3, 6 and 7 were re-run on 2026-10-14 on the consolidated tree; the speeds in steps 4 and 5 are from 2026-10-07. The machine was an 8-vCPU Emerald Rapids KVM guest (AMX, no GPU) with Ubuntu 24.04, gcc 13.3 and cmake 3.28. Step 7 ran as a dry run: CUDA 12.8 compilers, no GPU.
 
@@ -92,7 +98,7 @@ pip install pytest pytest-xdist numpy
 KURN_LLAMA_CPP=$PWD/../llama-kurn pytest -q -n 8   # after step 3, so the llama.cpp tests run too
 ```
 
-- Result here (consolidated tree, CUDA 12.8 on `PATH`): **12,228 passed, 66 skipped, 0 failed**, in about 12 minutes on 8 vCPUs.
+- Result here (consolidated tree, CUDA 12.8 on `PATH`): **12,228 passed, 66 skipped, 0 failed**, in about 12 minutes (also on the final tree with the AMX and expert-streaming series, against a llama.cpp built with all seven scripts) on 8 vCPUs.
 - Without nvcc, the GPU-compile tests skip.
 - An aarch64 cross gcc and qemu-user also un-skip the NEON tests.
 
@@ -117,6 +123,7 @@ integration/llama.cpp/k4c/apply.sh llama-kurn
 integration/llama.cpp/kvz/apply.sh llama-kurn            # after k4c/apply.sh
 integration/llama.cpp/rsi/apply.sh llama-kurn            # after spec-width/apply.sh and k4c/apply.sh
 integration/llama.cpp/memsys/apply.sh llama-kurn         # after k4c/apply.sh
+integration/llama.cpp/expert-streaming/apply.sh llama-kurn   # optional 7th script: SSD expert streaming for MoE models
 cd llama-kurn
 CC=gcc CXX=g++ cmake -B build -DGGML_NATIVE=ON -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_FLAGS=-mno-avx512fp16 -DCMAKE_CXX_FLAGS=-mno-avx512fp16
@@ -125,7 +132,8 @@ cd ..
 ```
 
 - **Run the scripts with the venv active**, so the kernel generators can import kurn.
-- **Alternative:** `git -C llama-kurn apply /path/to/llama.cpp-kurn.patch` on the fresh `4ebdf2c` checkout gives the same tree as the six scripts in this order.
+- **Alternative:** `git -C llama-kurn apply /path/to/llama.cpp-kurn.patch` on the fresh `4ebdf2c` checkout gives the same tree as all seven scripts in this order.
+- **Expert streaming** (MoE models): `llama-kurn-xs-convert model.gguf model.kxs` once, then `--expert-stream model.kxs --expert-cache-mb N` on llama-cli / llama-server. Without the flag nothing changes. Knobs and design: `integration/llama.cpp/expert-streaming/README.md`.
 - **Optional per-node profiler** (`GGML_OPPROF=1`): `git -C llama-kurn apply integration/llama.cpp/tools/opprof.patch`. It is not part of the scripts or the combined patch.
 
 No runtime flag is needed. KURN registers ahead of ggml's AMX and CPU_REPACK buffers and takes every weight it has kernels for:
@@ -268,6 +276,7 @@ KURN_KV=k4c_q4 python chat_engine.py "Name three primary colors."     # k4c KV: 
    ./test_kurn_buft tbm          # ternary bitmap + signs, bit-identical to TQ2_0: "tbm: 404 passed, 0 failed"
    ./test_kurn_buft fused        # fused gate+up+SwiGLU and q+k+v == unfused, bit for bit: "fused: 90 passed, 0 failed" (also with GGML_KURN_EXACT=1 and GGML_KURN_TBM=0/1)
    ./test_kurn_buft freivalds    # Freivalds oracle for the AMX-BF16 (KL-mode) kernels: "freivalds: 16 passed, 0 failed"
+   gcc -O2 -march=native -pthread integration/llama.cpp/tools/amx_selftest.c -o amx_selftest && ./amx_selftest -t 2 -p 0 -S -y   # tile results across forced context switches
    GGML_KURN_NUMA_FAKE=2 ./test_kurn_buft smoke     # per-node row scheduling on a fake 2-node topology
    gcc -O2 -I$L/ggml/include integration/llama.cpp/k4c/test_k4c.c -L$L/build/bin -lggml -lggml-base -lggml-cpu -lm \
      -Wl,-rpath,$L/build/bin -o test_k4c && ./test_k4c                   # "k4c: 27 passed, 0 failed"
@@ -296,6 +305,9 @@ KURN_KV=k4c_q4 python chat_engine.py "Name three primary colors."     # k4c KV: 
 | `GGML_KURN_STEAL=0` | guided row chunks instead of work stealing for 1–8 columns |
 | `GGML_KURN_AMX_VFY=0` | Q8_0 at 9–16 columns on two 8-column VNNI passes instead of the one-pass AMX verify kernel |
 | `LLAMA_K4C_STATE=f16` | write k4c session state as f16 rows (for older readers) |
+| `GGML_KURN_AMX_GUARD=N` | preemption guard threshold in TSC cycles (default 4096, +128 per k-step on matmuls). After a failed self-test, values above 8192 are ignored |
+| `GGML_KURN_AMX_SELFTEST=0` / `GGML_KURN_AMX_SELFTEST_ACTION=off` | skip the AMX startup self-test / on a failed self-test, use the non-AMX kernels instead of the forced guard |
+| `GGML_KURN_AMX_OVERSUB=warn` | after a failed self-test, only warn about oversubscribed vCPUs instead of capping the compute threads |
 | `KURN_SPEC_LAZY=0` | the draft model mirrors every target batch instead of catching up when it drafts |
 
 ## 7. GPU check kit (A100 / B200 / RTX 50)
@@ -362,7 +374,10 @@ unzip kurn-gpu-check.zip && cd kurn-gpu-check && ./run_attn_check.sh   # QUICK=1
 - **AMX on VMs:**
   - AMX is now on by default where it is usable: prefill from 32 columns (16 for Q6_K/Q5_K), and attention.
   - Some KVM guests drop AMX tile data on preemption. On the dev VM, stock ggml's AMX buffer returned different results in up to 9 of 39 repeated runs.
-  - kurn's AMX paths time every step and recompute the ones that spanned a gap. Run `tools/amx_check.sh` on a new host, and use `GGML_KURN_AMX=0` when in doubt.
+  - kurn's AMX paths time every step and recompute the ones that spanned a gap. The base threshold is 4096 cycles (+128 per k-step on matmuls); the old 8192 base let 5 wrong results in 2.47 billion computations through on this VM, 4096 let none in 2.13 billion.
+  - At load, a self-test (about 7–20 ms) checks tile results against a scalar reference, first plainly and then across forced context switches. On this VM it fails every time; kurn warns, keeps the guard forced on, stops sending small weights to ggml's unguarded AMX buffer, and caps compute threads to the process's vCPUs (shared fairly with other kurn AMX processes).
+  - Remaining risk: a direct switch between two AMX threads on one vCPU is too fast for any timing guard. Formats only ggml's AMX buffer runs (Q4_1, IQ4_XS; Q5_K/Q6_K with `GGML_KURN_NATIVE=0`) have no guard at all.
+  - Run `tools/amx_check.sh` or `tools/amx_selftest.c` on a new host, and use `GGML_KURN_AMX=0` (or `GGML_KURN_AMX_SELFTEST_ACTION=off`) when in doubt.
 - **Batch invariance by default:** default prefill (AMX-BF16) is not batch invariant with decode. Exact mode is, at lower prefill speed (about 0.65× on Q8_0) and long-context decode (0.49× fast mode at 32K).
 - **Fast-mode attention:** about 3–4 of 8 speculative runs differ from plain greedy text at near-tie tokens. Exact mode removes this.
 - **k4c KV:** CPU only, V must be q4_0 or q8_0, no MLA.
