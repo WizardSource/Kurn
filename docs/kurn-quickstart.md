@@ -11,7 +11,7 @@ This checkout is 0.3.0.dev3 plus, in this order (0001–0062 are on upstream `ma
 - **0059–0061:** GPU attention A100 phase 2. Q8_0 KV dequantizes in registers, splits are short, MLA runs on 4 warps, and BF16 q is split hi + lo. This is driven by the first A100 run; speed still needs the A100.
 - **0062:** GPU kit v2. `run_kit.sh` runs everything in one command and writes one report, with llama.cpp / FlashInfer / FlashAttention-2 attention baselines.
 
-The consolidated series (`integration/next`, patches 0063–0121) adds, in this order:
+The consolidated series (`integration/next`, patches 0063–0125) adds, in this order:
 
 - **0063:** README fix (the kit's report.md is an output, not a path in the tree).
 - **gpu-packed, 0064–0070** (gpu-packed 0063–0069, emulator- and SASS-verified, A100 speed pending):
@@ -47,6 +47,11 @@ The consolidated series (`integration/next`, patches 0063–0121) adds, in this 
   - after a failed self-test, compute threads are capped to the process's vCPUs.
 - **Expert streaming, 0118–0120** (expert-streaming 0001–0003): MoE routed experts stay on SSD in kurn's repacked layout (`.kxs`) and are read on demand into a slab cache; output is bit-identical to the all-in-RAM run (`expert-streaming/apply.sh`, `--expert-stream`, `--expert-cache-mb`, `llama-kurn-xs-convert`, `llama-kurn-xs-bench`).
 - **0121:** this quickstart, updated for the AMX and expert-streaming series.
+- **AMX self-test follow-ups, 0122–0124:**
+  - the plain phase is timed and rechecked before it turns AMX off;
+  - the hypercomplex layers follow kurn's AMX decision;
+  - `GGML_KURN_AMX=0` keeps weights off ggml's AMX buffer too.
+- **0125:** this quickstart's series ranges.
 
 Each step below was run in order on 2026-10-07, on a fresh directory with a new venv, a fresh llama.cpp clone and models downloaded from Hugging Face. Steps 2, 3, 6 and 7 were re-run on 2026-10-14 on the consolidated tree; the speeds in steps 4 and 5 are from 2026-10-07. The machine was an 8-vCPU Emerald Rapids KVM guest (AMX, no GPU) with Ubuntu 24.04, gcc 13.3 and cmake 3.28. Step 7 ran as a dry run: CUDA 12.8 compilers, no GPU.
 
