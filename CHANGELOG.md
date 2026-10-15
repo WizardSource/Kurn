@@ -3,6 +3,43 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased: split-bf16 Q·K for long contexts (attention `qk_hi`, default 4096 on the bf16 engines)
+
+### Added
+- Plain bf16 rounds q and k to 8 mantissa bits. On the harness data its worst of 10 seeds is 0.8-1.5e-2 at
+  1K-32K keys, against the 1e-2 tolerance. The attention matrix's 32K prefill (8B shape) and 8K MLA decode (16 heads)
+  checks failed at seed 1 with 1.43e-2 and 1.23e-2.
+- Query rows that see at least `qk_hi` keys now add q_lo·k_hi + q_hi·k_lo to q_hi·k_hi (hi = bf16(x),
+  lo = bf16(x - hi); about 16 mantissa bits). P·V is unchanged. Both checks now give 2.9e-3 and 3.0e-3. The worst
+  of 10 seeds is <= 3.9e-3 at every depth and shape, which is the P·V rounding floor: f32 Q·K gives the same errors.
+- Chosen on accuracy per cost (AMX, 32K prefill, paired): split +39%, f32 FMA Q·K +102%. Splitting q alone costs
+  +25% but still reaches 9.7e-3.
+- Cost where it is active (`benchmarks/v0.2/attn/qk_precision.py`, 8 paired reps, 95% CIs):
+  - AMX prefill, GQA shapes: +35-42% at 8K-32K. At 4K it is +3-4%, because only the last rows reach 4096 keys.
+  - AMX prefill, MLA with 16 heads: +73-75%. Q·K tile compute dominates at dk 576 with 1,024 rows per tile.
+  - MLA decode and 4-token verify: +34-51%.
+  - GQA decode (f32 row engine): unchanged.
+  - AVX512-BF16 engine: +95-97%. Its vdpbf16ps Q·K dominates, and on this host the f32 engine prefills faster
+    anyway.
+  - From `kattn_pack`'s buffer (llama.cpp's prefill path): +36-42%. The buffer gains a k_lo plane (+50% size), so
+    packed tiles read k_lo in place. Rebuilding it per tile had cost llama.cpp pp512 20-41% of its throughput.
+  - End to end (llama-bench, Qwen3-1.7B Q8_0, AMX): pp512 -11% / -14% / -21% / -27% at depth 4K / 8K / 16K / 32K,
+    where attention is 24-60% of prefill time. tg32 is unchanged (within ±1%).
+- Per row, not per call. A row's key count is one past its last unmasked key, so n_kv padding and the batch do
+  not change it. The other rows of a tile multiply zeros in the extra terms and stay bit-identical to `qk_hi 0`.
+  The tile engine with one KV split stays batch-invariant across the threshold (tested). Exact mode is f32 and
+  unchanged, bit for bit.
+- Decode and verify tiles (one 32-row AMX block) add the split terms transposed, with K as the row-major A operand.
+  That skips the 16x16 transpose of k_lo and saves 3-7% there; both paths give identical scores.
+- AMX blocks with dk > 128 guard each extra term as its own step, passing the accumulators through memory (exact).
+  Three dk 576 terms in one block were retried on 4.8% of blocks at the 8192-cycle guard; stepped blocks retry as
+  often as plain ones (<= 0.6% at 4096 or 8192).
+- Test-only Freivalds residue check of every Q·K tile against its bf16 operands (`-DKA_QK_CHECK=1`, counters in
+  `kattn_qk_check_stats`). Its worst correct-run residue is 0.007 of the bound. A build that drops the q_hi·k_lo
+  term (`-DKA_QK_FAULT=1`) fails 56-90% of the checks of split rows.
+- KL vs F16 (WikiText-2, Qwen3-1.7B Q8_0, F16 KV, reference ggml FA): AMX 0.000173 / 0.000290 / 0.000318 at
+  8K / 16K / 32K becomes 0.000068 / 0.000066 / 0.000051. kurn's f32 attention gives 0.000053 / 0.000055 / 0.000045.
+
 ## Unreleased: AMX self-test follow-ups
 
 ### Fixed
