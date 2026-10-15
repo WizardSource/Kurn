@@ -48,7 +48,7 @@ TUNED_KEYS = {
     # v0.1 vnni16's tuned pass width on the i16 records, plus every line 4 records ahead: GEMV 13.4 vs
     # 15.0 ms (opbench, Qwen3-8B shapes, 6 A/B rounds)
     "q8_0": {"rows": 8, "prefetch": 4, "pfgran": "line"},
-    "q4_0": {"unpack": "pair", "rows": 4},
+    "q4_0": {"unpack": "mask16", "rows": 4, "prefetch": 16, "pfgran": "line"},
     # every line of the super-block record 4 records ahead: GEMV 8.4 vs 9.7 ms (opbench, Qwen3-8B shapes, 6 A/B rounds)
     "q4_K": {"unpack": "pair", "correction": "dpmin", "rows": 4, "prefetch": 4, "pfgran": "line"},
     "iq4_nl": {"unpack": "perm", "rows": 4},

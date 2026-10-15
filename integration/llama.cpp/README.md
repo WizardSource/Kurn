@@ -299,6 +299,20 @@ Two modes:
   recomputes blocks that spanned a preemption, see the AMX caveat), `f32` (default without AMX or with
   `GGML_KURN_AMX=0`) or `bf16` (AVX512-BF16). On Qwen3-8B Q8_0 (WikiText-2, ctx 4096, AMX prefill matmuls) KL vs F16
   is 0.00047 with `amx` and 0.00040 with `f32`; the shipped build before AMX prefill measured 0.00117.
+  The `amx` and `bf16` engines compute split-bf16 scores (q, k as bf16 hi + lo) for the query rows that see at
+  least 4096 keys (`qk_hi` in `gen_ggml_attn.py --config`, 0 = off). Plain bf16 Q·K misses kurn's 1e-2 attention
+  tolerance on some harness seeds at 8K-32K. With the split, the error is P·V's bf16 rounding, as with f32
+  scores. Cost: about +40% attention time on those rows (AMX), nothing below 4096 keys. With Qwen3-1.7B Q8_0,
+  llama-bench pp512 loses 11% / 14% / 21% / 27% at depth 4K / 8K / 16K / 32K, and tg32 is unchanged (decode runs
+  the f32 row engine). The per-call `kattn_pack` buffer is 50% larger (a k_lo plane). KL vs ggml FA (WikiText-2,
+  F16 KV; each ctx: 32K tokens, second half of every chunk scored):
+
+  | ctx | `f32` | `amx`, plain bf16 | `amx` (split) |
+  |---|---|---|---|
+  | 4096 | 0.000058 | 0.000197 | 0.000197 (no scored token reaches 4096 keys) |
+  | 8192 | 0.000053 | 0.000173 | 0.000068 |
+  | 16384 | 0.000055 | 0.000290 | 0.000066 |
+  | 32768 | 0.000045 | 0.000318 | 0.000051 |
 - **exact** (`GGML_KURN_FA_MODE=exact`): the f32 tile engine for every batch size and a single KV split. A token's
   attention output then does not depend on how many tokens are computed with it, the (padded) KV length or the thread
   count; together with the buffer type's batch-invariant matmuls, a speculative verify batch reproduces one-token
