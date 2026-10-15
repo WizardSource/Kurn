@@ -8,6 +8,7 @@
 #   attention the first FLASH_ATTN_EXT implementation (kurn-attn.cpp, ggml's kernel as fallback)
 # - registers the buffer type first in ggml-cpu's extra buffer list and adds the sources to CMake
 # - caps ggml-cpu's compute threads to the vCPUs available when the AMX self-test failed (ggml_kurn_cap_threads)
+# - leaves ggml's AMX buffer out of the extra buffer list with GGML_KURN_AMX=0 or AMX off by the self-test
 # - hooks fused MUL_MAT groups (ffn gate + up + SwiGLU; attention q + k + v) into ggml-cpu's graph fusion
 #   (ggml_cpu_try_fuse_ops), and makes llama.cpp's build_qkv emit q, k, v as consecutive nodes for KURN weights
 # - installs kurn's memory system (memsys/ggml-kurn-mem.{c,h} into ggml-base): CPU buffers, the CPU backend's work
@@ -101,6 +102,13 @@ if "kurn-buft.h" not in s:
 
 #if defined(__AMX_INT8__) && defined(__AVX512VNNI__)
 """, 1)
+    open(p, "w").write(s)
+p = f"{L}/ggml/src/ggml-cpu/ggml-cpu.cpp"
+s = open(p).read()
+if "ggml_kurn_ggml_amx_allowed" not in s:  # GGML_KURN_AMX=0 / AMX off by the self-test: no ggml AMX buffer either
+    anchor = "        if (ggml_backend_amx_buffer_type()) {\n            bufts.push_back(ggml_backend_amx_buffer_type());\n"
+    assert s.count(anchor) == 1, "ggml AMX buffer registration anchor not found"
+    s = s.replace(anchor, anchor.replace("if (ggml_backend_amx_buffer_type())", "if (ggml_kurn_ggml_amx_allowed() && ggml_backend_amx_buffer_type())"), 1)
     open(p, "w").write(s)
 p = f"{L}/ggml/src/ggml-cpu/ggml-cpu.cpp"
 s = open(p).read()

@@ -23,6 +23,12 @@ bool ggml_kurn_fused_mul_mat(const struct ggml_compute_params * params, struct g
 // AMX self-test when the threads would oversubscribe this process's vCPUs (kurn-amx-selftest.cpp).
 int ggml_kurn_cap_threads(int n_threads);
 
+// Whether ggml-cpu may register ggml's own AMX buffer type (apply.sh patches the extra buffer list): false with
+// GGML_KURN_AMX=0 or when kurn's AMX self-test turned AMX off, so that "no AMX" means no AMX anywhere, and the small
+// weights kurn's per-tensor fallback would leave with ggml stay on kurn's non-AMX kernels. True when the KURN buffer
+// type is disabled (GGML_KURN=0).
+bool ggml_kurn_ggml_amx_allowed(void);
+
 #ifdef __cplusplus
 }
 #endif

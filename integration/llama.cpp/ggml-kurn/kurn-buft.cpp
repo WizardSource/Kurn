@@ -113,7 +113,8 @@ const kurn_kernel * find_kernel(enum ggml_type t) {
 }
 
 #if defined(__AMX_INT8__) && defined(__linux__)
-bool amx_ok = false;     // ggml's AMX buffer (and kurn's AMX prefill) can run: XTILEDATA granted
+bool amx_ok = false;     // AMX may be used (kurn's AMX paths, ggml's AMX buffer): XTILEDATA granted, not GGML_KURN_AMX=0,
+                         // not turned off by the self-test
 bool amx_lossy = false;  // the AMX self-test saw tile data lost across a context switch (KURN_AMX_GUARDED)
 #endif
 
@@ -2052,6 +2053,15 @@ bool ggml_kurn_fused_mul_mat(const struct ggml_compute_params * params, struct g
     return fused_group(const_cast<ggml_compute_params *>(params), ops, n_ops, glu);
 }
 
+bool ggml_kurn_ggml_amx_allowed(void) {
+#if KURN_HAVE_AMX
+    if (ggml_backend_cpu_kurn_buffer_type()) {
+        return amx_ok;
+    }
+#endif
+    return true;
+}
+
 int ggml_kurn_cap_threads(int n_threads) {
 #if KURN_HAVE_AMX
     if (ggml_backend_cpu_kurn_buffer_type() && amx_lossy) {
@@ -2069,8 +2079,8 @@ ggml_backend_buffer_type_t ggml_backend_cpu_kurn_buffer_type(void) {
 #if KURN_HAVE_AMX
         // ARCH_REQ_XCOMP_PERM for XTILEDATA (same request as ggml's AMX buffer), then the AMX self-test
         const kurn_amx_state st = kurn_amx_check();
-        amx_ok = st != KURN_AMX_UNAVAILABLE;
-        amx_lossy = st == KURN_AMX_GUARDED;
+        amx_ok = st != KURN_AMX_UNAVAILABLE && env_int("GGML_KURN_AMX", 1) != 0;
+        amx_lossy = amx_ok && st == KURN_AMX_GUARDED;
         kurn_tbm_amx_set_lossy(amx_lossy);
 #endif
         return true;
@@ -2086,6 +2096,10 @@ ggml_backend_buffer_type_t ggml_backend_cpu_kurn_buffer_type(void) {
 
 int ggml_kurn_cap_threads(int n_threads) {
     return n_threads;
+}
+
+bool ggml_kurn_ggml_amx_allowed(void) {
+    return true;
 }
 
 bool ggml_kurn_fused_mul_mat(const struct ggml_compute_params *, struct ggml_tensor **, int, struct ggml_tensor *) {

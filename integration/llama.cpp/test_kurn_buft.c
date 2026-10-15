@@ -15,6 +15,8 @@
 //   test_kurn_buft fused [type,...]                 ffn gate + up + SwiGLU and q + k + v fused into one op each:
 //                                                     bit-identical to the unfused graph (exactness from the env);
 //                                                     KL-mode gate / up also pass the Freivalds oracle
+//   test_kurn_buft bufts                            print the CPU backend's extra buffer types, in order (AMX
+//                                                     only when kurn allows ggml's AMX buffer: not with GGML_KURN_AMX=0)
 //   test_kurn_buft freivalds                        Freivalds oracle (bigVerify-style secret-probe checksums) on
 //                                                     the AMX-BF16 path: no false alarm on real outputs, and planted
 //                                                     faults (one entry, one 16x16 tile) rejected
@@ -632,7 +634,19 @@ static int64_t kmult(enum ggml_type t) {
     return b < 32 ? 32 : b;
 }
 
+static int list_bufts(void) {
+    ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU));
+    ggml_backend_dev_t dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
+    typedef ggml_backend_buffer_type_t *(*fn_t)(ggml_backend_dev_t);
+    fn_t fn = (fn_t)ggml_backend_reg_get_proc_address(reg, "ggml_backend_dev_get_extra_bufts");
+    printf("extra buffer types:");
+    for (ggml_backend_buffer_type_t *b = fn ? fn(dev) : NULL; b && *b; b++) printf(" %s", ggml_backend_buft_name(*b));
+    printf("\n");
+    return 0;
+}
+
 int main(int argc, char **argv) {
+    if (argc > 1 && !strcmp(argv[1], "bufts")) return list_bufts();
     const int full = argc > 1 && !strcmp(argv[1], "full"), smoke = argc > 1 && !strcmp(argv[1], "smoke");
     const int bf16 = argc > 1 && !strcmp(argv[1], "bf16");
     const int native = argc > 1 && !strcmp(argv[1], "native");  // native [types]: Q6_K / Q5_K in ggml's layout, not exact mode

@@ -105,3 +105,34 @@ def test_hypercomplex_follows_kurns_amx_decision(tmp_path, env):
     e = dict(os.environ, OMP_WAIT_POLICY="passive", GGML_KURN_EXACT="0", **env)
     r = subprocess.run([str(exe), "check", "4", "q8", "512", "512", "16 32 64", "8"], capture_output=True, text=True, timeout=600, env=e)
     assert r.returncode == 0 and "0 failed" in r.stdout, r.stdout[-3000:]
+
+
+def _bufts(exe, **env):
+    rc, out = _run(exe, "bufts", **env)
+    assert rc == 0, out
+    line = next(l for l in out.splitlines() if l.startswith("extra buffer types:"))
+    return line.split(":", 1)[1].split()
+
+
+def _left_with_ggml(exe, **env):
+    # Qwen3-MoE-sized attn_k / attn_v ([2048 x 512] Q8_0): kurn's per-tensor fallback leaves them to ggml's AMX buffer
+    rc, out = _run(exe, "stress", "q8_0", "2048", "512", "32", "2", "2", **env)
+    assert rc == 0, out
+    return out.count("stays with ggml")
+
+
+def test_kurn_amx_0_means_no_amx_anywhere(checker):
+    if "AMX" not in _bufts(checker, GGML_KURN="0"):
+        pytest.skip("this build has no ggml AMX buffer")
+    assert "AMX" not in _bufts(checker, GGML_KURN_AMX="0")
+    assert _left_with_ggml(checker, GGML_KURN_AMX="0") == 0
+    # AMX turned off by the self-test: the same
+    assert "AMX" not in _bufts(checker, GGML_KURN_AMX_SELFTEST_FAULT="plain-persistent")
+    assert _left_with_ggml(checker, GGML_KURN_AMX_SELFTEST_FAULT="plain-persistent") == 0
+
+
+def test_skipped_self_test_keeps_the_previous_placement(checker):
+    if "AMX" not in _bufts(checker, GGML_KURN="0"):
+        pytest.skip("this build has no ggml AMX buffer")
+    assert _bufts(checker, GGML_KURN_AMX_SELFTEST="0")[:2] == ["KURN", "AMX"]
+    assert _left_with_ggml(checker, GGML_KURN_AMX_SELFTEST="0") > 0

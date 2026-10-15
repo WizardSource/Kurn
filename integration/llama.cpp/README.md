@@ -113,7 +113,7 @@ The model log shows `KURN model buffer size = ...` when weights were repacked. N
 |---|---|
 | `GGML_KURN=0` | buffer type disabled (stock behaviour) |
 | `GGML_KURN_TYPES=q8_0,q4_0` | only these formats |
-| `GGML_KURN_AMX=0` | no AMX at all: prefill on the verify kernels, f32 attention engine. `GGML_KURN_AMX=1` additionally selects kurn attention's AMX engine |
+| `GGML_KURN_AMX=0` | no AMX at all: prefill on the verify kernels, f32 attention engine, no AMX in the hypercomplex layers, and ggml's own AMX buffer left out of the extra buffer list (weights the per-tensor fallback would leave there stay on kurn). `GGML_KURN_AMX=1` additionally selects kurn attention's AMX engine |
 | `GGML_KURN_AMX_MM=0` | AMX prefill matmuls off (attention engine unchanged) |
 | `GGML_KURN_AMX_MIN=N` | AMX prefill for N or more columns (default 32, minimum 16) |
 | `GGML_KURN_EXACT=1` | batch-invariant matmuls only: Q8_0 prefill on the AMX-INT8 kernel, other formats on the verify kernels, Q6_K / Q5_K on the native kernels at every width (also implied by `GGML_KURN_FA_MODE=exact`) |
@@ -128,7 +128,7 @@ The model log shows `KURN model buffer size = ...` when weights were repacked. N
 | `GGML_KURN_AMX_GUARD=N` | preemption guard threshold in TSC cycles (4096, plus 128 per k-step of the guarded step; attention and the AMX verify kernel use a fixed 4096). If `GGML_KURN_VERBOSE=1` reports many recomputed steps (slower memory), raise it toward 8192; after a failed self-test, values above 8192 are ignored |
 | `GGML_KURN_AMX_SELFTEST=0` | skip the AMX startup self-test (below); `GGML_KURN_AMX_SELFTEST_MS` sets its budget (20 ms) |
 | `GGML_KURN_AMX_SELFTEST_FAULT=plain-transient` / `plain-persistent` | test-only: inject one wrong plain-phase tile that is right on recompute / wrong every time (`tests/test_amx_selftest.py`) |
-| `GGML_KURN_AMX_SELFTEST_ACTION=off` | when the self-test sees wrong AMX results, use the non-AMX kernels (as `GGML_KURN_AMX=0`) instead of the default `guard`: AMX kernels with the preemption guard forced on |
+| `GGML_KURN_AMX_SELFTEST_ACTION=off` | when the self-test sees wrong AMX results, use the non-AMX kernels and no ggml AMX buffer (as `GGML_KURN_AMX=0`) instead of the default `guard`: AMX kernels with the preemption guard forced on |
 | `GGML_KURN_AMX_OVERSUB=warn` | after a failed self-test, only warn when compute threads oversubscribe this process's vCPUs, instead of capping them (below) |
 | `GGML_KURN_CHUNK_KB=N` | prefill row-chunk size in KiB (default 1024) |
 | `GGML_KURN_CHUNKS=N` | prefill-sized ops (and decode-sized ones with `GGML_KURN_STEAL=0`): N equal row chunks per thread, handed out dynamically (0 = one static range per thread). Default: guided (each thread first streams its own contiguous 3/4 share in whole GEMV passes, the last quarter goes out in single passes); ops with fewer than 4 passes per thread use static ranges |
@@ -149,7 +149,9 @@ inputs: only a wrong result that repeats turns AMX off. One that is right on rec
 under heavy load) counts like a switch-phase failure. Wrong results across context switches print a warning and, by default, keep the AMX
 kernels with the guard forced on (`GGML_KURN_AMX_GUARD` above 8192 is ignored) and stop handing small weights to ggml's AMX
 buffer, which has no guard; `GGML_KURN_AMX_SELFTEST_ACTION=off` uses the non-AMX kernels instead. Formats kurn has no
-kernels for still go to ggml's AMX buffer. `tools/amx_selftest.c` is the standalone version, for measuring mismatch
+kernels for still go to ggml's AMX buffer, unless AMX is off (`GGML_KURN_AMX=0`, `ACTION=off`, or a plain-phase failure),
+which leaves that buffer out entirely. With `GGML_KURN_AMX_SELFTEST=0` the fallback sends small weights to ggml's AMX
+buffer as before the self-test. `tools/amx_selftest.c` is the standalone version, for measuring mismatch
 rates under load.
 
 **Thread cap after a failed self-test.** The guard cannot see a direct switch between two AMX threads on one vCPU
