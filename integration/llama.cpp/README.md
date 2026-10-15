@@ -139,6 +139,10 @@ The model log shows `KURN model buffer size = ...` when weights were repacked. N
 | `GGML_KURN_TBM_AMX_MIN=N` | bitmap + signs prefill on AMX-INT8 from N columns (default 32, minimum 16; batch invariant, also in exact mode) |
 | `GGML_KURN_TBM_PF=0`, `GGML_KURN_TBM_ROWS=N` | bitmap + signs GEMV without software prefetch; N row groups per pass (2, 4 (default), 6, 8) |
 | `GGML_KURN_VERBOSE=1` | log every repacked tensor, every fallback decision and each weight's prefill path; at exit, the number of AMX steps recomputed by the preemption guard |
+| `GGML_KURN_OA=FILE` | outlier-aware / R8 sidecar (below). llama.cpp sets it to `MODEL.oa.gguf` when that file exists next to the model |
+| `GGML_KURN_OA_PARTIAL=1` | allow sidecar entries whose weights are not on the KURN buffer (tests that create weights one graph at a time); by default kurn aborts at the first matmul, because those weights would run without their salient columns |
+| `GGML_KURN_R8_AMX_MIN=N` | R8 weights: AMX-INT8 tiles from N columns (default 16), VNNI GEMV below; both give identical results |
+| `GGML_KURN_R8_PF=N` | R8 GEMV software-prefetch distance in 1 KB tiles (default 4) |
 
 **AMX startup self-test.** Some KVM guests lose AMX tile data when a thread is descheduled, so a tile computation
 that a context switch lands in returns wrong results; the preemption guard in every kurn AMX kernel recomputes such
@@ -244,6 +248,9 @@ gcc -O2 -I$L/ggml/include test_kurn_buft.c -L$L/build/bin -lggml -lggml-base -lg
 ./t fused                                          # fused gate + up + SwiGLU == unfused, bit for bit (also with GGML_KURN_EXACT=1)
 ./t freivalds                                      # Freivalds oracle on the AMX-BF16 path: accepts real outputs, rejects faults
 TEST_BUFT=AMX ./t quick q8_0                         # same checks against another extra buffer type
+gcc ... test_kurn_oa.c -o toa && ./toa              # outlier-aware weights (q8_0,q4_0,q4_K,q2_0,q6_K,q2_K,iq2_xs), exact
+GGML_KURN_EXACT=0 ./toa                             # same in fast mode (AMX-BF16 prefill)
+gcc ... test_kurn_r8.c -o tr8 && ./tr8              # R8 weights: bit-exact vs an int64 reference at every width
 ```
 
 Every mode except `bf16`, `fused` and `freivalds` checks exact results and runs with `GGML_KURN_EXACT=1` unless the
@@ -496,6 +503,45 @@ logits, post-sampling (`post_sampling_probs`) by replaying the positions on a co
   NVML for the whole run and reports joules per step and decode joules per token.
 - **Tests.** `memsys/test_kurn_mem.c` (allocation modes, thread / row split, policy calls), run per mode and
   topology; `test_kurn_buft` under `GGML_KURN_NUMA_FAKE=2|3|4` checks the per-node row scheduling bit for bit.
+
+## Outlier-aware weights and R8 (`tools/oa/`)
+
+Both arrive through one sidecar GGUF, `MODEL.oa.gguf`, which llama.cpp's model loader hands to the buffer
+(`GGML_KURN_OA`). Weights without an entry are untouched: logits of plain models are `cmp`-identical to the build
+without this code. Results: `benchmarks/v0.3/outlier-compression/`.
+
+**Outlier-aware (OA) weights.** Per weight `W [K, N]`, the sidecar holds the k input channels with the largest
+calibration `E[x^2]` (`oa_idx`, I32 [k]), those columns exactly (`oa_side`, F16 [N, k]) and a bias (`oa_bias`, F32 [N];
+zero unless `oaquant.py --bias`, which folds the main part's quantization error times the calibration mean of the input,
+i.e. the near-constant part of the activations, into it: about neutral at 4 bits, harmful at 2 bits). The weight tensor in the model holds the rest of W with those columns zeroed, in any
+format, quantized with importance 0 on them so block scales are computed without the outliers. The matmul zeroes
+`x[idx]` before quantizing / converting the activations for the main product and adds, per output, `bias + sum_j
+side[j] x[idx[j]]` in a fixed order (fp32 FMA, j ascending) in each row chunk's epilogue. That covers the GEMV, 2-8
+verify, 9-16, AMX-INT8 and AMX-BF16 prefill, the native Q6_K / Q5_K kernels and fused groups (members must share
+`idx`). Results do not depend on the batch width, so exact mode stays batch invariant. Main formats without kurn kernels
+(Q2_K, Q3_K, IQ2_XXS/XS/S, IQ3_XXS/S, IQ4_XS) are taken in ggml's layout when they carry an OA entry: decode through
+ggml's `vec_dot`, prefill through AMX-BF16 with ggml's dequantization. OA weights are exempt from the per-tensor
+fallback.
+
+```sh
+# calibration statistics (benchmarks/v0.3/outlier-compression/scripts/qstream.py --mode stats), then
+python tools/oa/oaquant.py --f16 MODEL-f16.gguf --base MODEL-Q4_K_M.gguf --stats calib.pt --out MODEL-oa16.gguf --k 16
+# -> MODEL-oa16.gguf (same tensor types as the base, linear weights rewritten in place) + MODEL-oa16.gguf.oa.gguf
+```
+`gcc -O3 -march=native -fopenmp -shared -fPIC tools/oa/oa_q2_0.c -o tools/oa/liboa_q2_0.so` gives the weighted Q2_0
+quantizer (ggml's reference Q2_0 quantizer sets d = absmax and is unusable on Qwen3).
+
+**R8 weights (`kurn-r8.{cpp,h}`).** The linear weights become I8 tensors holding the int8 codes of `W H` (H: orthonormal
+block Walsh-Hadamard along K, block = largest power of two dividing K, at most 4096) with one f32 scale per row
+(`r8_scale`) and the block size (`r8_rot`) in the sidecar. Activations get the same rotation online (vectorized FWHT)
+and one int8 scale per token. Every output is one int32 dot product over all of K: VNNI GEMV / verify below
+`GGML_KURN_R8_AMX_MIN` columns, AMX-INT8 tiles accumulating across K above. Integer sums are exact, so every path and
+width gives the same bits, and AMX stays on in exact mode. q + k + v and gate + up share one rotation and quantization
+(fused groups). 8.0 bits per weight (Q8_0: 8.5).
+
+```sh
+python tools/oa/r8quant.py --f16 MODEL-f16.gguf --base MODEL-Q8_0.gguf --out MODEL-r8.gguf    # + MODEL-r8.gguf.oa.gguf
+```
 
 ## AMX caveat
 
