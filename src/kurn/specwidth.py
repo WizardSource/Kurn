@@ -45,7 +45,7 @@ VFY_MAX = 8
 BUFT_DEFAULT_KEYS = {"layout": "i16", "rows": 2, "prefetch": 0}
 BUFT_TUNED_KEYS = {
     "q8_0": {"rows": 8, "prefetch": 4, "pfgran": "line"},
-    "q4_0": {"unpack": "pair", "rows": 4},
+    "q4_0": {"unpack": "mask16", "rows": 4, "prefetch": 16, "pfgran": "line"},
     "q4_K": {"unpack": "pair", "correction": "dpmin", "rows": 4, "prefetch": 4, "pfgran": "line"},
     "iq4_nl": {"unpack": "perm", "rows": 4},
     "tq2_0": {"rows": 4, "prefetch": 4, "pfgran": "line"},
