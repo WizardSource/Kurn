@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased: expert streaming (KXS)
+
+### Added
+- llama.cpp integration: SSD expert streaming for MoE models (`integration/llama.cpp/expert-streaming/`). Routed
+  experts stay on SSD in kurn's repacked layout (`.kxs`, `llama-kurn-xs-convert`) and are read on demand with
+  O_DIRECT into per-weight slab caches (LFU, recency tie-break; `--expert-stream`, `--expert-cache-mb`). A plan node
+  after each MoE top-k queues the misses' reads; `MUL_MAT_ID` computes cached experts (and a shared expert) while
+  misses land. Optional next-layer router prediction prefetch, strictly behind demand reads (`GGML_KXS_PREFETCH=1`).
+  Output is bit-identical to the all-in-RAM run. Gemma 4 26B-A4B at 2 / 4 / 8 GB: 3.0 / 11.7 / 21.0 tok/s
+  (5.8x / 4.6x / 2.8x stock llama.cpp mmap); Qwen3-30B-A3B 4.6 / 10.6 / 21.9 tok/s (8.8x / 5.4x / 3.8x).
+- `benchmarks/v0.3/expert-streaming/`: cgroup-capped, interleaved paired harness and raw results.
+
 ## [Unreleased] - 0.3.0.dev3
 
 ### Added: thread cap after a failed AMX self-test

@@ -1,0 +1,57 @@
+Read the following engineering report excerpt carefully.
+
+## What was built
+
+`moe-stream/src/moe_stream.cpp` is a single C++ program linked to llama.cpp at a pinned commit. llama.cpp is not patched.
+
+1. llama.cpp mmaps the GGUF normally, with weight repacking turned off. Dense weights (attention, embeddings, router, shared expert) stay file-backed.
+2. The page-aligned interior of every routed-expert tensor mapping is swapped for anonymous memory with `MAP_FIXED`. Tensor pointers stay valid, but nothing is resident.
+3. A ggml scheduler eval callback pauses the graph right after each layer's router top-k, before the expert matmuls. The engine then does three things:
+   - loads the selected experts with parallel `O_DIRECT` preads into their own addresses;
+   - evicts experts with `MADV_DONTNEED` to stay within a byte budget;
+   - resumes the graph.
+4. **Router-lookahead prefetch:** when layer L's router runs, a predictor thread applies layer **L+1**'s router, stored as an int8 copy, to layer L's hidden state. It prefetches the top-k experts asynchronously. Recall is 79–81% at k=8 and 90–94% at k=12–16.
+5. **Policies compared:** no cache (naive offloading), LRU, LFU with decayed frequency, and LRU or LFU plus prefetch. The baseline is stock llama.cpp mmap, where the kernel page cache is the expert cache and its hit rate is measured with `mincore`. A trace-driven simulator adds a Belady-optimal bound across nine cache sizes.
+6. **Measurement:**
+   - Peak RAM is `memory.peak` (reset after load), disk bytes come from `io.stat`, and CPU time from `cpu.stat`, all read from the run's cgroup.
+   - Quality is checked with 14 exact-answer QA prompts plus wikitext-2 perplexity, and every capped run's output is compared token for token against the uncapped run.
+   - `./moe-stream/run_all.sh` reproduces everything: build, model download, sweep, simulation and report.
+
+## Results
+
+Decode tok/s is averaged over about 350 generated tokens (150 for the 122B model). The workload is 16 prompts, mostly short QA, with prefill reported separately. "Disk MB/token" is every byte the cgroup read per decode token.
+
+| Model (file, cache share) | Config | Decode tok/s | Disk MB/token | Hit rate | Peak RAM | Energy proxy J/token |
+|---|---|---|---|---|---|---|
+| **35B-A3B Q4_K_M** (20.4 GB; cache 3.4 GB = 20% of experts) | uncapped, in RAM | 15.61 | 0 | – | 19.4 GiB | 2.05 |
+| | mmap, 6 GB | 2.48 | 249 | 0.71 | 6.00 GiB | 8.6 |
+| | no cache | 2.40 | 594 | 0 | 2.5 GiB | 8.6 |
+| | LFU | 4.26 | 260 | 0.56 | 5.6 GiB | 6.1 |
+| | LRU | 5.66 | **152** | 0.74 | 5.6 GiB | 4.6 |
+| | **LRU + prefetch, k=8** | **6.95** | 194 | 0.91 | 5.6 GiB | **4.2** |
+| | LRU + prefetch, k=12 / k=16 | 6.59 / 6.17 | 251 / 293 | 0.94 / 0.95 | 5.6 GiB | 4.5 / 4.8 |
+| | at 1 GB/s flash: prefetch vs mmap | 4.99 vs 1.80 | 192 vs 242 | | | |
+| **35B-A3B Q2_K_XL** (12.3 GB; 40%) | uncapped / mmap / LRU / **LRU + prefetch** | 16.57 / 6.32 / 10.44 / **11.86** | 0 / 67 / 34 / 45 | – / 0.88 / 0.90 / 0.96 | ≤5.54 GiB capped | 1.9 / 4.0 / 2.7 / **2.5** |
+| **35B-A3B Q8_0** (36.9 GB; 10%) | uncapped\* / mmap / LRU / **LRU + prefetch** | 11.16 / 1.30 / 2.94 / **3.20** | 16 / 606 / 487 / 572 | – / 0.55 / 0.56 / 0.86 | ≤5.71 GiB capped | 2.7 / 14.4 / 7.8 / **8.0** |
+| **122B-A10B Q2_K_XL** (41.8 GB; 4%) | uncapped\* / mmap / LRU / **LRU + prefetch** | 4.58 / 0.55 / 1.60 / **1.96** | 66 / 1505 / 857 / 965 | – / 0.31 / 0.31 / 0.84 | ≤5.69 GiB capped | 6.3 / 32.5 / 13.6 / **13.6** |
+
+\*Only about 26 GiB of the VM's RAM is usable, so the Q8 and 122B "uncapped" runs also stream partly from disk.
+
+**Quality.**
+
+| Model | Perplexity, wikitext-2, 8×512 tokens | Perplexity, first 4 chunks | QA correct |
+|---|---|---|---|
+| 35B Q2_K_XL | 6.80 | 5.78 | 13/14 |
+| 35B Q4_K_M | 6.27 | 5.19 | 13/14 |
+| 35B Q8_0 | 6.18 | 5.15 | 13/14 |
+| 122B Q2_K_XL | – | 3.92 | 6/6 |
+
+- All three 35B quantizations miss the same QA item.
+- Streaming never changes the output, so quality is a property of the quantization, not of the cache.
+
+**Policy findings.** These come from the real runs plus the trace simulation (`results/simulation.json`).
+
+- **LRU beats LFU at every cache size.** 33–38% of a token's experts were also used by the previous token in the same layer. Popularity is skewed, with the hottest 10% of experts taking 46–55% of activations, but recency matters more than popularity.
+- **There is a cliff.** When the cache can't hold one token's working set (320–384 experts, about 3% of experts), LRU gets **0% hits**. You need roughly 10–20% of experts cached for 55–75% LRU hit rates. So in practice the model should be at most about 5–10× the RAM budget.
+
+Now summarize the report above in five concise bullet points, then name the single most important limitation.
