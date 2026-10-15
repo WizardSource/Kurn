@@ -182,7 +182,8 @@ def test_rows_follow_their_own_key_count(target, masked):
 def test_batch_invariance_across_threshold(target):
     """Tile engine with one KV split and no decode engine (what exact mode fixes, here on the bf16 engines): a
     token's output is the same, bit for bit, in a 100-token batch with n_kv 2304 and alone with n_kv padded to
-    256 above its own keys, on both sides of the threshold."""
+    256 above its own keys, on both sides of the threshold. On AMX the lone token (one 32-row block) takes the
+    transposed split path and the batch the row-tile one."""
     lib = _lib(target, dec_rows=0, split=1, qk_hi=T)
     q, k, v = _problem(9, NQ, NKV_PAD)
     batch = _run(lib, q, k, v, NKV_PAD, POS0, _mask(NQ, POS0, NKV_PAD))

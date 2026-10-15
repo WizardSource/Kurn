@@ -240,7 +240,9 @@ static void ka_make_plan(const kattn_args *a, int nth, ka_plan *p) {
 #if KA_QKHI
         t += KA_ALIGN(4 * (size_t)p->Rpad * KA_DK)                  /* [q_lo | q_hi] of split rows */
            + KA_ALIGN(2 * (size_t)KA_TK * KA_DK)                    /* packed k_lo tile */
-           + KA_ALIGN((size_t)p->Rpad);                            /* per row: split */
+           + KA_ALIGN((size_t)p->Rpad)                             /* per row: split */
+           + (KA_ENGINE == 2 ? KA_ALIGN(4 * (size_t)KA_TK * KA_DK)  /* AMX: row-major [k_hi | k_lo] tile */
+                             + KA_ALIGN(4 * 32 * (size_t)KA_DK) : 0);        /* Qx transposed, one 32-row block */
 #endif
     }
 #if KA_PRE_ROPE
@@ -819,6 +821,8 @@ typedef struct {
     uint16_t *Qx;   /* KA_QKHI: [Rpad][2][DK] bf16 (q_lo, q_hi) of split rows, zero elsewhere */
     uint32_t *Klo;  /* KA_QKHI: k_lo pairs, layout of Kp */
     uint8_t *hi;    /* KA_QKHI: [Rpad] row is split */
+    uint16_t *Kr;   /* KA_QKHI, AMX: [TK][2 DK] row-major (k_hi, k_lo) */
+    uint32_t *QxT;  /* KA_QKHI, AMX: Qx transposed, [DK][Rc] bf16 pairs */
 } ka_tile_buf;
 
 #if KA_ENGINE != 0
@@ -847,8 +851,10 @@ KA_INLINE __m512 ka_bf16lo_ps(__m512i h) { return _mm512_castsi512_ps(_mm512_sll
 KA_INLINE __m512 ka_bf16hi_ps(__m512i h) { return _mm512_castsi512_ps(_mm512_slli_epi32(_mm512_cvtepu16_epi32(_mm512_extracti64x4_epi64(h, 1)), 16)); }
 
 /* 16 K rows [kv0, kv0 + 16) (nk valid, the rest zero) as bf16 pairs [DK/2][16]: hi = bf16(k - mu) to dst
- * and, if lo, the remainder bf16(k - mu - hi) to lo (same layout). dst may be NULL (lo only). */
-static __attribute__((unused)) void ka_pack_k16(const kattn_args *a, int64_t g, int64_t kv0, int nk, uint32_t *dst, uint32_t *lo, const float *mu) {
+ * and, if lo, the remainder bf16(k - mu - hi) to lo (same layout); if rm, both row-major as rows [hi | lo] of
+ * 2 DK. dst may be NULL. */
+static __attribute__((unused)) void ka_pack_k16(const kattn_args *a, int64_t g, int64_t kv0, int nk, uint32_t *dst, uint32_t *lo,
+                                                uint16_t *rm, const float *mu) {
     for (int d0 = 0; d0 < KA_DK; d0 += 32) {
         __m512i r[16], rl[16];
 #if KA_KCENTER
@@ -865,9 +871,13 @@ static __attribute__((unused)) void ka_pack_k16(const kattn_args *a, int64_t g, 
                 x1 = _mm512_sub_ps(x1, m1);
 #endif
                 r[t] = ka_bf16x32(x0, x1);
-                if (lo) rl[t] = ka_bf16x32(_mm512_sub_ps(x0, ka_bf16lo_ps(r[t])), _mm512_sub_ps(x1, ka_bf16hi_ps(r[t])));
+                if (lo || rm) rl[t] = ka_bf16x32(_mm512_sub_ps(x0, ka_bf16lo_ps(r[t])), _mm512_sub_ps(x1, ka_bf16hi_ps(r[t])));
             } else {
                 r[t] = rl[t] = _mm512_setzero_si512();
+            }
+            if (rm) {
+                _mm512_store_si512(rm + (size_t)t * 2 * KA_DK + d0, r[t]);
+                _mm512_store_si512(rm + (size_t)t * 2 * KA_DK + KA_DK + d0, rl[t]);
             }
         }
         if (dst) {
@@ -881,10 +891,11 @@ static __attribute__((unused)) void ka_pack_k16(const kattn_args *a, int64_t g, 
     }
 }
 
-static __attribute__((unused)) void ka_pack_k(const kattn_args *a, int64_t g, int64_t kv0, int nk, uint32_t *Kp, uint32_t *Klo, const float *mu) {
+static __attribute__((unused)) void ka_pack_k(const kattn_args *a, int64_t g, int64_t kv0, int nk, uint32_t *Kp, uint32_t *Klo,
+                                              uint16_t *Kr, const float *mu) {
     for (int t0 = 0; t0 < KA_TK; t0 += 16) {
         const size_t o = (size_t)(t0 / 16) * (KA_DK / 2) * 16;
-        ka_pack_k16(a, g, kv0 + t0, nk - t0, Kp ? Kp + o : NULL, Klo ? Klo + o : NULL, mu);
+        ka_pack_k16(a, g, kv0 + t0, nk - t0, Kp ? Kp + o : NULL, Klo ? Klo + o : NULL, Kr ? Kr + (size_t)t0 * 2 * KA_DK : NULL, mu);
     }
 }
 
@@ -1199,6 +1210,78 @@ static __attribute__((unused)) void ka_qk(const uint16_t *Q, const uint32_t *Kp,
     }
 }
 
+#if KA_QKHI
+/* Tiles of one 32-row block (decode, verify) add the split terms transposed: Sᵀ += [k_hi | k_lo] [q_lo | q_hi]ᵀ with
+ * K the A operand, row-major as it is converted (Kr [TK][2 DK]), and Qx transposed once per item (QxT [DK][R] bf16
+ * pairs). k_lo then needs no 16x16 transpose per 16 tokens x 32 dims; each 16x16 block of S is transposed into the
+ * accumulators and back instead: 3-7% less time on 16-row tiles, 13-19% more on 128-row ones. The accumulators
+ * start from ka_qk's q_hi k_hi sums and take the same products in the same k order as its split blocks (AMX sums
+ * them identically with Q as A or as B), so a row's scores do not depend on the path its tile takes. */
+#define KA_QKT_ROWS 32
+
+static void ka_pack_qxt(const uint16_t *Qx, uint32_t *QxT, int64_t R) {
+    const uint32_t *X = (const uint32_t *)Qx;
+    for (int64_t r0 = 0; r0 < R; r0 += 16)
+        for (int p0 = 0; p0 < KA_DK; p0 += 16) {
+            __m512i t[16];
+            for (int i = 0; i < 16; i++) t[i] = _mm512_loadu_si512(X + (r0 + i) * KA_DK + p0);
+            ka_transpose16(t);
+            for (int i = 0; i < 16; i++) _mm512_storeu_si512(QxT + (size_t)(p0 + i) * R + r0, t[i]);
+        }
+}
+
+static void ka_qk_t(const uint16_t *Kr, const uint32_t *QxT, float *S, int64_t R, const uint8_t *hi) {
+    float E[8 * 16 * 16] __attribute__((aligned(64))); /* two sets of four 16x16 blocks of Sᵀ */
+    for (int64_t r0 = 0; r0 < R; r0 += 16) {
+        if (!ka_any(hi + r0, 16)) continue;
+        for (int j0 = 0; j0 < KA_TK; j0 += 64) {
+            for (int g = 0; g < 4; g++) { /* E[g] = S[r0 .. r0 + 16][j0 + 16 g .. + 16]ᵀ */
+                __m512i t[16];
+                for (int i = 0; i < 16; i++) t[i] = _mm512_castps_si512(_mm512_loadu_ps(S + (r0 + i) * KA_TK + j0 + 16 * g));
+                ka_transpose16(t);
+                for (int i = 0; i < 16; i++) _mm512_store_si512(E + 256 * g + 16 * i, t[i]);
+            }
+            float *in = E, *out = E + 1024; /* ping-pong: a retried step restarts from its input */
+            for (int st = 0; st < (KA_QKHI_STEPS ? 2 : 1); st++) {
+                const int pa = KA_QKHI_STEPS ? st * (KA_DK / 2) : 0, pb = KA_QKHI_STEPS && !st ? KA_DK / 2 : KA_DK;
+                uint64_t t0;
+                do {
+                    t0 = __rdtsc();
+                    _tile_loadd(0, in, 64);
+                    _tile_loadd(1, in + 256, 64);
+                    _tile_loadd(2, in + 512, 64);
+                    _tile_loadd(3, in + 768, 64);
+                    for (int p0 = pa; p0 < pb; p0 += 16) {
+                        _tile_loadd(6, QxT + (size_t)p0 * R + r0, 4 * R);
+                        _tile_loadd(4, Kr + (size_t)j0 * 2 * KA_DK + 2 * p0, 4 * KA_DK);
+                        _tile_dpbf16ps(0, 4, 6);
+                        _tile_loadd(5, Kr + (size_t)(j0 + 16) * 2 * KA_DK + 2 * p0, 4 * KA_DK);
+                        _tile_dpbf16ps(1, 5, 6);
+                        _tile_loadd(4, Kr + (size_t)(j0 + 32) * 2 * KA_DK + 2 * p0, 4 * KA_DK);
+                        _tile_dpbf16ps(2, 4, 6);
+                        _tile_loadd(5, Kr + (size_t)(j0 + 48) * 2 * KA_DK + 2 * p0, 4 * KA_DK);
+                        _tile_dpbf16ps(3, 5, 6);
+                    }
+                    _tile_stored(0, out, 64);
+                    _tile_stored(1, out + 256, 64);
+                    _tile_stored(2, out + 512, 64);
+                    _tile_stored(3, out + 768, 64);
+                } while (ka_amx_slow(t0));
+                float *tmp = in;
+                in = out;
+                out = tmp;
+            }
+            for (int g = 0; g < 4; g++) {
+                __m512i t[16];
+                for (int i = 0; i < 16; i++) t[i] = _mm512_load_si512(in + 256 * g + 16 * i);
+                ka_transpose16(t);
+                for (int i = 0; i < 16; i++) _mm512_storeu_ps(S + (r0 + i) * KA_TK + j0 + 16 * g, _mm512_castsi512_ps(t[i]));
+            }
+        }
+    }
+}
+#endif
+
 /* O += P V: 32 rows x 32 dims per step; vs = pair rows per 16-dim group of Vp */
 static void ka_pv(const uint16_t *P, const uint32_t *Vp, float *O, int64_t R, int64_t vs) {
     float T[32 * 32] __attribute__((aligned(64)));
@@ -1471,7 +1554,7 @@ void kattn_pack(const kattn_args *a, void *kvp, int64_t cap, int64_t j0, int64_t
         const int nk = (int)KA_MIN((int64_t)16, j1 - t);
         const size_t ko = (size_t)(t / 16) * (KA_DK / 2) * 16;
         ka_pack_k16(a, g, t, nk, (uint32_t *)ka_kvp_k(a, base, C, g) + ko, KA_QKHI ? (uint32_t *)ka_kvp_klo(a, base, C, g) + ko : NULL,
-                    mu);
+                    NULL, mu);
         ka_pack_vn(a, g, t, nk, 16, (uint32_t *)ka_kvp_v(a, base, C, g) + (size_t)(t / 2) * 16, C / 2);
     }
 #else
@@ -1495,13 +1578,20 @@ static void ka_tile(ka_item *it, const ka_tile_buf *b) {
 #endif
 #if KA_QKHI
     const int split = ka_pack_qx(it, b->Qx, b->hi);
-    uint16_t *Qx = split ? b->Qx : NULL;
+    uint16_t *Qx = split ? b->Qx : NULL, *Kr = NULL;
     uint32_t *Klo = split ? b->Klo : NULL;
+#if KA_ENGINE == 2
+    if (split && Rc <= KA_QKT_ROWS) {
+        ka_pack_qxt(b->Qx, b->QxT, Rc);
+        Kr = b->Kr;
+        Klo = NULL;
+    }
+#endif
 #else
-    uint16_t *Qx = NULL;
+    uint16_t *Qx = NULL, *Kr = NULL;
     uint32_t *Klo = NULL;
 #endif
-    (void)Qx, (void)Klo;
+    (void)Qx, (void)Klo, (void)Kr;
     for (int64_t r = 0; r < Rc; r++) {
         it->m[r] = -INFINITY;
         it->l[r] = 0.0f;
@@ -1541,10 +1631,14 @@ static void ka_tile(ka_item *it, const ka_tile_buf *b) {
             Vt = ka_kvp_v(a, it->kvp, it->cap, it->g) + (size_t)(kv0 / 2) * 16;
             vs = it->cap / 2;
             if (Klo) Kl = ka_kvp_klo(a, it->kvp, it->cap, it->g) + (size_t)(kv0 / 16) * (KA_DK / 2) * 16;
+            if (Kr) ka_pack_k(a, it->g, kv0, nk, NULL, NULL, Kr, mu); /* hi as packed: same rows, same mean */
         } else {
-            ka_pack_k(a, it->g, kv0, nk, b->Kp, Klo, mu);
+            ka_pack_k(a, it->g, kv0, nk, b->Kp, Klo, Kr, mu);
         }
-        ka_qk(b->Q, Kt, S, Rc, Qx, Kl, b->hi);
+        ka_qk(b->Q, Kt, S, Rc, Kr ? NULL : Qx, Kl, b->hi);
+#if KA_QKHI && KA_ENGINE == 2
+        if (Kr) ka_qk_t(Kr, b->QxT, S, Rc, b->hi);
+#endif
 #endif
 #else
         ka_pack_k(a, it->g, kv0, nk, b->Kp, mu);
@@ -1667,7 +1761,11 @@ static void ka_run(const kattn_args *a, const uint8_t *kvp, int64_t cap, void *w
         q += KA_ALIGN(sizeof(float) * KA_DK);
         tb.Qx = (uint16_t *)q;                         q += KA_ALIGN(4 * (size_t)p.Rpad * KA_DK);
         tb.Klo = (uint32_t *)q;                        q += KA_ALIGN(2 * (size_t)KA_TK * KA_DK);
-        tb.hi = q;
+        tb.hi = q;                                     q += KA_ALIGN((size_t)p.Rpad);
+#if KA_ENGINE == 2
+        tb.Kr = (uint16_t *)q;                         q += KA_ALIGN(4 * (size_t)KA_TK * KA_DK);
+        tb.QxT = (uint32_t *)q;
+#endif
 #endif
     }
 #if KA_ENGINE == 2
