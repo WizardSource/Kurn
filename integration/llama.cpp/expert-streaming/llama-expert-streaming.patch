@@ -1,0 +1,903 @@
+diff --git a/common/arg.cpp b/common/arg.cpp
+index 61f7b4737..1d6ce06a8 100644
+--- a/common/arg.cpp
++++ b/common/arg.cpp
+@@ -2437,6 +2437,20 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
+             params.no_kv_offload = !value;
+         }
+     ).set_env("LLAMA_ARG_KV_OFFLOAD"));
++    add_opt(common_arg(
++        {"--expert-stream"}, "FNAME",
++        "stream MoE experts from FNAME (a .kxs file from llama-kurn-xs-convert) instead of loading them; needs kurn",
++        [](common_params &, const std::string & value) {
++            setenv("LLAMA_EXPERT_STREAM", value.c_str(), 1);
++        }
++    ).set_env("LLAMA_ARG_EXPERT_STREAM"));
++    add_opt(common_arg(
++        {"--expert-cache-mb"}, "N",
++        "RAM for the streamed-expert slab cache in MiB, split evenly over the MoE layers (default: 4096)",
++        [](common_params &, int value) {
++            setenv("LLAMA_EXPERT_CACHE_MB", std::to_string(value).c_str(), 1);
++        }
++    ).set_env("LLAMA_ARG_EXPERT_CACHE_MB"));
+     add_opt(common_arg(
+         {"--repack"},
+         {"-nr", "--no-repack"},
+diff --git a/ggml/src/ggml-cpu/ggml-cpu.cpp b/ggml/src/ggml-cpu/ggml-cpu.cpp
+index 6758920c0..123ae7bc7 100644
+--- a/ggml/src/ggml-cpu/ggml-cpu.cpp
++++ b/ggml/src/ggml-cpu/ggml-cpu.cpp
+@@ -6,6 +6,7 @@
+ #include "traits.h"
+ #include "kurn/kurn-buft.h"
+ #include "kurn/kurn-attn.h"
++#include "kurn/kurn-xs.h"
+ #include "ggml-impl.h"
+ #include "amx/amx.h"
+ 
+@@ -700,6 +701,29 @@ static void * ggml_backend_cpu_get_proc_address(ggml_backend_reg_t reg, const ch
+         return (void *)ggml_backend_cpu_set_use_ref;
+     }
+ 
++    // kurn expert streaming (kurn/kurn-xs.h)
++    if (strcmp(name, "ggml_kurn_xs_open") == 0) {
++        return (void *)ggml_kurn_xs_open;
++    }
++    if (strcmp(name, "ggml_kurn_xs_is_streamed") == 0) {
++        return (void *)ggml_kurn_xs_is_streamed;
++    }
++    if (strcmp(name, "ggml_kurn_xs_plan_op") == 0) {
++        return (void *)ggml_kurn_xs_plan_op;
++    }
++    if (strcmp(name, "ggml_kurn_xs_stats") == 0) {
++        return (void *)ggml_kurn_xs_stats;
++    }
++    if (strcmp(name, "ggml_kurn_xs_stats_reset") == 0) {
++        return (void *)ggml_kurn_xs_stats_reset;
++    }
++    if (strcmp(name, "ggml_kurn_xs_layout") == 0) {
++        return (void *)ggml_kurn_xs_layout;
++    }
++    if (strcmp(name, "ggml_kurn_xs_pack") == 0) {
++        return (void *)ggml_kurn_xs_pack;
++    }
++
+     // threadpool - TODO:  move to ggml-base
+     if (strcmp(name, "ggml_threadpool_new") == 0) {
+         return (void *)ggml_threadpool_new;
+diff --git a/src/llama-graph.cpp b/src/llama-graph.cpp
+index 89c6949b5..8b4dae4f1 100644
+--- a/src/llama-graph.cpp
++++ b/src/llama-graph.cpp
+@@ -1978,6 +1978,22 @@ ggml_tensor * llm_graph_context::build_ffn(
+     return cur;
+ }
+ 
++// kurn expert streaming: the plan op when w is streamed from a .kxs file (see ggml-cpu/kurn/kurn-xs.h)
++static ggml_custom_op_t llama_kurn_xs_plan_op(const ggml_tensor * w) {
++    typedef bool (*is_streamed_t)(const char *);
++    static const auto fns = [] {
++        std::pair<is_streamed_t, ggml_custom_op_t> r = { nullptr, nullptr };
++        ggml_backend_dev_t dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
++        ggml_backend_reg_t reg = dev ? ggml_backend_dev_backend_reg(dev) : nullptr;
++        if (reg) {
++            r.first  = (is_streamed_t) ggml_backend_reg_get_proc_address(reg, "ggml_kurn_xs_is_streamed");
++            r.second = (ggml_custom_op_t) ggml_backend_reg_get_proc_address(reg, "ggml_kurn_xs_plan_op");
++        }
++        return r;
++    }();
++    return fns.first && fns.second && fns.first(ggml_get_name(w)) ? fns.second : nullptr;
++}
++
+ ggml_tensor * llm_graph_context::build_moe_ffn(
+          ggml_tensor * cur,
+          ggml_tensor * gate_inp,
+@@ -2143,6 +2159,22 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
+     }
+     cb(selected_experts, "ffn_moe_topk", il);
+ 
++    // kurn expert streaming: plan this layer's expert reads as soon as its experts are known. Expanding
++    // the plan node here also puts it (and the top-k) ahead of a shared expert built by the caller, so
++    // the reads overlap the shared expert's matmuls.
++    if (ggml_tensor * xs_w = up_exps ? up_exps : gate_up_exps ? gate_up_exps : down_exps; xs_w && selected_experts->type == GGML_TYPE_I32) {
++        if (ggml_custom_op_t xs_plan = llama_kurn_xs_plan_op(xs_w)) {
++            ggml_tensor * rin = logits && logits->op == GGML_OP_MUL_MAT ? logits->src[1] : nullptr;
++            if (rin && (rin->type != GGML_TYPE_F32 || !ggml_is_contiguous(rin))) {
++                rin = nullptr;
++            }
++            ggml_tensor * args[2] = { selected_experts, rin };
++            ggml_tensor * plan = ggml_custom_4d(ctx0, GGML_TYPE_I32, 1, 1, 1, 1, args, rin ? 2 : 1, xs_plan, 1, xs_w);
++            cb(plan, "ffn_moe_xs_plan", il);
++            ggml_build_forward_expand(gf, plan);
++        }
++    }
++
+     if (arch == LLM_ARCH_GROVEMOE && n_expert != hparams.n_expert) {
+         // TODO: Use scalar div instead when/if implemented
+         ggml_tensor * f_sel = ggml_cast(ctx0, selected_experts, GGML_TYPE_F32);
+diff --git a/src/llama-model-loader.cpp b/src/llama-model-loader.cpp
+index 6cc0b2028..79800e5e1 100644
+--- a/src/llama-model-loader.cpp
++++ b/src/llama-model-loader.cpp
+@@ -1344,6 +1344,12 @@ struct ggml_tensor * llama_model_loader::create_tensor(
+         is_lazy = lazy.add(tn.str(), cur, no_alloc ? nullptr : &require_weight(tn.str().c_str()));
+     }
+ 
++    if (xs.is_streamed && xs.is_streamed(tn.str().c_str()) && !no_alloc) {
++        const auto & w = require_weight(tn.str().c_str());
++        xs.ranges[w.idx].emplace_back(w.offs, w.offs + ggml_nbytes(cur));
++        xs.tensors.insert(tn.str());
++    }
++
+     ggml_tensor t_meta = *cur;
+     if (flags & TENSOR_ALLOW_RESHAPE) {
+         for (size_t dim = 0; dim < GGML_MAX_DIMS; dim++) {
+@@ -1428,8 +1434,14 @@ void llama_model_loader::init_mappings(bool prefetch, llama_mlocks * mlock_mmaps
+ 
+             const size_t prefetch_size = prefetch && use_mmap ? -1 : 0;
+ 
+-            std::unique_ptr<llama_mmap> mapping = std::make_unique<llama_mmap>(file.get(), prefetch_size, is_numa,
+-                    lazy.for_file(idx));
++            // streamed expert ranges are never read from the GGUF: keep them out of MAP_POPULATE / WILLNEED too
++            llama_mmap::ranges skip = lazy.for_file(idx);
++            if (xs.ranges.count(idx)) {
++                const auto & r = xs.ranges.at(idx);
++                skip.insert(skip.end(), r.begin(), r.end());
++                std::sort(skip.begin(), skip.end());
++            }
++            std::unique_ptr<llama_mmap> mapping = std::make_unique<llama_mmap>(file.get(), prefetch_size, is_numa, skip);
+             mmaps_used.emplace_back(mapping->size(), 0);
+             if (mlock_mmaps) {
+                 std::unique_ptr<llama_mlock> mlock_mmap(new llama_mlock());
+@@ -1628,6 +1640,11 @@ bool llama_model_loader::load_all_data(
+             continue;
+         }
+ 
++        if (xs.has(cur)) {
++            size_done += ggml_nbytes(cur);
++            continue;
++        }
++
+         if (progress_callback) {
+             if (!progress_callback((float) size_done / size_data, progress_callback_user_data)) {
+                 return false;
+diff --git a/src/llama-model-loader.h b/src/llama-model-loader.h
+index 9e51d0ce7..b18cb2a45 100644
+--- a/src/llama-model-loader.h
++++ b/src/llama-model-loader.h
+@@ -164,6 +164,17 @@ struct llama_model_loader {
+ 
+     std::map<ctx_key, ggml_context_ptr, ctx_key_comparator> ctx_map;
+ 
++    // kurn expert streaming: weights read from a .kxs file at run time, never loaded from the GGUF
++    struct expert_stream {
++        bool (*is_streamed)(const char * name) = nullptr;  // set when an expert file is open
++        std::map<uint32_t, llama_mmap::ranges> ranges;      // per file: kept out of the mmap prefetch
++        std::set<std::string>                  tensors;
++
++        bool has(const ggml_tensor * t) const {
++            return tensors.count(ggml_get_name(t)) > 0;
++        }
++    } xs;
++
+     // track tensors that had to be moved for debugging:
+     size_t n_tensors_moved = 0;
+     std::string first_tensor_moved_name;
+diff --git a/src/llama.cpp b/src/llama.cpp
+index 9beb14841..e83d9f4a9 100644
+--- a/src/llama.cpp
++++ b/src/llama.cpp
+@@ -312,6 +312,36 @@ static bool llama_prepare_model_devices(const llama_model_params & params, llama
+     return true;
+ }
+ 
++// kurn expert streaming: LLAMA_EXPERT_STREAM=<file.kxs> (from llama-kurn-xs-convert), slab cache size
++// LLAMA_EXPERT_CACHE_MB (default 4096). Only the first model loaded with it set is streamed.
++static void llama_kurn_xs_setup(const std::string & fname, llama_model_loader & ml) {
++    const char * path = getenv("LLAMA_EXPERT_STREAM");
++    if (!path || !*path) {
++        return;
++    }
++    typedef bool (*open_t)(const char *, const char *, size_t);
++    typedef bool (*is_streamed_t)(const char *);
++    static std::string opened;
++    ggml_backend_dev_t dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
++    ggml_backend_reg_t reg = dev ? ggml_backend_dev_backend_reg(dev) : nullptr;
++    auto xs_open = reg ? (open_t) ggml_backend_reg_get_proc_address(reg, "ggml_kurn_xs_open") : nullptr;
++    auto xs_is_streamed = reg ? (is_streamed_t) ggml_backend_reg_get_proc_address(reg, "ggml_kurn_xs_is_streamed") : nullptr;
++    if (!xs_open || !xs_is_streamed) {
++        throw std::runtime_error("LLAMA_EXPERT_STREAM is set but this build has no kurn expert streaming");
++    }
++    if (opened.empty()) {
++        const char * mb = getenv("LLAMA_EXPERT_CACHE_MB");
++        const size_t cache = (size_t) (mb && *mb ? atoll(mb) : 4096) << 20;
++        if (!xs_open(path, fname.c_str(), cache)) {
++            throw std::runtime_error(std::string("cannot use expert file ") + path);
++        }
++        opened = fname;
++    } else if (opened != fname) {
++        return;
++    }
++    ml.xs.is_streamed = xs_is_streamed;
++}
++
+ // Returns 0 on success, -1 on error, and -2 on cancellation via llama_progress_callback
+ static std::pair<int, llama_model *> llama_model_load(struct gguf_context * metadata, llama_model_set_tensor_data_t set_tensor_data, void * set_tensor_data_ud,
+         const std::string & fname, std::vector<std::string> & splits, FILE * file, llama_model_params & params) {
+@@ -366,6 +396,8 @@ static std::pair<int, llama_model *> llama_model_load(struct gguf_context * meta
+             return {0, model_ptr.release()};
+         }
+ 
++        llama_kurn_xs_setup(fname, ml);
++
+         if (!model->load_tensors(ml)) {
+             return {-2, nullptr};
+         }
+diff --git a/tools/CMakeLists.txt b/tools/CMakeLists.txt
+index c8ad1db43..95c543204 100644
+--- a/tools/CMakeLists.txt
++++ b/tools/CMakeLists.txt
+@@ -38,6 +38,7 @@ else()
+         add_subdirectory(export-lora)
+     endif()
+     add_subdirectory(fit-params)
++    add_subdirectory(kurn-xs)
+     if (GGML_METAL)
+         add_subdirectory(tuning)
+     endif()
+diff --git a/tools/kurn-xs/CMakeLists.txt b/tools/kurn-xs/CMakeLists.txt
+new file mode 100644
+index 000000000..6ced8b3f1
+--- /dev/null
++++ b/tools/kurn-xs/CMakeLists.txt
+@@ -0,0 +1,13 @@
++set(TARGET llama-kurn-xs-convert)
++add_executable(${TARGET} convert.cpp)
++target_link_libraries(${TARGET} PRIVATE ggml ${CMAKE_THREAD_LIBS_INIT})
++target_compile_features(${TARGET} PRIVATE cxx_std_17)
++
++set(TARGET llama-kurn-xs-bench)
++add_executable(${TARGET} bench.cpp)
++target_link_libraries(${TARGET} PRIVATE llama ${CMAKE_THREAD_LIBS_INIT})
++target_compile_features(${TARGET} PRIVATE cxx_std_17)
++
++if(LLAMA_TOOLS_INSTALL)
++    install(TARGETS llama-kurn-xs-convert llama-kurn-xs-bench RUNTIME)
++endif()
+diff --git a/tools/kurn-xs/bench.cpp b/tools/kurn-xs/bench.cpp
+new file mode 100644
+index 000000000..701c8f6c4
+--- /dev/null
++++ b/tools/kurn-xs/bench.cpp
+@@ -0,0 +1,300 @@
++// llama-kurn-xs-bench: one fresh-process run of prompt -> greedy generation, for expert streaming
++// measurements. Prints one JSON line: load time, time to first token, prefill and decode speed,
++// a hash of every logit row the run produced (bitwise output gate), the generated token ids, the
++// kurn-xs counters for prefill and decode, and peak RSS.
++//
++//   llama-kurn-xs-bench -m model.gguf (-p TEXT | -f FILE) [-n 128] [-t 8] [-c 4096] [-ub 512] [-b 2048]
++//                       [--chat] [--no-mmap] [--text]
++//
++// Expert streaming is selected with LLAMA_EXPERT_STREAM / LLAMA_EXPERT_CACHE_MB (see src/llama.cpp).
++#include "llama.h"
++#include "ggml-backend.h"
++
++#include <sys/resource.h>
++
++#include <algorithm>
++#include <chrono>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <fstream>
++#include <sstream>
++#include <string>
++#include <vector>
++
++namespace {
++
++typedef size_t (*stats_t)(char *, size_t);
++typedef void (*stats_reset_t)(void);
++
++double now_s() {
++    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
++}
++
++uint64_t fnv(uint64_t h, const void * p, size_t n) {
++    const uint8_t * b = (const uint8_t *) p;
++    for (size_t i = 0; i < n; i++) {
++        h = (h ^ b[i]) * 1099511628211ull;
++    }
++    return h;
++}
++
++std::string json_escape(const std::string & s) {
++    std::string o;
++    for (unsigned char c : s) {
++        if (c == '"' || c == '\\') {
++            o += '\\';
++            o += (char) c;
++        } else if (c < 0x20) {
++            char buf[8];
++            snprintf(buf, sizeof(buf), "\\u%04x", c);
++            o += buf;
++        } else {
++            o += (char) c;
++        }
++    }
++    return o;
++}
++
++}  // namespace
++
++// KXS_BENCH_TRACE=1: one stderr line per MUL_MAT / MUL_MAT_ID / FLASH_ATTN_EXT result (name, hash of its bytes), to find the
++// first op where two runs differ
++static bool trace_cb(struct ggml_tensor * t, bool ask, void *) {
++    if (t->op != GGML_OP_MUL_MAT_ID && t->op != GGML_OP_MUL_MAT && t->op != GGML_OP_FLASH_ATTN_EXT) {
++        return ask ? false : true;
++    }
++    if (ask) {
++        return true;
++    }
++    fprintf(stderr, "trace %s %016llx\n", t->name, (unsigned long long) fnv(1469598103934665603ull, t->data, ggml_nbytes(t)));
++    return true;
++}
++
++int main(int argc, char ** argv) {
++    std::string model_path, prompt;
++    int n_gen = 128, n_threads = 8, n_ctx = 4096, n_ubatch = 512, n_batch = 2048;
++    bool chat = false, mmap = true, print_text = false, repack = true;
++    ggml_type kv = GGML_TYPE_F16;
++    for (int i = 1; i < argc; i++) {
++        const std::string a = argv[i];
++        auto next = [&]() -> std::string {
++            if (i + 1 >= argc) {
++                fprintf(stderr, "missing value for %s\n", a.c_str());
++                exit(1);
++            }
++            return argv[++i];
++        };
++        if (a == "-m") {
++            model_path = next();
++        } else if (a == "-p") {
++            prompt = next();
++        } else if (a == "-f") {
++            std::ifstream f(next());
++            std::stringstream ss;
++            ss << f.rdbuf();
++            prompt = ss.str();
++        } else if (a == "-n") {
++            n_gen = atoi(next().c_str());
++        } else if (a == "-t") {
++            n_threads = atoi(next().c_str());
++        } else if (a == "-c") {
++            n_ctx = atoi(next().c_str());
++        } else if (a == "-ub") {
++            n_ubatch = atoi(next().c_str());
++        } else if (a == "-b") {
++            n_batch = atoi(next().c_str());
++        } else if (a == "--chat") {
++            chat = true;
++        } else if (a == "--no-mmap") {
++            mmap = false;
++        } else if (a == "--kv") {
++            const std::string t = next();
++            kv = t == "q8_0" ? GGML_TYPE_Q8_0 : t == "q4_0" ? GGML_TYPE_Q4_0 : GGML_TYPE_F16;
++        } else if (a == "--no-repack") {
++            repack = false;
++        } else if (a == "--text") {
++            print_text = true;
++        } else {
++            fprintf(stderr, "unknown argument %s\n", a.c_str());
++            return 1;
++        }
++    }
++    if (model_path.empty() || prompt.empty()) {
++        fprintf(stderr, "usage: %s -m model.gguf (-p TEXT | -f FILE) [-n N] [-t N] [-c N] [-ub N] [-b N] [--chat] [--no-mmap]\n", argv[0]);
++        return 1;
++    }
++
++    ggml_backend_dev_t cpu = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
++    ggml_backend_reg_t reg = cpu ? ggml_backend_dev_backend_reg(cpu) : nullptr;
++    auto xs_stats = reg ? (stats_t) ggml_backend_reg_get_proc_address(reg, "ggml_kurn_xs_stats") : nullptr;
++    auto xs_reset = reg ? (stats_reset_t) ggml_backend_reg_get_proc_address(reg, "ggml_kurn_xs_stats_reset") : nullptr;
++    auto stats = [&]() -> std::string {
++        if (!xs_stats) {
++            return "null";
++        }
++        std::vector<char> buf(8192);
++        xs_stats(buf.data(), buf.size());
++        return std::string(buf.data());
++    };
++
++    llama_backend_init();
++    const double t_load0 = now_s();
++    llama_model_params mp = llama_model_default_params();
++    mp.load_mode = mmap ? LLAMA_LOAD_MODE_MMAP : LLAMA_LOAD_MODE_NONE;
++    mp.use_extra_bufts = repack;
++    llama_model * model = llama_model_load_from_file(model_path.c_str(), mp);
++    if (!model) {
++        fprintf(stderr, "cannot load %s\n", model_path.c_str());
++        return 1;
++    }
++    llama_context_params cp = llama_context_default_params();
++    cp.n_ctx = n_ctx;
++    cp.n_batch = n_batch;
++    cp.n_ubatch = n_ubatch;
++    cp.n_outputs_max = 1;  // logits of the last prompt token only: keeps the head's compute buffer small
++    cp.n_threads = n_threads;
++    cp.n_threads_batch = n_threads;
++    cp.no_perf = true;
++    cp.swa_full = false;  // SWA layers keep n_swa + n_ubatch cells, not n_ctx
++    cp.type_k = kv;
++    cp.type_v = kv;
++    if (getenv("KXS_BENCH_TRACE")) {
++        cp.cb_eval = trace_cb;
++        cp.cb_eval_user_data = nullptr;
++    }
++    llama_context * ctx = llama_init_from_model(model, cp);
++    if (!ctx) {
++        fprintf(stderr, "cannot create context\n");
++        return 1;
++    }
++    const double t_load = now_s() - t_load0;
++    const llama_vocab * vocab = llama_model_get_vocab(model);
++    const int n_vocab = llama_vocab_n_tokens(vocab);
++
++    std::string text = prompt;
++    char arch[64] = "";
++    llama_model_meta_val_str(model, "general.architecture", arch, sizeof(arch));
++    if (chat && !strcmp(arch, "gemma4")) {
++        // Gemma 4 canonical template, one user turn, thinking off
++        text = "<|turn>user\n" + prompt + "<turn|>\n<|turn>model\n<|channel>thought\n<channel|>";
++    } else if (chat && !strcmp(arch, "qwen3moe")) {
++        text = "<|im_start|>user\n" + prompt + "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n";
++    } else if (chat) {
++        const char * tmpl = llama_model_chat_template(model, nullptr);
++        llama_chat_message msg = { "user", prompt.c_str() };
++        std::vector<char> buf(prompt.size() * 2 + 4096);
++        const int n = llama_chat_apply_template(tmpl, &msg, 1, true, buf.data(), (int32_t) buf.size());
++        if (n > 0 && n <= (int) buf.size()) {
++            text.assign(buf.data(), n);
++        } else {
++            fprintf(stderr, "warning: chat template not supported here; using the raw prompt\n");
++        }
++    }
++    std::vector<llama_token> toks(text.size() + 16);
++    int n_tok = llama_tokenize(vocab, text.c_str(), (int32_t) text.size(), toks.data(), (int32_t) toks.size(), true, true);
++    if (n_tok < 0) {
++        toks.resize(-n_tok);
++        n_tok = llama_tokenize(vocab, text.c_str(), (int32_t) text.size(), toks.data(), (int32_t) toks.size(), true, true);
++    }
++    toks.resize(n_tok);
++
++    if (xs_reset) {
++        xs_reset();
++    }
++    uint64_t h_all = 1469598103934665603ull;
++    auto argmax = [&](const float * l) {
++        int best = 0;
++        for (int i = 1; i < n_vocab; i++) {
++            if (l[i] > l[best]) {
++                best = i;
++            }
++        }
++        return best;
++    };
++
++    // prefill in n_batch pieces; logits for the last token only
++    const double t0 = now_s();
++    for (int i = 0; i < n_tok; i += n_batch) {
++        const int n = std::min(n_batch, n_tok - i);
++        llama_batch b = llama_batch_init(n, 0, 1);
++        for (int j = 0; j < n; j++) {
++            b.token[j] = toks[i + j];
++            b.pos[j] = i + j;
++            b.n_seq_id[j] = 1;
++            b.seq_id[j][0] = 0;
++            b.logits[j] = i + j == n_tok - 1;
++        }
++        b.n_tokens = n;
++        if (llama_decode(ctx, b) != 0) {
++            fprintf(stderr, "decode failed\n");
++            return 1;
++        }
++        llama_batch_free(b);
++    }
++    const float * l = llama_get_logits_ith(ctx, -1);
++    h_all = fnv(h_all, l, sizeof(float) * n_vocab);
++    std::vector<llama_token> out = { (llama_token) argmax(l) };
++    const double t_first = now_s() - t0;
++    const std::string st_prefill = stats();
++    if (xs_reset) {
++        xs_reset();
++    }
++
++    const double t1 = now_s();
++    int first_eog = -1;
++    for (int i = 1; i < n_gen; i++) {
++        llama_token tk = out.back();
++        if (first_eog < 0 && llama_vocab_is_eog(vocab, tk)) {
++            first_eog = i - 1;
++        }
++        llama_batch b = llama_batch_get_one(&tk, 1);
++        if (llama_decode(ctx, b) != 0) {
++            fprintf(stderr, "decode failed\n");
++            return 1;
++        }
++        l = llama_get_logits_ith(ctx, -1);
++        h_all = fnv(h_all, l, sizeof(float) * n_vocab);
++        out.push_back(argmax(l));
++    }
++    const double t_dec = now_s() - t1;
++    const std::string st_decode = stats();
++
++    std::string gen;
++    for (llama_token tk : out) {
++        char buf[256];
++        const int n = llama_token_to_piece(vocab, tk, buf, sizeof(buf), 0, true);
++        if (n > 0) {
++            gen.append(buf, n);
++        }
++    }
++    struct rusage ru;
++    getrusage(RUSAGE_SELF, &ru);
++    long rss_anon = 0, rss_file = 0;
++    if (FILE * f = fopen("/proc/self/status", "r")) {
++        char line[256];
++        while (fgets(line, sizeof(line), f)) {
++            sscanf(line, "RssAnon: %ld", &rss_anon);
++            sscanf(line, "RssFile: %ld", &rss_file);
++        }
++        fclose(f);
++    }
++
++    printf("{\"model\":\"%s\",\"n_prompt\":%d,\"n_gen\":%d,\"threads\":%d,\"ubatch\":%d,\"mmap\":%d,\"load_s\":%.3f,"
++           "\"ttft_s\":%.4f,\"prefill_tps\":%.3f,\"decode_s\":%.4f,\"decode_tps\":%.4f,\"first_eog\":%d,"
++           "\"logits_hash\":\"%016llx\",\"tokens\":[",
++           json_escape(model_path).c_str(), n_tok, (int) out.size(), n_threads, n_ubatch, (int) mmap, t_load, t_first,
++           n_tok / t_first, t_dec, (out.size() - 1) / t_dec, first_eog, (unsigned long long) h_all);
++    for (size_t i = 0; i < out.size(); i++) {
++        printf("%s%d", i ? "," : "", out[i]);
++    }
++    printf("],\"maxrss_mib\":%.1f,\"rss_anon_mib\":%.1f,\"rss_file_mib\":%.1f,\"xs_prefill\":%s,\"xs_decode\":%s,\"text\":\"%s\"}\n",
++           ru.ru_maxrss / 1024.0, rss_anon / 1024.0, rss_file / 1024.0, st_prefill.c_str(), st_decode.c_str(), json_escape(gen).c_str());
++    if (print_text) {
++        fprintf(stderr, "\n%s\n", gen.c_str());
++    }
++    llama_free(ctx);
++    llama_model_free(model);
++    llama_backend_free();
++    return 0;
++}
+diff --git a/tools/kurn-xs/convert.cpp b/tools/kurn-xs/convert.cpp
+new file mode 100644
+index 000000000..6a90e5b11
+--- /dev/null
++++ b/tools/kurn-xs/convert.cpp
+@@ -0,0 +1,325 @@
++// llama-kurn-xs-convert: write a GGUF's MoE expert weights in kurn's repacked layout (.kxs) for
++// expert streaming (--expert-stream). One record per expert and weight, 4 KiB aligned, so that an
++// O_DIRECT read lands in a slab ready for kurn's kernels. Uses one expert's worth of RAM per thread.
++//
++//   llama-kurn-xs-convert model.gguf model.kxs [-t threads] [--verify]
++//
++// --verify re-reads every record with O_DIRECT and compares it with a fresh repack, including the
++// all-zero tail that the file does not store.
++#include "ggml.h"
++#include "ggml-backend.h"
++#include "gguf.h"
++
++#include <fcntl.h>
++#include <sys/stat.h>
++#include <unistd.h>
++
++#include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <memory>
++#include <string>
++#include <thread>
++#include <vector>
++
++namespace {
++
++struct file_header {
++    char     magic[8];
++    uint32_t version;
++    uint32_t n_tensors;
++    uint64_t data_offset;
++    uint64_t align;
++    uint64_t gguf_size;
++    char     source[232];
++};
++struct file_tensor {
++    char     name[128];
++    char     config[384];
++    int32_t  type, layer;
++    int64_t  K, N, E;
++    uint64_t expert_bytes, data_bytes, offset, stride;
++};
++static_assert(sizeof(file_header) == 272, "file_header");
++static_assert(sizeof(file_tensor) == 576, "file_tensor");
++
++constexpr uint64_t ALIGN = 4096;
++
++uint64_t round_up(uint64_t x) {
++    return (x + ALIGN - 1) / ALIGN * ALIGN;
++}
++
++typedef bool (*layout_t)(int, int64_t, int64_t, size_t *, const char **);
++typedef bool (*pack_t)(int, int64_t, int64_t, const void *, void *);
++
++struct aligned_buf {
++    void * p = nullptr;
++    explicit aligned_buf(size_t n) {
++        if (posix_memalign(&p, ALIGN, std::max<size_t>(n, ALIGN)) != 0) {
++            p = nullptr;
++        }
++    }
++    ~aligned_buf() { free(p); }
++    uint8_t * get() const { return (uint8_t *) p; }
++};
++
++bool read_full(int fd, void * dst, size_t n, uint64_t off) {
++    size_t done = 0;
++    while (done < n) {
++        const ssize_t r = pread(fd, (char *) dst + done, n - done, (off_t) (off + done));
++        if (r <= 0) {
++            return false;
++        }
++        done += (size_t) r;
++    }
++    return true;
++}
++
++bool write_full(int fd, const void * src, size_t n, uint64_t off) {
++    size_t done = 0;
++    while (done < n) {
++        const ssize_t r = pwrite(fd, (const char *) src + done, n - done, (off_t) (off + done));
++        if (r <= 0) {
++            return false;
++        }
++        done += (size_t) r;
++    }
++    return true;
++}
++
++// bytes up to and including the last nonzero byte
++size_t extent(const uint8_t * p, size_t n) {
++    while (n > 0 && p[n - 1] == 0) {
++        n--;
++    }
++    return n;
++}
++
++}  // namespace
++
++int main(int argc, char ** argv) {
++    if (argc < 3) {
++        fprintf(stderr, "usage: %s model.gguf out.kxs [-t threads] [--verify]\n", argv[0]);
++        return 1;
++    }
++    const char * in = argv[1];
++    const char * out = argv[2];
++    int nth = (int) std::max(1u, std::thread::hardware_concurrency());
++    bool verify = false;
++    for (int i = 3; i < argc; i++) {
++        if (!strcmp(argv[i], "-t") && i + 1 < argc) {
++            nth = atoi(argv[++i]);
++        } else if (!strcmp(argv[i], "--verify")) {
++            verify = true;
++        }
++    }
++
++    ggml_backend_dev_t dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
++    ggml_backend_reg_t reg = dev ? ggml_backend_dev_backend_reg(dev) : nullptr;
++    auto layout = reg ? (layout_t) ggml_backend_reg_get_proc_address(reg, "ggml_kurn_xs_layout") : nullptr;
++    auto pack = reg ? (pack_t) ggml_backend_reg_get_proc_address(reg, "ggml_kurn_xs_pack") : nullptr;
++    if (!layout || !pack) {
++        fprintf(stderr, "this build has no kurn expert streaming (needs AVX-512 VNNI)\n");
++        return 1;
++    }
++
++    ggml_context * meta = nullptr;
++    gguf_init_params ip = { true, &meta };
++    gguf_context * g = gguf_init_from_file(in, ip);
++    if (!g) {
++        fprintf(stderr, "cannot read %s\n", in);
++        return 1;
++    }
++    struct stat sb;
++    stat(in, &sb);
++    const uint64_t gdata = gguf_get_data_offset(g);
++
++    struct item {
++        std::string name;
++        ggml_tensor * t;
++        uint64_t src;
++        file_tensor ft;
++    };
++    std::vector<item> items;
++    for (int64_t i = 0; i < gguf_get_n_tensors(g); i++) {
++        const char * name = gguf_get_tensor_name(g, i);
++        ggml_tensor * t = ggml_get_tensor(meta, name);
++        if (!strstr(name, "_exps.weight") || !t || ggml_n_dims(t) != 3) {
++            continue;
++        }
++        int layer = -1;
++        if (sscanf(name, "blk.%d.", &layer) != 1) {
++            continue;
++        }
++        size_t eb = 0;
++        const char * config = nullptr;
++        if (!layout(t->type, t->ne[0], t->ne[1], &eb, &config)) {
++            fprintf(stderr, "warning: %s (%s) has no kurn kernel; it stays in the GGUF and loads normally\n", name,
++                    ggml_type_name(t->type));
++            continue;
++        }
++        item it;
++        it.name = name;
++        it.t = t;
++        it.src = gdata + gguf_get_tensor_offset(g, i);
++        memset(&it.ft, 0, sizeof(it.ft));
++        snprintf(it.ft.name, sizeof(it.ft.name), "%s", name);
++        snprintf(it.ft.config, sizeof(it.ft.config), "%s", config);
++        it.ft.type = t->type;
++        it.ft.layer = layer;
++        it.ft.K = t->ne[0];
++        it.ft.N = t->ne[1];
++        it.ft.E = t->ne[2];
++        it.ft.expert_bytes = eb;
++        items.push_back(it);
++    }
++    if (items.empty()) {
++        fprintf(stderr, "%s has no expert weights kurn can stream\n", in);
++        return 1;
++    }
++
++    const int ifd = open(in, O_RDONLY);
++    const int ofd = verify ? -1 : open(out, O_WRONLY | O_CREAT | O_TRUNC, 0644);
++    if (ifd < 0 || (!verify && ofd < 0)) {
++        fprintf(stderr, "cannot open input or output\n");
++        return 1;
++    }
++    const uint64_t data_offset = round_up(sizeof(file_header) + items.size() * sizeof(file_tensor));
++    const auto t0 = std::chrono::steady_clock::now();
++
++    if (verify) {
++        // take the geometry from the existing file
++        const int vfd = open(out, O_RDONLY);
++        aligned_buf hb(data_offset);
++        if (vfd < 0 || !read_full(vfd, hb.get(), data_offset, 0)) {
++            fprintf(stderr, "cannot read %s\n", out);
++            return 1;
++        }
++        file_header h;
++        memcpy(&h, hb.get(), sizeof(h));
++        if (memcmp(h.magic, "KURNXS01", 8) != 0 || h.n_tensors != items.size()) {
++            fprintf(stderr, "%s does not match %s\n", out, in);
++            return 1;
++        }
++        for (size_t i = 0; i < items.size(); i++) {
++            file_tensor ft;
++            memcpy(&ft, hb.get() + sizeof(file_header) + i * sizeof(file_tensor), sizeof(ft));
++            if (items[i].name != ft.name || strcmp(items[i].ft.config, ft.config) != 0 || items[i].ft.expert_bytes != ft.expert_bytes) {
++                fprintf(stderr, "%s: tensor %zu (%s) does not match\n", out, i, ft.name);
++                return 1;
++            }
++            items[i].ft = ft;
++        }
++        close(vfd);
++    }
++
++    uint64_t off = data_offset, stored = 0, raw = 0;
++    const int rfd = verify ? open(out, O_RDONLY | O_DIRECT) : -1;
++    std::atomic<uint64_t> bad{0};
++    for (item & it : items) {
++        file_tensor & ft = it.ft;
++        const size_t src_bytes = ggml_row_size(it.t->type, ft.K) * (size_t) ft.N;
++        const size_t eb = ft.expert_bytes;
++        if (!verify) {
++            // stored bytes: up to the last nonzero 4 KiB block over a few experts, checked for every expert below
++            aligned_buf src(src_bytes), dst(round_up(eb));
++            size_t ext = 0;
++            for (int64_t e : { (int64_t) 0, ft.E / 2, ft.E - 1 }) {
++                if (!read_full(ifd, src.get(), src_bytes, it.src + (uint64_t) e * src_bytes)) {
++                    fprintf(stderr, "read error\n");
++                    return 1;
++                }
++                memset(dst.get(), 0, round_up(eb));
++                pack(ft.type, ft.K, ft.N, src.get(), dst.get());
++                ext = std::max(ext, extent(dst.get(), eb));
++            }
++            ft.data_bytes = std::min(round_up(ext), round_up(eb));
++        }
++        for (int pass = 0; pass < 2; pass++) {
++            if (!verify) {
++                ft.offset = off;
++                ft.stride = ft.data_bytes;
++            }
++            std::atomic<int64_t> next{0};
++            std::atomic<bool> tail_nonzero{false};
++            std::vector<std::thread> th;
++            for (int w = 0; w < nth; w++) {
++                th.emplace_back([&] {
++                    aligned_buf src(src_bytes), dst(round_up(eb)), chk(ft.data_bytes);
++                    for (int64_t e; (e = next.fetch_add(1)) < ft.E;) {
++                        if (!read_full(ifd, src.get(), src_bytes, it.src + (uint64_t) e * src_bytes)) {
++                            fprintf(stderr, "read error\n");
++                            exit(1);
++                        }
++                        memset(dst.get(), 0, round_up(eb));
++                        pack(ft.type, ft.K, ft.N, src.get(), dst.get());
++                        if (extent(dst.get(), eb) > ft.data_bytes) {
++                            tail_nonzero = true;
++                            if (verify) {
++                                bad++;
++                            }
++                            continue;
++                        }
++                        const uint64_t at = ft.offset + (uint64_t) e * ft.stride;
++                        if (verify) {
++                            if (!read_full(rfd, chk.get(), ft.data_bytes, at) || memcmp(chk.get(), dst.get(), ft.data_bytes) != 0) {
++                                bad++;
++                            }
++                        } else if (!write_full(ofd, dst.get(), ft.data_bytes, at)) {
++                            fprintf(stderr, "write error\n");
++                            exit(1);
++                        }
++                    }
++                });
++            }
++            for (auto & t : th) {
++                t.join();
++            }
++            if (!tail_nonzero || verify) {
++                break;
++            }
++            ft.data_bytes = round_up(eb);  // a record uses its padding: store records in full
++        }
++        off = ft.offset + ft.stride * (uint64_t) ft.E;
++        stored += ft.data_bytes * (uint64_t) ft.E;
++        raw += src_bytes * (uint64_t) ft.E;
++        fprintf(stderr, "%s %-32s %s [%lld x %lld x %lld] kurn %zu B/expert, stored %llu B/expert\n", verify ? "verify" : "convert",
++                it.name.c_str(), ggml_type_name(it.t->type), (long long) ft.K, (long long) ft.N, (long long) ft.E, eb,
++                (unsigned long long) ft.data_bytes);
++    }
++
++    const double dt = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
++    if (verify) {
++        printf("verify: %zu tensors, %llu mismatching records, %.1f s\n", items.size(), (unsigned long long) bad.load(), dt);
++        return bad.load() != 0;
++    }
++    std::vector<uint8_t> hdr(data_offset, 0);
++    file_header h;
++    memset(&h, 0, sizeof(h));
++    memcpy(h.magic, "KURNXS01", 8);
++    h.version = 1;
++    h.n_tensors = (uint32_t) items.size();
++    h.data_offset = data_offset;
++    h.align = ALIGN;
++    h.gguf_size = (uint64_t) sb.st_size;
++    const char * base = strrchr(in, '/');
++    snprintf(h.source, sizeof(h.source), "%s", base ? base + 1 : in);
++    memcpy(hdr.data(), &h, sizeof(h));
++    for (size_t i = 0; i < items.size(); i++) {
++        memcpy(hdr.data() + sizeof(h) + i * sizeof(file_tensor), &items[i].ft, sizeof(file_tensor));
++    }
++    if (!write_full(ofd, hdr.data(), hdr.size(), 0) || ftruncate(ofd, (off_t) off) != 0 || fsync(ofd) != 0) {
++        fprintf(stderr, "write error\n");
++        return 1;
++    }
++    close(ofd);
++    close(ifd);
++    printf("wrote %s: %zu expert tensors, %.2f GB stored (GGUF experts %.2f GB), %.1f s\n", out, items.size(), stored / 1e9,
++           raw / 1e9, dt);
++    gguf_free(g);
++    ggml_free(meta);
++    return 0;
++}
