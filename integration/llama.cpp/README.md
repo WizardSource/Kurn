@@ -127,6 +127,7 @@ The model log shows `KURN model buffer size = ...` when weights were repacked. N
 | `GGML_KURN_BF16_ROWS`, `_KC`, `_KCH`, `_PASS` | AMX-BF16 blocking: panel rows (128), K chunk (4096), guarded sub-step in 32-value steps (32), row-chunk granularity (64) |
 | `GGML_KURN_AMX_GUARD=N` | preemption guard threshold in TSC cycles (4096, plus 128 per k-step of the guarded step; attention and the AMX verify kernel use a fixed 4096). If `GGML_KURN_VERBOSE=1` reports many recomputed steps (slower memory), raise it toward 8192; after a failed self-test, values above 8192 are ignored |
 | `GGML_KURN_AMX_SELFTEST=0` | skip the AMX startup self-test (below); `GGML_KURN_AMX_SELFTEST_MS` sets its budget (20 ms) |
+| `GGML_KURN_AMX_SELFTEST_FAULT=plain-transient` / `plain-persistent` | test-only: inject one wrong plain-phase tile that is right on recompute / wrong every time (`tests/test_amx_selftest.py`) |
 | `GGML_KURN_AMX_SELFTEST_ACTION=off` | when the self-test sees wrong AMX results, use the non-AMX kernels (as `GGML_KURN_AMX=0`) instead of the default `guard`: AMX kernels with the preemption guard forced on |
 | `GGML_KURN_AMX_OVERSUB=warn` | after a failed self-test, only warn when compute threads oversubscribe this process's vCPUs, instead of capping them (below) |
 | `GGML_KURN_CHUNK_KB=N` | prefill row-chunk size in KiB (default 1024) |
@@ -142,8 +143,10 @@ The model log shows `KURN model buffer size = ...` when weights were repacked. N
 **AMX startup self-test.** Some KVM guests lose AMX tile data when a thread is descheduled, so a tile computation
 that a context switch lands in returns wrong results; the preemption guard in every kurn AMX kernel recomputes such
 steps. At load (`kurn-amx-selftest.cpp`, about 20 ms), kurn runs int8 and bf16 tile matmuls against a scalar
-reference, first plainly, then in two threads sharing one CPU that yield inside every computation. Wrong results in
-the plain phase turn AMX off. Wrong results only across context switches print a warning and, by default, keep the AMX
+reference, first plainly, then in two threads sharing one CPU that yield inside every computation. Plain computations
+are timed like the guarded steps (redone after a preemption-length gap), and a wrong one is recomputed from the same
+inputs: only a wrong result that repeats turns AMX off. One that is right on recompute (a tile lost to a preemption
+under heavy load) counts like a switch-phase failure. Wrong results across context switches print a warning and, by default, keep the AMX
 kernels with the guard forced on (`GGML_KURN_AMX_GUARD` above 8192 is ignored) and stop handing small weights to ggml's AMX
 buffer, which has no guard; `GGML_KURN_AMX_SELFTEST_ACTION=off` uses the non-AMX kernels instead. Formats kurn has no
 kernels for still go to ggml's AMX buffer. `tools/amx_selftest.c` is the standalone version, for measuring mismatch

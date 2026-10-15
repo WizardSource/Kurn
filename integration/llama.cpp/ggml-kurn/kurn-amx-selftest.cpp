@@ -8,7 +8,10 @@
 // Two phases, each in threads of its own so the caller's xstate is untouched; about GGML_KURN_AMX_SELFTEST_MS
 // (default 20) ms in all:
 //   1. plain: int8 and bf16 tile matmuls compared bit for bit with a scalar reference (small-integer inputs,
-//      so the bf16 path is exact). Wrong results here mean AMX itself is unusable: AMX is turned off.
+//      so the bf16 path is exact). Each is timed like kurn's guarded steps and recomputed when it took longer than
+//      a preemption-length gap; a wrong result is recomputed from the same inputs. Only a wrong result that
+//      repeats means AMX itself is unusable and turns AMX off. One that does not repeat is a tile lost to a
+//      preemption the timing missed (e.g. under heavy load), and counts like a phase-2 failure.
 //   2. switch: two threads on one CPU each yield in the middle of every computation, so every computation
 //      spans a context switch (the tiles must survive the kernel's XSAVE/XRSTOR). If pinning is refused, 2 x
 //      CPUs unpinned threads do the same. Wrong results here are what the guard is for:
@@ -31,6 +34,7 @@
 
 #include <dirent.h>
 #include <immintrin.h>
+#include <x86intrin.h>
 #include <sched.h>
 #include <signal.h>
 #include <sys/resource.h>
@@ -122,7 +126,8 @@ void tile_config() {
 }
 
 // computation `it`: C = sum of KS tile products, int8 for even it, bf16 for odd; true when bit-identical to the reference
-bool compute(const inputs & in, long it, bool yield) {
+// (corrupt: flip one result bit, for the test-only fault injection)
+bool compute(const inputs & in, long it, bool yield, bool corrupt = false) {
     const int set = (int) (it / 2 % SETS);
     const bool bf = it & 1;
     alignas(64) int32_t c[256];
@@ -142,6 +147,7 @@ bool compute(const inputs & in, long it, bool yield) {
         }
     }
     _tile_stored(0, c, 64);
+    c[0] ^= corrupt ? 1 : 0;
     return memcmp(c, bf ? (const void *) in.r16[set] : (const void *) in.r8[set], sizeof c) == 0;
 }
 
@@ -187,6 +193,48 @@ counts phase(int nth, int cpu, bool yield, long max_n, int ms) {
     return s;
 }
 
+// one plain computation's guard threshold, as kurn's matmul guard: 4096 + 128 per k-step
+constexpr uint64_t PLAIN_GUARD = 4096 + 128 * KS;
+
+struct plain_counts {
+    long n = 0, redone = 0, transient = 0, persistent = 0;
+};
+
+// Phase 1 in one thread of its own. A computation slower than PLAIN_GUARD may have been preempted, so it is redone
+// (up to 64 times) before its result counts. A wrong result is recomputed up to 3 times from the same inputs: broken
+// AMX gives a wrong answer again (persistent); a tile lost to a preemption the timing missed does not (transient).
+// fault (GGML_KURN_AMX_SELFTEST_FAULT, test-only): corrupt computation 100 once (1) or on every recompute too (2).
+plain_counts plain_phase(long max_n, int ms, int fault) {
+    plain_counts c;
+    std::thread th([&] {
+        std::unique_ptr<inputs> in(new inputs);
+        make_inputs(*in, 0x9e3779b97f4a7c15ull ^ (uint64_t) getpid());
+        const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+        tile_config();
+        long it = 0;
+        for (; it < max_n && (it <= 100 || (it & 63) || std::chrono::steady_clock::now() < end); it++) {
+            bool ok = true;
+            for (int r = 0; r < 64; r++) {
+                const uint64_t t0 = __rdtsc();
+                ok = compute(*in, it, false, fault && it == 100 && r == 0);
+                unsigned aux;
+                if (__rdtscp(&aux) - t0 <= PLAIN_GUARD) break;
+                c.redone++;
+            }
+            if (ok) continue;
+            bool again = false;
+            for (int r = 0; r < 3 && !again; r++) {
+                again = compute(*in, it, false, fault == 2 && it == 100);
+            }
+            (again ? c.transient : c.persistent)++;
+        }
+        _tile_release();
+        c.n = it;
+    });
+    th.join();
+    return c;
+}
+
 kurn_amx_state run_check() {
     // ARCH_REQ_XCOMP_PERM for XTILEDATA; fails on kernels or VMs without AMX state support
     if (syscall(SYS_arch_prctl, 0x1023, 18) != 0) {
@@ -200,7 +248,9 @@ kurn_amx_state run_check() {
     const bool off = act && strcmp(act, "off") == 0;
     const bool verbose = env_int("GGML_KURN_VERBOSE", 0) != 0;
 
-    const counts plain = phase(1, -1, false, 4000, std::max(1, ms / 4));
+    const char * fault_env = getenv("GGML_KURN_AMX_SELFTEST_FAULT");  // test-only
+    const int fault = !fault_env ? 0 : strcmp(fault_env, "plain-transient") == 0 ? 1 : strcmp(fault_env, "plain-persistent") == 0 ? 2 : 0;
+    const plain_counts plain = plain_phase(4000, std::max(1, ms / 4), fault);
     cpu_set_t cs;
     int cpu = -1;
     if (sched_getaffinity(0, sizeof cs, &cs) == 0) {
@@ -214,23 +264,32 @@ kurn_amx_state run_check() {
         sw = phase(std::min(64, 2 * ncpu), -1, true, 2000, ms);
     }
 
-    if (plain.bad) {
-        GGML_LOG_WARN("kurn: AMX self-test: %ld of %ld tile matmuls returned wrong results without any context switch; "
-                      "AMX kernels off\n", plain.bad, plain.n);
+    if (plain.persistent) {
+        GGML_LOG_WARN("kurn: AMX self-test: %ld of %ld tile matmuls returned wrong results again on recompute, without a "
+                      "preemption-length gap; AMX kernels off\n", plain.persistent, plain.n);
         return KURN_AMX_UNAVAILABLE;
     }
-    if (sw.bad) {
-        GGML_LOG_WARN("kurn: AMX self-test: %ld of %ld tile matmuls that spanned a context switch returned wrong results "
-                      "(this machine does not keep AMX tile data across context switches). %s\n", sw.bad, sw.n,
+    if (sw.bad || plain.transient) {
+        char what[256];
+        if (sw.bad) {
+            snprintf(what, sizeof what, "%ld of %ld tile matmuls that spanned a context switch returned wrong results%s",
+                     sw.bad, sw.n, plain.transient ? " (and plain ones were wrong once, right on recompute)" : "");
+        } else {
+            snprintf(what, sizeof what, "%ld of %ld plain tile matmuls were wrong once and right on recompute", plain.transient,
+                     plain.n);
+        }
+        GGML_LOG_WARN("kurn: AMX self-test: %s (this machine does not keep AMX tile data across context switches). %s\n",
+                      what,
                       off ? "Using the non-AMX kernels (GGML_KURN_AMX_SELFTEST_ACTION=off)."
                           : "AMX kernels stay on with the preemption guard forced on; GGML_KURN_AMX_SELFTEST_ACTION=off "
                             "uses the non-AMX kernels instead.");
         return off ? KURN_AMX_UNAVAILABLE : KURN_AMX_GUARDED;
     }
     if (verbose) {
-        GGML_LOG_INFO("kurn: AMX self-test %s: %ld plain tile matmuls, %ld across %ld context switches, all correct\n",
-                      sw.switches < MIN_SWITCHES ? "inconclusive (too few context switches)" : "passed", plain.n, sw.n,
-                      sw.switches);
+        GGML_LOG_INFO("kurn: AMX self-test %s: %ld plain tile matmuls (%ld redone after a preemption-length gap), %ld across "
+                      "%ld context switches, all correct\n",
+                      sw.switches < MIN_SWITCHES ? "inconclusive (too few context switches)" : "passed", plain.n,
+                      plain.redone, sw.n, sw.switches);
     }
     return KURN_AMX_OK;
 }
