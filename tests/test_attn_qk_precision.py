@@ -191,3 +191,32 @@ def test_batch_invariance_across_threshold(target):
         n_kv = (POS0 + t + 1 + 255) // 256 * 256
         one = _run(lib, np.ascontiguousarray(q[t : t + 1]), k, v, n_kv, POS0 + t, _mask(1, POS0 + t, n_kv), nth=2)
         assert np.array_equal(one[0], batch[t]), t
+
+
+def _qk_stats(lib):
+    lib.kattn_qk_check_stats.argtypes = [ctypes.POINTER(ctypes.c_double * 3)]
+    s = (ctypes.c_double * 3)()
+    lib.kattn_qk_check_stats(ctypes.byref(s))
+    return s[0], s[1], s[2]
+
+
+@pytest.mark.parametrize("target", ["amx_bf16", "avx512_bf16"])
+@pytest.mark.parametrize("dk", [128, 576])
+def test_freivalds_residue_oracle(target, dk):
+    """Test-only build (KA_QK_CHECK): every Q K^T tile passes a Freivalds residue check against its bf16
+    operands (split rows with all three terms), and a build that drops the q_hi k_lo term (KA_QK_FAULT) fails it.
+    The 100-token batch takes the AMX row-tile path, the 4-token call (12 rows) the transposed one."""
+    q, k, v = _problem(11, NQ, NKV_PAD, d=dk)
+    small = np.ascontiguousarray(q[-4:])
+    for nq, qq, pos0 in ((NQ, q, POS0), (4, small, POS0 + NQ - 4)):
+        mask = _mask(nq, pos0, NKV_PAD)
+        good = _lib(target, ("-DKA_QK_CHECK=1",), dk=dk, qk_hi=T)
+        n0 = _qk_stats(good)[0]
+        _run(good, qq, k, v, NKV_PAD, pos0, mask)
+        n, fail, worst = _qk_stats(good)
+        assert n > n0 and fail == 0 and worst < 0.5, (nq, n, fail, worst)
+        bad = _lib(target, ("-DKA_QK_CHECK=1", "-DKA_QK_FAULT=1"), dk=dk, qk_hi=T)
+        n0, f0, _ = _qk_stats(bad)
+        _run(bad, qq, k, v, NKV_PAD, pos0, mask)
+        n, fail, worst = _qk_stats(bad)
+        assert fail - f0 > 0.1 * (n - n0), (nq, n, fail, worst)

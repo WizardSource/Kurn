@@ -984,6 +984,90 @@ KA_INLINE int ka_any(const uint8_t *f, int n) {
 }
 #endif
 
+/*   KA_QK_CHECK       test only: Freivalds residue check of every Q Kᵀ tile against its bf16 operands. With random
+ *                     signs x_j, row r must satisfy sum_j x_j S[r][j] = sum_d Q[r][d] (sum_j x_j K[d][j]) (both sides in
+ *                     double; split rows add the q_lo k_hi and q_hi k_lo terms) up to f32 accumulation error, bounded
+ *                     at 8 sqrt(n) 2^-24 |q|_2 (sum_j |k_j|_2^2)^1/2 for n accumulated products: O(R TK + TK DK) per tile
+ *                     instead of the O(R TK DK) product. kattn_qk_check_stats reads the counters.
+ *   KA_QK_FAULT       test only: drop the q_hi k_lo term (the check must catch it). */
+#ifndef KA_QK_CHECK
+#define KA_QK_CHECK 0
+#endif
+#ifndef KA_QK_FAULT
+#define KA_QK_FAULT 0
+#endif
+#if KA_QK_CHECK
+static atomic_long ka_qkc_n, ka_qkc_fail;
+static _Atomic uint64_t ka_qkc_worst; /* bits of the largest residue / bound (positive doubles order as integers) */
+
+void kattn_qk_check_stats(double out[3]) {
+    uint64_t w = atomic_load(&ka_qkc_worst);
+    double d;
+    memcpy(&d, &w, sizeof d);
+    out[0] = (double)atomic_load(&ka_qkc_n);
+    out[1] = (double)atomic_load(&ka_qkc_fail);
+    out[2] = d;
+}
+
+KA_INLINE double ka_bf(uint16_t h) {
+    const uint32_t u = (uint32_t)h << 16;
+    float f;
+    memcpy(&f, &u, sizeof f);
+    return f;
+}
+
+/* element (dim d, token j) of a packed [TK/16][DK/2][16] pair tile */
+KA_INLINE uint16_t ka_kel(const uint32_t *Kp, int d, int j) { return (uint16_t)(Kp[((size_t)(j / 16) * (KA_DK / 2) + d / 2) * 16 + j % 16] >> (16 * (d & 1))); }
+
+static void ka_qk_check(const uint16_t *Q, const uint32_t *Kp, const float *S, int64_t Rv, int64_t kv0, const uint16_t *Qx,
+                        const uint32_t *Klo, const uint16_t *Kr, const uint8_t *hi) {
+    double kh[KA_DK], kl[KA_DK], k2h = 0, k2l = 0;
+    int8_t x[KA_TK];
+    uint64_t z = 0x9E3779B97F4A7C15ull ^ (uint64_t)kv0 * 0xD1B54A32D192ED03ull;
+    for (int j = 0; j < KA_TK; j++) {
+        z ^= z >> 31; z *= 0xBF58476D1CE4E5B9ull; z ^= z >> 29;
+        x[j] = (z >> 40) & 1 ? 1 : -1;
+    }
+    for (int d = 0; d < KA_DK; d++) {
+        double sh = 0, sl = 0;
+        for (int j = 0; j < KA_TK; j++) {
+            const double vh = ka_bf(ka_kel(Kp, d, j));
+            const double vl = !Qx ? 0.0 : Klo ? ka_bf(ka_kel(Klo, d, j)) : ka_bf(Kr[(size_t)j * 2 * KA_DK + KA_DK + d]);
+            sh += x[j] * vh;
+            sl += x[j] * vl;
+            k2h += vh * vh;
+            k2l += vl * vl;
+        }
+        kh[d] = sh;
+        kl[d] = sl;
+    }
+    for (int64_t r = 0; r < Rv; r++) {
+        const int split = Qx && hi[r];
+        double lhs = 0, rhs = 0, q2 = 0;
+        for (int j = 0; j < KA_TK; j++) lhs += x[j] * (double)S[r * KA_TK + j];
+        for (int d = 0; d < KA_DK; d++) {
+            const double qh = ka_bf(Q[r * KA_DK + d]);
+            rhs += qh * kh[d];
+            q2 += qh * qh;
+            if (split) {
+                const double ql = ka_bf(Qx[r * 2 * KA_DK + d]);
+                rhs += ql * kh[d] + qh * kl[d];
+                q2 += ql * ql + qh * qh;
+            }
+        }
+        const double n = split ? 3.0 * KA_DK : KA_DK;
+        const double bound = 8.0 * sqrt(n) * 0x1p-24 * sqrt(q2) * sqrt(split ? 2 * k2h + k2l : k2h) + 0x1p-60;
+        const double ratio = fabs(lhs - rhs) / bound;
+        atomic_fetch_add(&ka_qkc_n, 1);
+        if (ratio > 1.0) atomic_fetch_add(&ka_qkc_fail, 1);
+        uint64_t rb, cur = atomic_load(&ka_qkc_worst);
+        memcpy(&rb, &ratio, sizeof rb);
+        while (rb > cur && !atomic_compare_exchange_weak(&ka_qkc_worst, &cur, rb)) {
+        }
+    }
+}
+#endif
+
 /* 2^x to 7.5e-5 relative (degree-3 relative-minimax on [-0.5, 0.5]): far below the bf16 rounding of P.
  * No clamp: unmasked tiles hold finite scores (scalef flushes very negative n to 0), and the NaN that
  * -inf produces only appears in masked tiles, whose -inf lanes the caller zeroes. */
@@ -1059,7 +1143,7 @@ static void ka_qk(const uint16_t *Q, const uint32_t *Kp, float *S, int64_t R, co
             if (Qx && ka_any(hi + r0, 4)) {
                 const uint32_t *x32 = (const uint32_t *)(Qx + r0 * 2 * KA_DK);
                 ka_qk_blk1(acc, x32, KA_DK, Kp, c0);
-                ka_qk_blk1(acc, x32 + KA_DK / 2, KA_DK, Klo, c0);
+                if (!KA_QK_FAULT) ka_qk_blk1(acc, x32 + KA_DK / 2, KA_DK, Klo, c0);
             }
 #endif
             for (int i = 0; i < 4; i++)
@@ -1178,7 +1262,7 @@ static __attribute__((unused)) void ka_qk(const uint16_t *Q, const uint32_t *Kp,
 #if KA_QKHI && !KA_QKHI_STEPS
                 if (split) {
                     KA_QK_AMX(X, 2 * KA_DK, Kp, c0)
-                    KA_QK_AMX(X + KA_DK, 2 * KA_DK, Klo, c0)
+                    if (!KA_QK_FAULT) KA_QK_AMX(X + KA_DK, 2 * KA_DK, Klo, c0)
                 }
 #endif
                 _tile_stored(0, S + r0 * KA_TK + c0, 4 * KA_TK);
@@ -1201,7 +1285,7 @@ static __attribute__((unused)) void ka_qk(const uint16_t *Q, const uint32_t *Kp,
                 t0 = __rdtsc();
                 _tile_loadd(0, E, 128); _tile_loadd(1, E + 16, 128);
                 _tile_loadd(2, E + 512, 128); _tile_loadd(3, E + 528, 128);
-                KA_QK_AMX(X + KA_DK, 2 * KA_DK, Klo, c0)
+                if (!KA_QK_FAULT) KA_QK_AMX(X + KA_DK, 2 * KA_DK, Klo, c0)
                 _tile_stored(0, sb, 4 * KA_TK); _tile_stored(1, sb + 16, 4 * KA_TK);
                 _tile_stored(2, sb + 16 * KA_TK, 4 * KA_TK); _tile_stored(3, sb + 16 * KA_TK + 16, 4 * KA_TK);
             } while (ka_amx_slow(t0));
@@ -1232,6 +1316,7 @@ static void ka_pack_qxt(const uint16_t *Qx, uint32_t *QxT, int64_t R) {
 
 static void ka_qk_t(const uint16_t *Kr, const uint32_t *QxT, float *S, int64_t R, const uint8_t *hi) {
     float E[8 * 16 * 16] __attribute__((aligned(64))); /* two sets of four 16x16 blocks of Sᵀ */
+    const int np = KA_QK_FAULT ? KA_DK / 2 : KA_DK; /* pairs of [k_hi | k_lo]; the fault drops k_lo */
     for (int64_t r0 = 0; r0 < R; r0 += 16) {
         if (!ka_any(hi + r0, 16)) continue;
         for (int j0 = 0; j0 < KA_TK; j0 += 64) {
@@ -1243,7 +1328,7 @@ static void ka_qk_t(const uint16_t *Kr, const uint32_t *QxT, float *S, int64_t R
             }
             float *in = E, *out = E + 1024; /* ping-pong: a retried step restarts from its input */
             for (int st = 0; st < (KA_QKHI_STEPS ? 2 : 1); st++) {
-                const int pa = KA_QKHI_STEPS ? st * (KA_DK / 2) : 0, pb = KA_QKHI_STEPS && !st ? KA_DK / 2 : KA_DK;
+                const int pa = KA_QKHI_STEPS ? st * (KA_DK / 2) : 0, pb = KA_QKHI_STEPS && !st ? KA_DK / 2 : np;
                 uint64_t t0;
                 do {
                     t0 = __rdtsc();
@@ -1638,6 +1723,9 @@ static void ka_tile(ka_item *it, const ka_tile_buf *b) {
         ka_qk(b->Q, Kt, S, Rc, Kr ? NULL : Qx, Kl, b->hi);
 #if KA_QKHI && KA_ENGINE == 2
         if (Kr) ka_qk_t(Kr, b->QxT, S, Rc, b->hi);
+#endif
+#if KA_QK_CHECK
+        ka_qk_check(b->Q, Kt, S, Rv, kv0, Qx, Kl, Kr, b->hi);
 #endif
 #endif
 #else
