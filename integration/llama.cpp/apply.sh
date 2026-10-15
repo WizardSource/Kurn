@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Add the KURN extra buffer type to a llama.cpp checkout (tested on 4ebdf2c).
 #   apply.sh LLAMA_CPP_DIR [--config tuned.json] [--only q8_0,q4_0] [--patch OUT.patch]
-# - copies ggml-kurn/kurn-buft.{cpp,h}, kurn-native-vfy.{cpp,h}, kurn-amx-vfy.{cpp,h}, kurn-tbm.{cpp,h} and
-#   kurn-amx-selftest.{cpp,h} into ggml/src/ggml-cpu/kurn/
+# - copies ggml-kurn/kurn-buft.{cpp,h}, kurn-native-vfy.{cpp,h}, kurn-amx-vfy.{cpp,h}, kurn-tbm.{cpp,h},
+#   kurn-amx-selftest.{cpp,h} and kurn-r8.{cpp,h} into ggml/src/ggml-cpu/kurn/
 # - generates the kurn kernels for every registry format ggml knows (gen_ggml_sources.py)
 # - generates kurn attention kernels (gen_ggml_attn.py; $ATTN_CONFIG = its --config) and makes kurn
 #   attention the first FLASH_ATTN_EXT implementation (kurn-attn.cpp, ggml's kernel as fallback)
@@ -15,6 +15,8 @@
 #   buffer and the KURN buffer on huge pages, NUMA placement (GGML_KURN_HUGEPAGES, GGML_KURN_NUMA; see the header).
 #   memsys/apply.sh adds the llama.cpp side (KV / compute tags, per-stream KV placement, --hugepages, --kurn-numa,
 #   llama-bench --energy).
+# - makes llama.cpp's model loader point GGML_KURN_OA at MODEL.oa.gguf when that sidecar exists (outlier-aware and
+#   R8 weights, tools/oa/)
 # Re-running regenerates the kernels (e.g. with a new --config); the edits are idempotent.
 # --patch writes `git diff` of the checkout (relative to its HEAD) to OUT.patch.
 # Needs a Python with kurn importable: $KURN_PYTHON (default: /opt/kenv/bin/python, else python3),
@@ -37,7 +39,7 @@ cp "$HERE/ggml-kurn/kurn-buft.cpp" "$HERE/ggml-kurn/kurn-buft.h" "$HERE/ggml-kur
   "$HERE/ggml-kurn/kurn-attn.h" "$HERE/ggml-kurn/kurn-native-vfy.cpp" "$HERE/ggml-kurn/kurn-native-vfy.h" \
   "$HERE/ggml-kurn/kurn-amx-vfy.cpp" "$HERE/ggml-kurn/kurn-amx-vfy.h" "$HERE/ggml-kurn/kurn-tbm.cpp" "$HERE/ggml-kurn/kurn-tbm.h" \
   "$HERE/ggml-kurn/kurn-amx-selftest.cpp" "$HERE/ggml-kurn/kurn-amx-selftest.h" "$HERE/ggml-kurn/kurn-xs.cpp" "$HERE/ggml-kurn/kurn-xs.h" \
-  "$CPU/kurn/"
+  "$HERE/ggml-kurn/kurn-r8.cpp" "$HERE/ggml-kurn/kurn-r8.h" "$CPU/kurn/"
 cp "$HERE/memsys/ggml-kurn-mem.h" "$L/ggml/include/"
 cp "$HERE/memsys/ggml-kurn-mem.c" "$L/ggml/src/"
 PYTHONPATH="$HERE/../../src${PYTHONPATH:+:$PYTHONPATH}" "$PY" "$HERE/gen_ggml_sources.py" "$CPU/kurn" \
@@ -207,9 +209,27 @@ if "kurn: Q, K and V matmuls" not in s:
     if "#include <cstring>" not in s:
         s = s.replace('#include "llama-graph.h"\n', '#include "llama-graph.h"\n\n#include <cstring>\n', 1)
     open(p, "w").write(s)
+# model loader: MODEL.oa.gguf next to the model is the KURN sidecar (GGML_KURN_OA) unless the variable is set
+p = f"{L}/src/llama-model-loader.cpp"
+s = open(p).read()
+if "GGML_KURN_OA" not in s:
+    anchor = "    if (!fname.empty()) {\n        // Load the main GGUF\n"
+    assert s.count(anchor) == 1, "llama-model-loader anchor not found"
+    s = s.replace(anchor, """    if (!fname.empty() && !getenv("GGML_KURN_OA")) {
+        // kurn outlier-aware weights: MODEL.oa.gguf next to the model carries their side channels (KURN buffer)
+        const std::string oa = fname + ".oa.gguf";
+        if (FILE * f = fopen(oa.c_str(), "rb")) {
+            fclose(f);
+            setenv("GGML_KURN_OA", oa.c_str(), 0);
+            LLAMA_LOG_INFO("%s: outlier-aware side channels from %s\\n", __func__, oa.c_str());
+        }
+    }
+
+""" + anchor, 1)
+    open(p, "w").write(s)
 EOF
 if [ -n "$PATCH" ]; then
-  (cd "$L" && git add -N ggml/src/ggml-cpu/kurn ggml/src/ggml-kurn-mem.c ggml/include/ggml-kurn-mem.h && git diff HEAD -- ggml src/llama-graph.cpp) > "$PATCH"
+  (cd "$L" && git add -N ggml/src/ggml-cpu/kurn ggml/src/ggml-kurn-mem.c ggml/include/ggml-kurn-mem.h && git diff HEAD -- ggml src/llama-graph.cpp src/llama-model-loader.cpp) > "$PATCH"
   echo "wrote $PATCH ($(wc -l < "$PATCH") lines)"
 fi
 echo "kurn buffer type applied to $L; rebuild with: cmake --build build -j"

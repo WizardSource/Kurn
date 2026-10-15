@@ -1,0 +1,20 @@
+qwen3-1.7b-Q8_0.gguf	GSM8K 81.0% (81/100)	147s
+qwen3-1.7b-Q4_K_M-im.gguf	GSM8K 84.0% (84/100)	125s
+oa16nb-q4_k_m.gguf	GSM8K 9.0% (9/100)	300s
+qwen3-1.7b-IQ2_XS-im.gguf	GSM8K 4.0% (4/100)	981s
+llama3b-Q4_K_M-im.gguf	GSM8K 79.0% (79/100)	154s
+llama3b-oa16nb-q4_k_m.gguf	GSM8K 78.0% (78/100)	155s
+llama3b-IQ2_XS-im.gguf	GSM8K 43.0% (43/100)	572s
+llama3b-oa16nb-iq2_xs.gguf	GSM8K 47.0% (47/100)	591s
+qwen3-8b-Q8_0.gguf	GSM8K 98.3% (59/60)	363s
+qwen3-8b-Q4_K_M-im.gguf	GSM8K 95.0% (57/60)	277s
+qwen3-8b-oa16nb-q4_k_m.gguf	GSM8K 98.3% (59/60)	271s
+qwen3-8b-IQ2_XS-im.gguf	GSM8K 45.0% (27/60)	1942s
+qwen3-8b-oa16nb-iq2_xs.gguf	GSM8K 50.0% (30/60)	2033s
+r8-1.7b.gguf	GSM8K 81.0% (81/100)	138s
+llama3b-r8.gguf	GSM8K 80.0% (80/100)	161s
+qwen3-8b-r8.gguf	GSM8K 98.3% (59/60)	330s
+QUEUE2 DONE
+oa16nb-q4_k_m.gguf	GSM8K 82.0% (82/100)	122s
+llama3b-Q8_0.gguf	GSM8K 82.0% (82/100)	176s
+oa16nb-iq2_xs.gguf	GSM8K 2.0% (2/100)	991s

@@ -60,6 +60,8 @@
 #include "kurn-tbm.h"
 #include "ggml-kurn-mem.h"
 #include "kurn-xs.h"
+#include "kurn-r8.h"
+#include "gguf.h"
 
 #include <immintrin.h>
 #include <x86intrin.h>
@@ -185,12 +187,15 @@ bool tbm_source(const ggml_tensor * w) {
 
 // Shapes the kernels handle: 2D or 3D (expert-stacked) contiguous weights, K within the
 // generated kernels' limits, minus the per-tensor fallback.
+struct oa_data;
+std::shared_ptr<const oa_data> oa_for(const ggml_tensor * w);
+
 const kurn_kernel * kernel_for(const ggml_tensor * w) {
     const kurn_kernel * k = find_kernel(w->type == GGML_TYPE_TQ1_0 && tbm_source(w) ? GGML_TYPE_TQ2_0 : w->type);
     if (!k || w->ne[3] != 1 || w->ne[0] % k->k_multiple != 0 || w->ne[0] > KURN_MAX_K || w->ne[1] < 1) {
         return nullptr;
     }
-    if (keep_with_ggml(w)) {
+    if (keep_with_ggml(w) && !oa_for(w)) {  // an outlier-aware weight needs the KURN epilogue
         if (verbose()) {
             GGML_LOG_INFO("kurn: %s [%lld x %lld] %s stays with ggml (per-tensor fallback)\n", w->name, (long long) w->ne[0],
                           (long long) w->ne[1], ggml_type_name(w->type));
@@ -198,6 +203,217 @@ const kurn_kernel * kernel_for(const ggml_tensor * w) {
         return nullptr;
     }
     return k;
+}
+
+// R8's AMX preemption-guard base: the same threshold rule as the other AMX kernels (amx_guard_cycles)
+#if KURN_HAVE_AMX
+uint64_t amx_guard_cycles(int64_t kn);
+uint64_t r8_guard() {
+    return amx_guard_cycles(0);
+}
+#else
+uint64_t r8_guard() {
+    return 0;
+}
+#endif
+
+// ------------------------------------------------------------------------------------------
+// Outlier-aware (OA) weights. A sidecar GGUF (GGML_KURN_OA; llama.cpp sets it to MODEL.oa.gguf when that file
+// exists) carries, per weight W [K, N]: oa_idx (k salient input channels), oa_side (F16 [N][k] = W[:, idx]) and
+// oa_bias (F32 [N]). The weight tensor itself holds the rest of W with those columns zeroed, in any format. The
+// matmul zeroes x[idx] before the activations are quantized / converted for the main product and adds
+//   y[n] += (bias[n] + sum_j side[n][j] * x[idx[j]])
+// per output in a fixed order (bias, then j ascending, fp32 FMA): one row's result does not depend on the batch
+// width, the row chunking or the thread count, so exact mode stays batch invariant.
+struct oa_data {
+    int64_t k = 0, N = 0;
+    std::vector<int32_t> idx;     // ascending
+    std::vector<uint16_t> side;   // F16 [k][N] (transposed at load: 16 rows per vector)
+    std::vector<float> bias;      // [N]
+};
+
+// R8 weights (kurn-r8.h): I8 codes of W H in the model file, per-row scales and the rotation block in the sidecar
+struct r8_meta {
+    int64_t hb = 0;
+    std::vector<float> sw;  // [N]
+};
+
+struct oa_store {
+    std::unordered_map<std::string, std::shared_ptr<const oa_data>> m;
+    std::unordered_map<std::string, std::shared_ptr<const r8_meta>> r8;
+    std::string path;
+    std::atomic<int> claimed{0};
+};
+
+oa_store & oa_sidecar() {
+    static oa_store s;
+    static std::once_flag once;
+    std::call_once(once, [] {
+        const char * p = getenv("GGML_KURN_OA");
+        if (!p || !*p) {
+            return;
+        }
+        s.path = p;
+        ggml_context * ctx = nullptr;
+        gguf_init_params ip = { /*.no_alloc =*/ false, /*.ctx =*/ &ctx };
+        gguf_context * g = gguf_init_from_file(p, ip);
+        if (!g) {
+            GGML_LOG_ERROR("kurn: cannot read outlier-aware sidecar %s\n", p);
+            return;
+        }
+        std::unordered_map<std::string, ggml_tensor *> ts;
+        for (ggml_tensor * t = ggml_get_first_tensor(ctx); t; t = ggml_get_next_tensor(ctx, t)) {
+            ts[t->name] = t;
+        }
+        for (auto & [name, t] : ts) {
+            const std::string rs = ".r8_scale";
+            if (name.size() > rs.size() && name.compare(name.size() - rs.size(), rs.size(), rs) == 0) {
+                const std::string w = name.substr(0, name.size() - rs.size());
+                ggml_tensor * rot = ts.count(w + ".r8_rot") ? ts[w + ".r8_rot"] : nullptr;
+                if (t->type != GGML_TYPE_F32 || !rot || rot->type != GGML_TYPE_I32) {
+                    GGML_LOG_ERROR("kurn: R8 sidecar entry %s is malformed, ignored\n", w.c_str());
+                    continue;
+                }
+                auto d = std::make_shared<r8_meta>();
+                d->hb = ((const int32_t *) rot->data)[0];
+                d->sw.assign((const float *) t->data, (const float *) t->data + t->ne[0]);
+                s.r8[w] = d;
+                continue;
+            }
+            const std::string suf = ".oa_idx";
+            if (name.size() <= suf.size() || name.compare(name.size() - suf.size(), suf.size(), suf) != 0) {
+                continue;
+            }
+            const std::string w = name.substr(0, name.size() - suf.size());
+            ggml_tensor * ts_side = ts.count(w + ".oa_side") ? ts[w + ".oa_side"] : nullptr;
+            ggml_tensor * ts_bias = ts.count(w + ".oa_bias") ? ts[w + ".oa_bias"] : nullptr;
+            const int64_t k = t->ne[0];
+            if (t->type != GGML_TYPE_I32 || k < 1 || k > 64 || !ts_side || ts_side->type != GGML_TYPE_F16 || ts_side->ne[0] != k || !ts_bias ||
+                ts_bias->type != GGML_TYPE_F32 || ts_bias->ne[0] != ts_side->ne[1]) {
+                GGML_LOG_ERROR("kurn: OA sidecar entry %s is malformed, ignored\n", w.c_str());
+                continue;
+            }
+            auto d = std::make_shared<oa_data>();
+            d->k = k;
+            d->N = ts_side->ne[1];
+            d->idx.assign((const int32_t *) t->data, (const int32_t *) t->data + k);
+            d->bias.assign((const float *) ts_bias->data, (const float *) ts_bias->data + d->N);
+            d->side.resize((size_t) k * d->N);
+            const uint16_t * sd = (const uint16_t *) ts_side->data;
+            for (int64_t n = 0; n < d->N; n++) {
+                for (int64_t j = 0; j < k; j++) {
+                    d->side[(size_t) j * d->N + n] = sd[n * k + j];
+                }
+            }
+            s.m[w] = d;
+        }
+        gguf_free(g);
+        ggml_free(ctx);
+        GGML_LOG_INFO("kurn: sidecar %s: %zu outlier-aware weights, %zu R8 weights\n", p, s.m.size(), s.r8.size());
+    });
+    return s;
+}
+
+std::shared_ptr<const r8_meta> r8_for(const ggml_tensor * w) {
+    oa_store & s = oa_sidecar();
+    if (w->type != GGML_TYPE_I8 || s.r8.empty()) {
+        return nullptr;
+    }
+    auto it = s.r8.find(w->name);
+    if (it == s.r8.end()) {
+        return nullptr;
+    }
+    const r8_meta & d = *it->second;
+    const int64_t K = w->ne[0], N = w->ne[1];
+    const bool ok = w->ne[2] == 1 && w->ne[3] == 1 && K % 64 == 0 && N % 32 == 0 && (int64_t) d.sw.size() == N &&
+                    d.hb >= 16 && d.hb <= K && (d.hb & (d.hb - 1)) == 0 && K % d.hb == 0 && ggml_is_contiguous(w);
+    if (!ok) {
+        GGML_LOG_ERROR("kurn: R8 sidecar entry for %s does not match the weight, ignored\n", w->name);
+        return nullptr;
+    }
+    return it->second;
+}
+
+std::shared_ptr<const oa_data> oa_for(const ggml_tensor * w) {
+    oa_store & s = oa_sidecar();
+    if (s.m.empty()) {
+        return nullptr;
+    }
+    auto it = s.m.find(w->name);
+    if (it == s.m.end()) {
+        return nullptr;
+    }
+    const oa_data & d = *it->second;
+    bool ok = w->ne[2] == 1 && w->ne[3] == 1 && d.N == w->ne[1];
+    for (int64_t j = 0; ok && j < d.k; j++) {
+        ok = d.idx[j] >= 0 && d.idx[j] < w->ne[0] && (j == 0 || d.idx[j] > d.idx[j - 1]);
+    }
+    if (!ok) {
+        GGML_LOG_ERROR("kurn: OA sidecar entry for %s does not match the weight, ignored\n", w->name);
+        return nullptr;
+    }
+    return it->second;
+}
+
+// Y[m * ld + n] += bias[n] + sum_j side[j][n] * xg[m * k + j], n in [r0, r1), m < M
+void oa_apply(const oa_data & o, const float * xg, float * Y, int64_t ld, int64_t M, int64_t r0, int64_t r1) {
+    const int64_t k = o.k, N = o.N;
+    const uint16_t * S = o.side.data();
+    const float * bias = o.bias.data();
+    // the chunk's side columns as f32, row-block major (sv[(nb * k + j) * 16 + i]), converted once for all M columns;
+    // then one pass per column over contiguous Y
+    const int64_t nblk = (r1 - r0 + 15) / 16;
+    static thread_local std::vector<float> svb;
+    if (svb.size() < (size_t) (nblk * k * 16)) {
+        svb.resize((size_t) (nblk * k * 16) + 64);
+    }
+    float * sv = svb.data();
+    for (int64_t nb = 0; nb < nblk; nb++) {
+        const int64_t n = r0 + nb * 16;
+        const __mmask16 mk = r1 - n >= 16 ? (__mmask16) 0xFFFF : (__mmask16) ((1u << (r1 - n)) - 1);
+        for (int64_t j = 0; j < k; j++) {
+            _mm512_storeu_ps(sv + (nb * k + j) * 16, _mm512_cvtph_ps(_mm256_maskz_loadu_epi16(mk, S + j * N + n)));
+        }
+    }
+    for (int64_t m = 0; m < M; m++) {
+        const float * x = xg + m * k;
+        float * y = Y + m * ld;
+        for (int64_t nb = 0; nb < nblk; nb++) {
+            const int64_t n = r0 + nb * 16;
+            const __mmask16 mk = r1 - n >= 16 ? (__mmask16) 0xFFFF : (__mmask16) ((1u << (r1 - n)) - 1);
+            const float * w = sv + nb * k * 16;
+            __m512 a = _mm512_maskz_loadu_ps(mk, bias + n);
+            for (int64_t j = 0; j < k; j++) {
+                a = _mm512_fmadd_ps(_mm512_loadu_ps(w + j * 16), _mm512_set1_ps(x[j]), a);
+            }
+            _mm512_mask_storeu_ps(y + n, mk, _mm512_add_ps(_mm512_maskz_loadu_ps(mk, y + n), a));
+        }
+    }
+}
+
+// A sidecar weight that is not in the KURN buffer would run without its salient columns: refuse to compute.
+void oa_check_claimed() {
+    static std::once_flag once;
+    std::call_once(once, [] {
+        oa_store & s = oa_sidecar();
+        const int miss = (int) (s.m.size() + s.r8.size()) - s.claimed.load();
+        if (miss > 0 && env_int("GGML_KURN_OA_PARTIAL", 0) == 0) {
+            GGML_ABORT("kurn: %d outlier-aware weights of %s are not on the KURN buffer (format without a KURN path, "
+                       "GGML_KURN_NATIVE=0, or a GPU offload); their salient columns would be missing", miss, s.path.c_str());
+        }
+    });
+}
+
+// Formats taken in ggml's own layout only as the main part of an OA weight (any type with a 256-value block):
+// decode through ggml's vec_dot, prefill through AMX-BF16 with ggml's dequantize_row.
+bool native_generic(const ggml_tensor * w) {
+    switch (w->type) {
+        case GGML_TYPE_Q2_K: case GGML_TYPE_Q3_K: case GGML_TYPE_IQ2_XXS: case GGML_TYPE_IQ2_XS: case GGML_TYPE_IQ2_S:
+        case GGML_TYPE_IQ3_XXS: case GGML_TYPE_IQ3_S: case GGML_TYPE_IQ4_XS:
+            return oa_for(w) != nullptr;
+        default:
+            return false;
+    }
 }
 
 // Formats kurn has no repacked kernels for but takes in ggml's own block layout where AMX-BF16 runs:
@@ -208,13 +424,14 @@ const kurn_kernel * kernel_for(const ggml_tensor * w) {
 bool native_for(const ggml_tensor * w) {
 #if defined(__AMX_INT8__) && defined(__AMX_BF16__) && defined(__AVX512BF16__) && defined(__linux__)
     static const bool on = env_int("GGML_KURN_NATIVE", 1) != 0;
+    const bool generic = native_generic(w);
     const bool bf16 = amx_ok && amx_mm_enabled() && !exact_matmuls();
-    const bool exact = exact_matmuls() && kurn_native_vfy_supported(w->type);
+    const bool exact = exact_matmuls() && (kurn_native_vfy_supported(w->type) || generic);
     if (!on || !(bf16 || exact) || w->ne[2] != 1 || w->ne[3] != 1 || w->ne[0] % 256 != 0 || w->ne[1] % 16 != 0 ||
         !ggml_is_contiguous(w)) {
         return false;
     }
-    if (w->type != GGML_TYPE_Q6_K && w->type != GGML_TYPE_Q5_K) {
+    if (w->type != GGML_TYPE_Q6_K && w->type != GGML_TYPE_Q5_K && !generic) {
         return false;
     }
     static const char * list = getenv("GGML_KURN_TYPES");
@@ -916,6 +1133,34 @@ void pack_bf16_native(const uint8_t * buf, int64_t K, int64_t n0, int64_t nrows,
     }
 }
 
+// Any other 256-value block format, through ggml's own dequantize_row (taken only for outlier-aware weights, whose
+// main part can be any ggml type; see oa_data)
+template <ggml_type T>
+void deq_block_generic(const uint8_t * p, uint16_t * o) {
+    static const ggml_to_float_t f = ggml_get_type_traits(T)->to_float;
+    alignas(64) float y[256];
+    f(p, y, 256);
+    for (int i = 0; i < 256; i += 32) {
+        store_bf16x32(o + i, _mm512_load_ps(y + i), _mm512_load_ps(y + i + 16));
+    }
+}
+
+bf16_pack_fn native_pack(ggml_type t) {
+    switch (t) {
+        case GGML_TYPE_Q6_K: return pack_bf16_native<deq_block_q6_K, sizeof(block_q6_K_n)>;
+        case GGML_TYPE_Q5_K: return pack_bf16_native<deq_block_q5_K, sizeof(block_q5_K_n)>;
+        case GGML_TYPE_Q2_K: return pack_bf16_native<deq_block_generic<GGML_TYPE_Q2_K>, 84>;
+        case GGML_TYPE_Q3_K: return pack_bf16_native<deq_block_generic<GGML_TYPE_Q3_K>, 110>;
+        case GGML_TYPE_IQ2_XXS: return pack_bf16_native<deq_block_generic<GGML_TYPE_IQ2_XXS>, 66>;
+        case GGML_TYPE_IQ2_XS: return pack_bf16_native<deq_block_generic<GGML_TYPE_IQ2_XS>, 74>;
+        case GGML_TYPE_IQ2_S: return pack_bf16_native<deq_block_generic<GGML_TYPE_IQ2_S>, 82>;
+        case GGML_TYPE_IQ3_XXS: return pack_bf16_native<deq_block_generic<GGML_TYPE_IQ3_XXS>, 98>;
+        case GGML_TYPE_IQ3_S: return pack_bf16_native<deq_block_generic<GGML_TYPE_IQ3_S>, 110>;
+        case GGML_TYPE_IQ4_XS: return pack_bf16_native<deq_block_generic<GGML_TYPE_IQ4_XS>, 136>;
+        default: return nullptr;
+    }
+}
+
 // Y[m*N + n] for n in [r0, r1), m < M. A: bf16 activations, row m at A + m * K, rows padded with zeros to a
 // multiple of 32. r0 and r1 multiples of `align` (the format's record rows), or r1 == N; K a multiple of kalign
 // (the format's record values). Blocking: panels of GGML_KURN_BF16_ROWS weight rows x GGML_KURN_BF16_KC values
@@ -1075,6 +1320,43 @@ struct tensor_traits : ggml::cpu::tensor_traits {
 #if KURN_XS
     kxs::tensor * xs = nullptr;         // experts streamed from SSD (kurn-xs.cpp): no views / data here
 #endif
+    std::shared_ptr<const oa_data> oa;  // outlier-aware side channel (oa_data), or null
+    std::shared_ptr<const r8_meta> r8;  // R8 weight (kurn-r8.h), or null
+    std::vector<int32_t> r8_rowsum;     // per row: sum of the int8 codes (VNNI u8 activation bias)
+
+    // OA: column m's x[idx] (original values) at xg[m * k], in the work buffer below the steal slots; each thread fills
+    // the rows it converts (oa_take), before the barrier that follows the activation prep
+    size_t oa_bytes(int64_t M) const {
+        return oa ? (size_t) M * (size_t) oa->k * sizeof(float) + 128 : 0;
+    }
+
+    float * oa_xg(const ggml_compute_params * p, int64_t M) const {
+        if (!oa) {
+            return nullptr;
+        }
+        const uintptr_t end = (uintptr_t) p->wdata + p->wsize - 64 * ((size_t) p->nth + STEAL_RESERVE_SLOTS);
+        return (float *) ((end - oa_bytes(M) + 63) & ~(uintptr_t) 63);
+    }
+
+    void oa_take(float * xg, int64_t c, const float * src) const {
+        if (xg) {
+            for (int64_t j = 0; j < oa->k; j++) {
+                xg[c * oa->k + j] = src[oa->idx[j]];
+            }
+        }
+    }
+
+    // the k salient channels of activation row src are read as zero by the main product
+    const float * oa_zeroed(const float * src, int64_t K, std::vector<float> & buf) const {
+        if (!oa) {
+            return src;
+        }
+        buf.assign(src, src + K);
+        for (int64_t j = 0; j < oa->k; j++) {
+            buf[oa->idx[j]] = 0.0f;
+        }
+        return buf.data();
+    }
 
     bool use_bf16(int64_t M) const {
 #if KURN_HAVE_AMX
@@ -1237,6 +1519,12 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         const ggml_tensor * src0 = op->src[0];
         const ggml_tensor * src1 = op->src[1];
         const int64_t K = src0->ne[0];
+        if (r8) {
+            const size_t Mp = (size_t) (ggml_nrows(src1) + 31) / 32 * 32;
+            size = 2 * (Mp * (size_t) K + 64) + Mp * sizeof(float) + 64 + 64 * ((size_t) n_threads + STEAL_RESERVE_SLOTS) +
+                   oa_bytes(ggml_nrows(src1));
+            return true;
+        }
         const size_t xrow = ggml_row_size(k ? (ggml_type) k->vec_dot_type : ggml_get_type_traits_cpu(ntype)->vec_dot_type, K);
         if (op->op == GGML_OP_MUL_MAT) {
             size = xrow * (size_t) ggml_nrows(src1) + 64;
@@ -1247,6 +1535,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
                 size = std::max(size, (size_t) ((ggml_nrows(src1) + 31) / 32 * 32) * (size_t) K * 2 + 64);
             }
             size += 64 * ((size_t) n_threads + STEAL_RESERVE_SLOTS);  // steal_sched slots, at the end of the work buffer
+            size += oa_bytes(ggml_nrows(src1));                       // OA gathered channels, just below them
             return true;
         }
         const ggml_tensor * ids = op->src[2];
@@ -1262,7 +1551,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
     // row is shared by all threads instead of quantized by thread 0 alone), and, when xw is
     // given, build the shared activation prep of the same blocks.
     void quantize_rows(const ggml_compute_params * p, const ggml_tensor * src1, ggml_from_float_t from_float, char * wq,
-                       size_t xrow, void * xw) const {
+                       size_t xrow, void * xw, float * xg = nullptr) const {
         const int64_t ne11 = src1->ne[1], ne12 = src1->ne[2], K = src1->ne[0];
         const int64_t n = ggml_nrows(src1);
         const ggml_type vdt = (ggml_type) k->vec_dot_type;
@@ -1278,7 +1567,12 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         for (int64_t i = i0; i < i1;) {
             const int64_t c = i / nb, b0 = i % nb, b1 = std::min(nb, b0 + (i1 - i));
             const int64_t i11 = c % ne11, i12 = (c / ne11) % ne12, i13 = c / (ne11 * ne12);
-            const float * src = (const float *) ((const char *) src1->data + i11 * src1->nb[1] + i12 * src1->nb[2] + i13 * src1->nb[3]);
+            static thread_local std::vector<float> zbuf;
+            const float * row = (const float *) ((const char *) src1->data + i11 * src1->nb[1] + i12 * src1->nb[2] + i13 * src1->nb[3]);
+            if (b0 == 0) {
+                oa_take(xg, c, row);
+            }
+            const float * src = oa_zeroed(row, K, zbuf);
             from_float(src + b0 * bs, wq + c * xrow + b0 * ts, (b1 - b0) * bs);
             if (xw) {
                 k->xprep(wq, K, n, c, c + 1, b0 * (bs / 32), b1 * (bs / 32), xw);
@@ -1300,6 +1594,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
 
     bool compute_forward(ggml_compute_params * params, ggml_tensor * op) override {
         ggml_kurn_numa_pin_thread(params->ith, params->nth);
+        oa_check_claimed();
         if (op->op == GGML_OP_MUL_MAT) {
             mul_mat(params, op);
             return true;
@@ -1323,6 +1618,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         const int64_t K = src0->ne[0], N = src0->ne[1], M = ggml_nrows(src1), Mp = (M + 31) / 32 * 32;
         const int64_t ne11 = src1->ne[1], ne12 = src1->ne[2];
         uint16_t * A = (uint16_t *) align64(params->wdata);
+        float * xg = oa_xg(params, M);
         for (int64_t c = Mp * params->ith / params->nth; c < Mp * (params->ith + 1) / params->nth; c++) {
             uint16_t * dst = A + c * K;
             if (c >= M) {
@@ -1339,6 +1635,12 @@ struct tensor_traits : ggml::cpu::tensor_traits {
             for (; k < K; k++) {
                 dst[k] = (uint16_t) ((__m128i) _mm_cvtneps_pbh(_mm_set1_ps(src[k])))[0];
             }
+            if (oa) {
+                oa_take(xg, c, src);
+                for (int64_t j = 0; j < oa->k; j++) {
+                    dst[oa->idx[j]] = 0;
+                }
+            }
         }
         rows_begin(params);
         ggml_barrier(params->threadpool);
@@ -1346,6 +1648,9 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         for_rows(params, N, balign, std::max(balign, bpass / balign * balign), 1, [&](int64_t r0, int64_t r1, int64_t) {
             if (r0 < r1) {
                 amx_bf16_gemm(data[0], bpack, balign, bkalign, A, M, (float *) op->data, K, N, r0, r1);
+                if (oa) {
+                    oa_apply(*oa, xg, (float *) op->data, N, M, r0, r1);
+                }
             }
         });
     }
@@ -1363,10 +1668,13 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         const size_t xrow = ggml_row_size(vdt, K), wrow = ggml_row_size(ntype, K);
         char * wq = align64(params->wdata);
         const int64_t ne11 = src1->ne[1], ne12 = src1->ne[2];
+        static thread_local std::vector<float> zbuf;
+        float * xg = oa_xg(params, M);
         for (int64_t c = M * params->ith / params->nth; c < M * (params->ith + 1) / params->nth; c++) {
             const int64_t i11 = c % ne11, i12 = (c / ne11) % ne12, i13 = c / (ne11 * ne12);
             const float * src = (const float *) ((const char *) src1->data + i11 * src1->nb[1] + i12 * src1->nb[2] + i13 * src1->nb[3]);
-            ggml_get_type_traits_cpu(vdt)->from_float(src, wq + c * xrow, K);
+            oa_take(xg, c, src);
+            ggml_get_type_traits_cpu(vdt)->from_float(oa_zeroed(src, K, zbuf), wq + c * xrow, K);
         }
         const bool steal = steal_enabled() && M <= KURN_VFY_MAX;
         steal_sched ss(params, rpass / ralign);
@@ -1377,13 +1685,66 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         static_assert((int) KURN_NATIVE_Q6_K == (int) GGML_TYPE_Q6_K && (int) KURN_NATIVE_Q5_K == (int) GGML_TYPE_Q5_K, "kurn-native-vfy.h type ids");
         static const bool own = env_int("GGML_KURN_NATIVE_VFY", 1) != 0;  // 0: ggml's vec_dot per row and column
         for_rows(params, N, ralign, rpass, 1, [&](int64_t r0, int64_t r1, int64_t) {
-            if (own && kurn_native_vfy(ntype, W, wrow, wq, xrow, Y, K, N, M, r0, r1)) {
+            if (!(own && kurn_native_vfy(ntype, W, wrow, wq, xrow, Y, K, N, M, r0, r1))) {
+                for (int64_t n = r0; n < r1; n++) {
+                    for (int64_t m = 0; m < M; m++) {
+                        tt->vec_dot((int) K, Y + m * N + n, 0, W + n * wrow, 0, wq + m * xrow, 0, 1);
+                    }
+                }
+            }
+            if (oa) {
+                oa_apply(*oa, xg, Y, N, M, r0, r1);
+            }
+        }, steal ? &ss : nullptr);
+    }
+
+    // R8 (kurn-r8.h): rotate + quantize each activation row once (int8 per token), then the VNNI GEMV below
+    // GGML_KURN_R8_AMX_MIN columns (default 16) and AMX-INT8 tiles from there. Both give the same int32 sums, so every
+    // width is bit-identical per column: AMX stays on in exact mode.
+    void mul_mat_r8(ggml_compute_params * params, ggml_tensor * op) {
+        const ggml_tensor * src1 = op->src[1];
+        const int64_t K = op->src[0]->ne[0], N = op->src[0]->ne[1], M = ggml_nrows(src1);
+        const int64_t ne11 = src1->ne[1], ne12 = src1->ne[2];
+        static const int64_t amx_min_r8 = env_int("GGML_KURN_R8_AMX_MIN", 16);
+#if KURN_HAVE_AMX
+        const bool use_amx_r8 = amx_ok && amx_mm_enabled() && M >= amx_min_r8;
+#else
+        const bool use_amx_r8 = false;
+#endif
+        const int64_t Mp = use_amx_r8 ? (M + 31) / 32 * 32 : M;  // AMX tiles read 32-token groups
+        int8_t * Xq = (int8_t *) align64(params->wdata);
+        uint8_t * Xu = (uint8_t *) align64(Xq + Mp * K);
+        float * sx = (float *) align64(Xu + Mp * K);
+        const int32_t * zero = oa ? oa->idx.data() : nullptr;
+        const int64_t nz = oa ? oa->k : 0;
+        float * xg = oa_xg(params, M);
+        for (int64_t c = Mp * params->ith / params->nth; c < Mp * (params->ith + 1) / params->nth; c++) {
+            if (c >= M) {
+                memset(Xq + c * K, 0, (size_t) K);
+                memset(Xu + c * K, 0x80, (size_t) K);
+                sx[c] = 0.0f;
+                continue;
+            }
+            const int64_t i11 = c % ne11, i12 = (c / ne11) % ne12, i13 = c / (ne11 * ne12);
+            const float * src = (const float *) ((const char *) src1->data + i11 * src1->nb[1] + i12 * src1->nb[2] + i13 * src1->nb[3]);
+            kurn_r8_prep_row(src, K, r8->hb, zero, nz, Xq + c * K, Xu + c * K, sx + c);
+            oa_take(xg, c, src);
+        }
+        const bool steal = steal_enabled() && M <= KURN_VFY_MAX;
+        steal_sched ss(params, 2);  // units of 32 rows (two R8 row groups), two per pass
+        rows_begin(params, steal ? &ss : nullptr, N, 32);
+        ggml_barrier(params->threadpool);
+        float * Y = (float *) op->data;
+        const uint8_t * W = data[0];
+        for_rows(params, N, 32, 64, 1, [&](int64_t r0, int64_t r1, int64_t) {
+            if (r0 >= r1) {
                 return;
             }
-            for (int64_t n = r0; n < r1; n++) {
-                for (int64_t m = 0; m < M; m++) {
-                    tt->vec_dot((int) K, Y + m * N + n, 0, W + n * wrow, 0, wq + m * xrow, 0, 1);
-                }
+            if (!(use_amx_r8 && kurn_r8_amx(W, r8->sw.data(), Xq, sx, Y, K, N, M, r0, r1, r8_guard()))) {
+                kurn_r8_gemv(W, r8_rowsum.data(), r8->sw.data(), Xu, sx, Y, K, N, M, r0, r1);
+            }
+            if (oa) {
+                oa_apply(*oa, xg, Y, N, M, r0, r1);
             }
         }, steal ? &ss : nullptr);
     }
@@ -1392,6 +1753,10 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         const ggml_tensor * src0 = op->src[0];
         const ggml_tensor * src1 = op->src[1];
         const int64_t K = src0->ne[0], N = src0->ne[1], M = ggml_nrows(src1);
+        if (r8) {
+            mul_mat_r8(params, op);
+            return;
+        }
 #if KURN_HAVE_AMX
         if (use_bf16(M)) {
             mul_mat_bf16(params, op);
@@ -1411,7 +1776,8 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         void * xw = k->xprep && use_xprep && !tbm ? align64((char *) dx + amx_bytes(M, K)) : nullptr;
         const bool prof = g_prof.on && M <= KURN_VFY_MAX && params->ith < kurn_profile::MAXT;
         const uint64_t t0 = prof ? __rdtsc() : 0;
-        quantize_rows(params, src1, ggml_get_type_traits_cpu(vdt)->from_float, wq, xrow, xw);
+        float * xg = oa_xg(params, M);
+        quantize_rows(params, src1, ggml_get_type_traits_cpu(vdt)->from_float, wq, xrow, xw, xg);
         const xprep_ref xr = { xw, M, 0 };
         const bool steal = steal_enabled() && M <= KURN_VFY_MAX;
         steal_sched ss(params, k->row_pass / k->row_align);
@@ -1423,8 +1789,12 @@ struct tensor_traits : ggml::cpu::tensor_traits {
             prep(params, wq, xrow, M, K, dx, nc);
             ggml_barrier(params->threadpool);
         }
+        float * Y = (float *) op->data;
         for_rows(params, N, k->row_align, k->row_pass, 1, [&](int64_t r0, int64_t r1, int64_t) {
-            run(0, wq, xrow, (float *) op->data, K, N, M, r0, r1, xr, dx, nc);
+            run(0, wq, xrow, Y, K, N, M, r0, r1, xr, dx, nc);
+            if (oa && r0 < r1) {
+                oa_apply(*oa, xg, Y, N, M, r0, r1);
+            }
         }, steal ? &ss : nullptr);
         if (prof) {
             const uint64_t t3 = __rdtsc();
@@ -1591,7 +1961,7 @@ bool fuse_groups_enabled() {
     return v;
 }
 
-enum kurn_path { KP_K, KP_BF16, KP_NATIVE };
+enum kurn_path { KP_K, KP_BF16, KP_NATIVE, KP_R8 };
 
 // traits of a MUL_MAT that the KURN buffer would compute (mirrors supports_op), else nullptr
 tensor_traits * kurn_traits_of(const ggml_tensor * op) {
@@ -1611,6 +1981,9 @@ tensor_traits * kurn_traits_of(const ggml_tensor * op) {
 }
 
 kurn_path path_of(const tensor_traits * t, int64_t M) {
+    if (t->r8) {
+        return KP_R8;
+    }
     if (t->use_bf16(M)) {
         return KP_BF16;
     }
@@ -1623,6 +1996,10 @@ bool group_compatible(const tensor_traits * a, const tensor_traits * b, int64_t 
     if (path_of(b, M) != p) {
         return false;
     }
+    // one activation prep for the group: the same salient channels, or none
+    if (!a->oa != !b->oa || (a->oa && a->oa->idx != b->oa->idx)) {
+        return false;
+    }
     switch (p) {
         case KP_K: return a->k == b->k;
 #if KURN_HAVE_AMX
@@ -1631,6 +2008,7 @@ bool group_compatible(const tensor_traits * a, const tensor_traits * b, int64_t 
         case KP_BF16: return false;
 #endif
         case KP_NATIVE: return a->ntype == b->ntype;
+        case KP_R8: return a->r8->hb == b->r8->hb;
     }
     return false;
 }
@@ -1667,13 +2045,43 @@ bool fused_group(ggml_compute_params * params, ggml_tensor ** ops, int G, ggml_t
 
     // activation prep, as in mul_mat / mul_mat_bf16 / mul_mat_native
     char * wq = tensor_traits::align64(params->wdata);
+    float * xg = t0.oa_xg(params, M);
     size_t xrow = 0;
     float * dx = nullptr;
     int32_t * nc = nullptr;
     void * xw = nullptr;
     const uint16_t * A = nullptr;
     int64_t align = t0.ralign, pass = t0.rpass;
-    if (path == KP_BF16) {
+    int8_t * Xq = nullptr;
+    uint8_t * Xu = nullptr;
+    float * sxq = nullptr;
+    static const int64_t amx_min_r8 = env_int("GGML_KURN_R8_AMX_MIN", 16);
+#if KURN_HAVE_AMX
+    const bool r8_amx = path == KP_R8 && amx_ok && amx_mm_enabled() && M >= amx_min_r8;
+#else
+    const bool r8_amx = false;
+#endif
+    if (path == KP_R8) {
+        const int64_t Mp = r8_amx ? (M + 31) / 32 * 32 : M;
+        Xq = (int8_t *) wq;
+        Xu = (uint8_t *) tensor_traits::align64(Xq + Mp * K);
+        sxq = (float *) tensor_traits::align64(Xu + Mp * K);
+        for (int64_t c = Mp * ith / nth; c < Mp * (ith + 1) / nth; c++) {
+            if (c >= M) {
+                memset(Xq + c * K, 0, (size_t) K);
+                memset(Xu + c * K, 0x80, (size_t) K);
+                sxq[c] = 0.0f;
+                continue;
+            }
+            const int64_t i11 = c % ne11, i12 = (c / ne11) % ne12, i13 = c / (ne11 * ne12);
+            const float * src = (const float *) ((const char *) src1->data + i11 * src1->nb[1] + i12 * src1->nb[2] + i13 * src1->nb[3]);
+            kurn_r8_prep_row(src, K, t0.r8->hb, t0.oa ? t0.oa->idx.data() : nullptr, t0.oa ? t0.oa->k : 0, Xq + c * K,
+                             Xu + c * K, sxq + c);
+            t0.oa_take(xg, c, src);
+        }
+        align = 32;
+        pass = 64;
+    } else if (path == KP_BF16) {
 #if KURN_HAVE_AMX
         const int64_t Mp = (M + 31) / 32 * 32;
         uint16_t * Aw = (uint16_t *) wq;
@@ -1693,6 +2101,12 @@ bool fused_group(ggml_compute_params * params, ggml_tensor ** ops, int G, ggml_t
             for (; k < K; k++) {
                 dst[k] = (uint16_t) ((__m128i) _mm_cvtneps_pbh(_mm_set1_ps(src[k])))[0];
             }
+            if (t0.oa) {
+                t0.oa_take(xg, c, src);
+                for (int64_t j = 0; j < t0.oa->k; j++) {
+                    dst[t0.oa->idx[j]] = 0;
+                }
+            }
         }
         A = Aw;
         static const int64_t bpass = env_int("GGML_KURN_BF16_PASS", 64);
@@ -1706,16 +2120,18 @@ bool fused_group(ggml_compute_params * params, ggml_tensor ** ops, int G, ggml_t
         nc = (int32_t *) (dx + M * (K / 32));
         static const bool use_xprep = env_int("GGML_KURN_XPREP", 1) != 0;
         xw = t0.k->xprep && use_xprep ? tensor_traits::align64((char *) dx + t0.amx_bytes(M, K)) : nullptr;
-        t0.quantize_rows(params, src1, ggml_get_type_traits_cpu(vdt)->from_float, wq, xrow, xw);
+        t0.quantize_rows(params, src1, ggml_get_type_traits_cpu(vdt)->from_float, wq, xrow, xw, xg);
         align = t0.k->row_align;
         pass = t0.k->row_pass;
     } else {
         const ggml_type vdt = ggml_get_type_traits_cpu(t0.ntype)->vec_dot_type;
         xrow = ggml_row_size(vdt, K);
+        static thread_local std::vector<float> zbuf;
         for (int64_t c = M * ith / nth; c < M * (ith + 1) / nth; c++) {
             const int64_t i11 = c % ne11, i12 = (c / ne11) % ne12, i13 = c / (ne11 * ne12);
             const float * src = (const float *) ((const char *) src1->data + i11 * src1->nb[1] + i12 * src1->nb[2] + i13 * src1->nb[3]);
-            ggml_get_type_traits_cpu(vdt)->from_float(src, wq + c * xrow, K);
+            t0.oa_take(xg, c, src);
+            ggml_get_type_traits_cpu(vdt)->from_float(t0.oa_zeroed(src, K, zbuf), wq + c * xrow, K);
         }
     }
     int64_t base[GMAX + 1];
@@ -1743,6 +2159,12 @@ bool fused_group(ggml_compute_params * params, ggml_tensor ** ops, int G, ggml_t
     auto rows = [&](int g, float * Y, int64_t ld, int64_t r0, int64_t r1) {
         const tensor_traits & t = *tt[g];
         switch (path) {
+            case KP_R8: {
+                if (!(r8_amx && kurn_r8_amx(t.data[0], t.r8->sw.data(), Xq, sxq, Y, K, ld, M, r0, r1, r8_guard()))) {
+                    kurn_r8_gemv(t.data[0], t.r8_rowsum.data(), t.r8->sw.data(), Xu, sxq, Y, K, ld, M, r0, r1);
+                }
+                break;
+            }
             case KP_BF16:
 #if KURN_HAVE_AMX
                 amx_bf16_gemm(t.data[0], t.bpack, t.balign, t.bkalign, A, M, Y, K, ld, r0, r1);
@@ -1766,6 +2188,9 @@ bool fused_group(ggml_compute_params * params, ggml_tensor ** ops, int G, ggml_t
                 }
                 break;
             }
+        }
+        if (t.oa && r0 < r1) {
+            oa_apply(*t.oa, xg, Y, ld, M, r0, r1);
         }
     };
 
@@ -1840,10 +2265,39 @@ void * buf_base(ggml_backend_buffer_t b) {
     return ggml_backend_buffer_get_base(((buffer_ctx *) b->context)->inner);
 }
 
+void oa_attach(tensor_traits & tt, const ggml_tensor * t) {
+    tt.oa = oa_for(t);
+    if (tt.oa) {
+        oa_sidecar().claimed++;
+        if (verbose()) {
+            GGML_LOG_INFO("kurn: %s outlier-aware: %lld side channels\n", t->name, (long long) tt.oa->k);
+        }
+    }
+}
+
 enum ggml_status buf_init_tensor(ggml_backend_buffer_t b, ggml_tensor * t) {
     auto * c = (buffer_ctx *) b->context;
     t->extra = nullptr;
     if (t->view_src != nullptr) {
+        return GGML_STATUS_SUCCESS;
+    }
+    if (auto r8 = r8_for(t)) {
+        auto tt = std::make_unique<tensor_traits>();
+        tt->r8 = r8;
+        tt->stride = ggml_nbytes(t);
+        tt->nrows = t->ne[1];
+        tt->ralign = 32;
+        tt->rpass = 64;
+        tt->data.push_back((uint8_t *) t->data);
+        oa_sidecar().claimed++;
+        oa_attach(*tt, t);
+        if (verbose()) {
+            GGML_LOG_INFO("kurn: %s [%lld x %lld] R8 (rotation block %lld)%s\n", t->name, (long long) t->ne[0],
+                          (long long) t->ne[1], (long long) r8->hb, tt->oa ? " + outlier-aware" : "");
+        }
+        t->extra = tt.get();
+        std::lock_guard<std::mutex> lock(c->mu);
+        c->traits.push_back(std::move(tt));
         return GGML_STATUS_SUCCESS;
     }
     const kurn_kernel * k = kernel_for(t);
@@ -1855,9 +2309,9 @@ enum ggml_status buf_init_tensor(ggml_backend_buffer_t b, ggml_tensor * t) {
             tt->stride = ggml_nbytes(t);
             tt->nrows = t->ne[1];
             tt->balign = 16;
+            oa_attach(*tt, t);
             if (!exact_matmuls()) {
-                tt->bpack = t->type == GGML_TYPE_Q6_K ? pack_bf16_native<deq_block_q6_K, sizeof(block_q6_K_n)>
-                                                      : pack_bf16_native<deq_block_q5_K, sizeof(block_q5_K_n)>;
+                tt->bpack = native_pack(t->type);
             }
             tt->data.push_back((uint8_t *) t->data);
             numa_place((uint8_t *) t->data, ggml_nbytes(t), t->ne[1], [&](int64_t r) { return (size_t) r * t->nb[1]; });
@@ -1877,6 +2331,7 @@ enum ggml_status buf_init_tensor(ggml_backend_buffer_t b, ggml_tensor * t) {
     tt->k = k;
     tt->stride = expert_bytes(k, t);
     tt->nrows = t->ne[1];
+    oa_attach(*tt, t);
     tt->ralign = k->row_align;
     tt->rpass = k->row_pass;
 #if KURN_HAVE_AMX
@@ -1979,6 +2434,12 @@ void set_ternary(tensor_traits * tt, ggml_tensor * t, const void * data) {
 
 void buf_set_tensor(ggml_backend_buffer_t, ggml_tensor * t, const void * data, size_t offset, size_t size) {
     auto * tt = (tensor_traits *) t->extra;
+    if (tt && tt->r8) {
+        GGML_ASSERT(offset == 0 && size == ggml_nbytes(t));
+        tt->r8_rowsum.resize(t->ne[1]);
+        kurn_r8_pack((const int8_t *) data, t->ne[0], t->ne[1], (uint8_t *) t->data, tt->r8_rowsum.data());
+        return;
+    }
     if (!tt || !tt->k) {
         memcpy((char *) t->data + offset, data, size);
         return;
@@ -2075,7 +2536,7 @@ class extra_buffer_type : ggml::cpu::extra_buffer_type {
         if (!src0->buffer || src0->buffer->buft != kurn_buft() || !ggml_is_contiguous(src0)) {
             return false;
         }
-        if (!kernel_for(src0) && !(op->op == GGML_OP_MUL_MAT && native_for(src0))) {
+        if (!kernel_for(src0) && !(op->op == GGML_OP_MUL_MAT && (native_for(src0) || r8_for(src0)))) {
             return false;
         }
         if (src1->type != GGML_TYPE_F32 || op->type != GGML_TYPE_F32 || !ggml_is_contiguous(op)) {
