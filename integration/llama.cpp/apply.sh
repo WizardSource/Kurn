@@ -36,7 +36,8 @@ mkdir -p "$CPU/kurn"
 cp "$HERE/ggml-kurn/kurn-buft.cpp" "$HERE/ggml-kurn/kurn-buft.h" "$HERE/ggml-kurn/kurn-attn.cpp" \
   "$HERE/ggml-kurn/kurn-attn.h" "$HERE/ggml-kurn/kurn-native-vfy.cpp" "$HERE/ggml-kurn/kurn-native-vfy.h" \
   "$HERE/ggml-kurn/kurn-amx-vfy.cpp" "$HERE/ggml-kurn/kurn-amx-vfy.h" "$HERE/ggml-kurn/kurn-tbm.cpp" "$HERE/ggml-kurn/kurn-tbm.h" \
-  "$HERE/ggml-kurn/kurn-amx-selftest.cpp" "$HERE/ggml-kurn/kurn-amx-selftest.h" "$CPU/kurn/"
+  "$HERE/ggml-kurn/kurn-amx-selftest.cpp" "$HERE/ggml-kurn/kurn-amx-selftest.h" "$HERE/ggml-kurn/kurn-xs.cpp" "$HERE/ggml-kurn/kurn-xs.h" \
+  "$CPU/kurn/"
 cp "$HERE/memsys/ggml-kurn-mem.h" "$L/ggml/include/"
 cp "$HERE/memsys/ggml-kurn-mem.c" "$L/ggml/src/"
 PYTHONPATH="$HERE/../../src${PYTHONPATH:+:$PYTHONPATH}" "$PY" "$HERE/gen_ggml_sources.py" "$CPU/kurn" \
