@@ -59,6 +59,7 @@
 #include "vec.h"
 #include "kurn-tbm.h"
 #include "ggml-kurn-mem.h"
+#include "kurn-xs.h"
 
 #include <immintrin.h>
 #include <x86intrin.h>
@@ -1070,6 +1071,9 @@ struct tensor_traits : ggml::cpu::tensor_traits {
     int64_t ralign = 16, rpass = 64;    // row granularity for row_chunks
     int64_t nrows = 1;                  // weight rows (ne[1]); Y's column stride can differ in fused ops
     bool tbm = false;                   // TQ1_0 / TQ2_0 repacked as bitmap + signs (kurn-tbm.cpp), set at set_tensor
+#if KURN_XS
+    kxs::tensor * xs = nullptr;         // experts streamed from SSD (kurn-xs.cpp): no views / data here
+#endif
 
     bool use_bf16(int64_t M) const {
 #if KURN_HAVE_AMX
@@ -1144,12 +1148,19 @@ struct tensor_traits : ggml::cpu::tensor_traits {
     // dx / nc: AMX activation prep for the same rows (only when use_amx(M)).
     void run(int e, const char * X, size_t xrow, float * Y, int64_t K, int64_t N, int64_t M, int64_t r0, int64_t r1,
              const xprep_ref & xr, const float * dx = nullptr, const int32_t * nc = nullptr) const {
-        const void * pk = views[e];
-        if (r0 >= r1) {
+        if (tbm) {
+            if (r0 < r1) {
+                run_tbm(e, X, xrow, Y, K, N, M, r0, r1);
+            }
             return;
         }
-        if (tbm) {
-            run_tbm(e, X, xrow, Y, K, N, M, r0, r1);
+        run_pk(views[e], data[e], X, xrow, Y, K, N, M, r0, r1, xr, dx, nc);
+    }
+
+    // the same with expert e's packed view and data given explicitly
+    void run_pk(const void * pk, const uint8_t * w, const char * X, size_t xrow, float * Y, int64_t K, int64_t N, int64_t M,
+                int64_t r0, int64_t r1, const xprep_ref & xr, const float * dx = nullptr, const int32_t * nc = nullptr) const {
+        if (r0 >= r1) {
             return;
         }
         if (M <= KURN_VFY_MAX) {
@@ -1159,13 +1170,13 @@ struct tensor_traits : ggml::cpu::tensor_traits {
 #if KURN_HAVE_AMX
         if (dx && use_amx_vfy(M)) {
             static const int ng = std::min(3, std::max(1, env_int("GGML_KURN_AMX_VFY_NG", 3)));
-            if (kurn_amx_vfy_q8_0(data[e], K, X, xrow, dx, nc, Y, N, M, r0, r1, ng)) {
+            if (kurn_amx_vfy_q8_0(w, K, X, xrow, dx, nc, Y, N, M, r0, r1, ng)) {
                 return;
             }
         }
         if (dx && use_amx(M)) {
             const int64_t full = M / 16 * 16;
-            amx2_q8_0(data[e], K / 32, X, xrow, dx, Y, K, N, full, r0, r1);
+            amx2_q8_0(w, K / 32, X, xrow, dx, Y, K, N, full, r0, r1);
             if (full < M) {
                 xprep_ref xt = xr;
                 xt.c0 += full;
@@ -1241,7 +1252,7 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         const size_t nsel = (size_t) ids->ne[0] * ids->ne[1];
         const size_t E = (size_t) src0->ne[2];
         size = xrow * (size_t) (src1->ne[1] * src1->ne[2]) + xrow * nsel + sizeof(float) * nsel * src0->ne[1] +
-               sizeof(int64_t) * (3 * E + 2) + sizeof(int32_t) * nsel + amx_bytes((int64_t) nsel, K) +
+               sizeof(int64_t) * (4 * E + 2) + sizeof(int32_t) * nsel + amx_bytes((int64_t) nsel, K) +
                xprep_bytes(K, (int64_t) nsel) + 8 * 64;
         return true;
     }
@@ -1447,10 +1458,16 @@ struct tensor_traits : ggml::cpu::tensor_traits {
         int64_t * off = cnt + E;
         int32_t * sel = (int32_t *) align64(off + E + 1);  // sorted by expert: t * n_ids + i
         int64_t * act = (int64_t *) align64(sel + nsel);    // experts with tokens, act[E] = count
-        float * dx = (float *) align64(act + E + 1);
+        int64_t * ord = act + E + 1;                        // streamed weights: compute order of act (hits first)
+        float * dx = (float *) align64(ord + E);
         int32_t * nc = (int32_t *) (dx + nsel * nk);
         void * xw = k->xprep && !tbm ? align64((char *) dx + amx_bytes(nsel, K)) : nullptr;
         const int ith = params->ith, nth = params->nth;
+#if KURN_XS
+        kxs::tensor * const xst = xs;
+#else
+        void * const xst = nullptr;
+#endif
 
         quantize_rows(params, src1, ggml_get_type_traits_cpu(vdt)->from_float, wq, xrow, nullptr);
         if (ith == 0) {
@@ -1472,6 +1489,11 @@ struct tensor_traits : ggml::cpu::tensor_traits {
                     act[act[E]++] = e;
                 }
             }
+#if KURN_XS
+            if (xst) {
+                kxs::op_begin(xst, act, act[E], ids->ne[1], ord);
+            }
+#endif
             rows_begin(params);
             std::vector<int64_t> pos(off, off + E);
             for (int64_t t = 0; t < ids->ne[1]; t++) {
@@ -1495,17 +1517,46 @@ struct tensor_traits : ggml::cpu::tensor_traits {
             prep(params, gx, xrow, nsel, K, dx, nc);
             ggml_barrier(params->threadpool);
         }
-        for_rows(params, N, k->row_align, k->row_pass, act[E], [&](int64_t r0, int64_t r1, int64_t item) {
-            const int64_t e = act[item];
+        auto item_rows = [&](int64_t r0, int64_t r1, int64_t item) {
+            const int64_t e = xst ? ord[item] : act[item];
             float * Y = tmp + off[e] * N;
             if (cnt[e] == 1) {  // write straight into dst
                 const int64_t t = sel[off[e]] / n_ids, i = sel[off[e]] % n_ids;
                 Y = (float *) ((char *) op->data + i * op->nb[1] + t * op->nb[2]);
             }
             const xprep_ref xr = { xw, nsel, off[e] };
+#if KURN_XS
+            if (xst) {
+                const void * pk;
+                const uint8_t * w;
+                kxs::wait(xst, item, &pk, &w);
+                run_pk(pk, w, gx + off[e] * xrow, xrow, Y, K, N, cnt[e], r0, r1, xr, dx + off[e] * nk, nc + off[e] * nk);
+                return;
+            }
+#endif
             run((int) e, gx + off[e] * xrow, xrow, Y, K, N, cnt[e], r0, r1, xr, dx + off[e] * nk, nc + off[e] * nk);
-        });
+        };
+#if KURN_XS
+        if (xst) {
+            // streamed experts: work items strictly in compute order on ggml's counter (a pending miss only gets a
+            // slab when an earlier expert finishes; the NUMA split would interleave the items)
+            const row_chunks rc(N, k->row_align, k->row_pass, nth);
+            const int64_t nchunk = rc.n * act[E];
+            for (int64_t c = ith; c < nchunk; c = nchunk > nth ? ggml_threadpool_chunk_add(params->threadpool, 1) : nchunk) {
+                int64_t r0, r1;
+                rc.range(N, c % rc.n, r0, r1);
+                item_rows(r0, r1, c / rc.n);
+                kxs::item_done(xst, c / rc.n, rc.n);
+            }
+        } else
+#endif
+        for_rows(params, N, k->row_align, k->row_pass, act[E], item_rows);
         ggml_barrier(params->threadpool);
+#if KURN_XS
+        if (xst && ith == 0) {
+            kxs::op_end(xst);
+        }
+#endif
         for (int64_t j = ith; j < nsel; j += nth) {
             const int64_t t = sel[j] / n_ids, i = sel[j] % n_ids;
             const int64_t e = std::upper_bound(off, off + E + 1, j) - off - 1;
@@ -1846,6 +1897,16 @@ enum ggml_status buf_init_tensor(ggml_backend_buffer_t b, ggml_tensor * t) {
                       tt->bpack ? "AMX-BF16" : tt->amx ? "AMX-INT8" : "verify kernels");
     }
 #endif
+#if KURN_XS
+    if (kxs::tensor * xt = kxs::find(t->name)) {
+        kxs::attach(xt, k->config, tt->stride, t->ne[0], t->ne[1], t->ne[2], k->view, k->pack);
+        tt->xs = xt;
+        t->extra = tt.get();
+        std::lock_guard<std::mutex> lock(c->mu);
+        c->traits.push_back(std::move(tt));
+        return GGML_STATUS_SUCCESS;
+    }
+#endif
     for (int64_t e = 0; e < t->ne[2]; e++) {
         uint8_t * p = (uint8_t *) t->data + e * tt->stride;
         tt->data.push_back(p);
@@ -1921,6 +1982,11 @@ void buf_set_tensor(ggml_backend_buffer_t, ggml_tensor * t, const void * data, s
         memcpy((char *) t->data + offset, data, size);
         return;
     }
+#if KURN_XS
+    if (tt->xs) {
+        return;  // streamed from the expert file
+    }
+#endif
     GGML_ASSERT(offset == 0 && size == ggml_nbytes(t));
     if (tbm_source(t)) {
         set_ternary(tt, t, data);
@@ -1985,6 +2051,14 @@ size_t buft_alignment(ggml_backend_buffer_type_t) {
 
 size_t buft_alloc_size(ggml_backend_buffer_type_t, const ggml_tensor * t) {
     const kurn_kernel * k = kernel_for(t);
+#if KURN_XS
+    if (t->view_src == nullptr && kxs::find(t->name)) {
+        if (!k) {
+            GGML_ABORT("kxs: %s is in the expert file but kurn has no kernel for it in this build", t->name);
+        }
+        return 64;  // placeholder: the experts live in kurn-xs.cpp's slabs
+    }
+#endif
     return k ? expert_bytes(k, t) * (size_t) t->ne[2] : ggml_nbytes(t);
 }
 
@@ -2061,6 +2135,32 @@ int ggml_kurn_cap_threads(int n_threads) {
     return n_threads;
 }
 
+bool ggml_kurn_xs_layout(int type, int64_t K, int64_t N, size_t * bytes, const char ** config) {
+    ggml_tensor w = {};
+    w.type = (ggml_type) type;
+    w.ne[0] = K;
+    w.ne[1] = N;
+    w.ne[2] = 2;  // expert-stacked: the per-tensor fallback to ggml never applies
+    w.ne[3] = 1;
+    const kurn_kernel * k = kernel_for(&w);
+    if (!k) {
+        return false;
+    }
+    *bytes = expert_bytes(k, &w);
+    *config = k->config;
+    return true;
+}
+
+bool ggml_kurn_xs_pack(int type, int64_t K, int64_t N, const void * src, void * dst) {
+    size_t bytes;
+    const char * config;
+    if (!ggml_kurn_xs_layout(type, K, N, &bytes, &config)) {
+        return false;
+    }
+    find_kernel((ggml_type) type)->pack(src, K, N, dst);
+    return true;
+}
+
 ggml_backend_buffer_type_t ggml_backend_cpu_kurn_buffer_type(void) {
     static const bool enabled = [] {
         if (env_int("GGML_KURN", 1) == 0) {
@@ -2089,6 +2189,14 @@ int ggml_kurn_cap_threads(int n_threads) {
 }
 
 bool ggml_kurn_fused_mul_mat(const struct ggml_compute_params *, struct ggml_tensor **, int, struct ggml_tensor *) {
+    return false;
+}
+
+bool ggml_kurn_xs_layout(int, int64_t, int64_t, size_t *, const char **) {
+    return false;
+}
+
+bool ggml_kurn_xs_pack(int, int64_t, int64_t, const void *, void *) {
     return false;
 }
 
