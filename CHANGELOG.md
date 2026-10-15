@@ -14,6 +14,11 @@ All notable changes to this project are documented here. The format follows
 - Hypercomplex layers (`kurn-hc.cpp`) use AMX-BF16 only where the KURN buffer type does: they follow
   `GGML_KURN_AMX=0` and the self-test's `kurn_amx_check()` (weak, so `kurn-hc.o` still links alone). Before, with AMX
   off for kurn, compact != expanded at 32 and 64 columns.
+- `GGML_KURN_AMX=0` means no AMX anywhere: ggml's own (unguarded) AMX buffer is left out of the extra buffer list
+  (`ggml_kurn_ggml_amx_allowed`, hooked in by `apply.sh`), so small weights such as Qwen3-MoE's [2048 x 512]
+  `attn_k` / `attn_v` stay on kurn's non-AMX kernels. The same holds when the self-test turns AMX off.
+  SmolLM2-135M Q8_0: 7.51 MiB went to the AMX buffer with `GGML_KURN_AMX=0` before, none now.
+  `test_kurn_buft bufts` lists the extra buffer types.
 
 ## Unreleased: expert streaming (KXS)
 

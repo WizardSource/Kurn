@@ -293,7 +293,7 @@ KURN_KV=k4c_q4 python chat_engine.py "Name three primary colors."     # k4c KV: 
 | Variable | Effect |
 |---|---|
 | `GGML_KURN=0` | stock ggml everywhere (KURN buffer and kurn attention off) |
-| `GGML_KURN_AMX=0` | no AMX anywhere: verify-kernel prefill, f32 attention engine. Use it on VMs whose AMX state you do not trust. Every AMX step is timed and recomputed after a preemption-length gap, but `integration/llama.cpp/tools/amx_check.sh` is the test for a host |
+| `GGML_KURN_AMX=0` | no AMX anywhere: verify-kernel prefill, f32 attention engine, no ggml AMX buffer, no AMX in the hypercomplex layers. Use it on VMs whose AMX state you do not trust. Every AMX step is timed and recomputed after a preemption-length gap, but `integration/llama.cpp/tools/amx_check.sh` is the test for a host |
 | `GGML_KURN_EXACT=1` | batch-invariant matmuls (Q8_0 prefill on the guarded AMX-INT8 kernel, other formats on the verify kernels, Q6_K/Q5_K on the native kernels); implied by `GGML_KURN_FA_MODE=exact` |
 | `GGML_KURN_FA_MODE=exact` | batch-invariant attention as well: speculative and cached outputs equal plain decoding bit for bit; slower long-context decode |
 | `GGML_KURN_FA=0` | ggml's flash attention only |
